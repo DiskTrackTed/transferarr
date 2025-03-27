@@ -4,8 +4,7 @@ import shlex
 import logging
 from base64 import b64encode
 from pathlib import Path
-from torrent import Torrent, TorrentState
-from ftp import ftp_upload
+from transferarr.torrent import TorrentState
 
 logger = logging.getLogger(__name__)
 
@@ -107,7 +106,8 @@ def do_copy_files(local_client, sb_client, torrents):
             with open(str(dot_torrent_file_path), 'rb') as f:
                 data = f.read()
                 file_dump = b64encode(data)
-            transfer_file_scp_cli(dot_torrent_file_path, 'sb-2', sb_client.dot_torrent_tmp_dir)
+            # transfer_file_scp_cli(dot_torrent_file_path, 'sb-2', sb_client.dot_torrent_tmp_dir)
+            sb_client.transfer_client.upload(dot_torrent_file_path, sb_client.dot_torrent_tmp_dir)
             dest_dot_torrent_path = sb_client.dot_torrent_tmp_dir + f"{id}.torrent"
             paths_to_copy = get_paths_to_copy(torrent)
             for path in paths_to_copy:
@@ -115,7 +115,7 @@ def do_copy_files(local_client, sb_client, torrents):
                 ftp_destination = sb_client.torrent_download_path
                 logger.debug(f"Copying: {source_file_path} to sb-2:{ftp_destination}")
 
-                success = ftp_upload(source_file_path, ftp_destination, 'sb-2')
+                success = sb_client.transfer_client.upload(source_file_path, ftp_destination)
                 if success == True:
                     torrent.state = TorrentState.COPIED
                 else:
@@ -131,13 +131,14 @@ def do_copy_files(local_client, sb_client, torrents):
                     torrent.state = TorrentState.ERROR
 
 
-def do_torrent_cleanup(local_client, sb_client, torrents):
+def do_torrent_cleanup(local_client, sb_client, torrents, save_torrents_state):
     for torrent in torrents:
         if(torrent.state == TorrentState.SB_SEEDING):
             logger.info(f"Removing local torrent: {torrent.name}")
             try:
                 local_client.client.core.remove_torrent(torrent.id, True)
                 torrents.remove(torrent)
+                save_torrents_state()
             except Exception as e:
                 logger.error(f"Error removing torrent: {e}")
                 torrent.state = TorrentState.ERROR

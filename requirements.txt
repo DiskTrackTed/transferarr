@@ -3,3 +3,4 @@ bencode.py
 tqdm
 paramiko
 pysftp
+python-abc
