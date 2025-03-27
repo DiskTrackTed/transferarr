@@ -1,0 +1,34 @@
+import radarr
+import logging
+from radarr.rest import ApiException
+from torrent import Torrent
+
+logger = logging.getLogger(__name__)
+
+def get_radarr_queue_updates(config, torrents, save_torrents_state):
+    try:
+        with radarr.ApiClient(config) as radarr_api_client:
+            api_instance = radarr.QueueApi(radarr_api_client)
+            try:
+                api_response = api_instance.get_queue()
+                radarr_queue = api_response
+                for item in radarr_queue.records:
+                    match = None
+                    for torrent in torrents:
+                        if item.title == torrent.name:
+                            match = torrent
+                            break
+                    if match is None:
+                        new_torrent = Torrent(
+                            name=item.title,
+                            radarr_info=item,
+                            save_callback=save_torrents_state
+                        )
+                        torrents.append(new_torrent)
+                        logger.info(f"New torrent: {item.title}")
+                    else:
+                        match.radarr_info = item
+            except Exception as e:
+                logger.error(f"Exception when calling QueueApi->get_queue: {e}")
+    except Exception as e:
+        logger.error(f"Exception when creating radarr client: {e}")
