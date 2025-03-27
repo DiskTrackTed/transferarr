@@ -1,0 +1,5 @@
+git+https://github.com/devopsarr/radarr-py.git
+bencode.py
+tqdm
+paramiko
+pysftp
