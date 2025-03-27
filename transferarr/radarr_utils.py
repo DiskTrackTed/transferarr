@@ -1,11 +1,13 @@
 import radarr
 import logging
 from radarr.rest import ApiException
-from torrent import Torrent
+from transferarr.torrent import Torrent
 
 logger = logging.getLogger(__name__)
 
 def get_radarr_queue_updates(config, torrents, save_torrents_state):
+
+    ### TODO: If connection fails, try again after a delay
     try:
         with radarr.ApiClient(config) as radarr_api_client:
             api_instance = radarr.QueueApi(radarr_api_client)
