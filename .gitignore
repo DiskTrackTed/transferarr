@@ -77,4 +77,7 @@ Thumbs.db
 
 # Application-specific
 torrents_state.json
+state.json
 config.json
+
+ssh_config

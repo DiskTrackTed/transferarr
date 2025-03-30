@@ -5,7 +5,7 @@ import json
 import radarr
 from time import sleep
 from transferarr.radarr_utils import get_radarr_queue_updates
-from transferarr.deluge import get_local_deluge_info, get_sb_deluge_info, DelugeClient
+from transferarr.deluge import  DelugeClient
 from transferarr.torrent import Torrent, TorrentState
 from transferarr.config import load_config, parse_args
 from transferarr.transfer_connection import TransferConnection
@@ -15,7 +15,8 @@ args = parse_args()
 
 # Load configuration
 try:
-    config = load_config(args.config)
+    config_file = args.config if args.config else os.getenv("CONFIG_FILE", "config.json")
+    config = load_config(config_file)
 except Exception as e:
     print(f"Error loading configuration: {e}")
     exit(1)
@@ -28,6 +29,8 @@ logger.setLevel(log_level)
 
 logging.getLogger("transferarr.utils").setLevel(log_level)
 logging.getLogger("transferarr.radarr_utils").setLevel(log_level)
+logging.getLogger("transferarr.transfer_connection").setLevel(log_level)
+logging.getLogger("transferarr.transfer_client").setLevel(log_level)
 logging.getLogger("transferarr.deluge").setLevel(log_level)
 logging.getLogger("transferarr.ftp").setLevel(log_level)
 logging.getLogger("transferarr.deluge").setLevel(log_level)
@@ -87,7 +90,7 @@ def load_torrents_state():
 def update_torrents(torrents, download_clients, connections):
     for torrent in torrents:
         ### First case is a torrent that was just added to the radarr queue, state is RADARR_QUEUE
-        if torrent.state == TorrentState.RADARR_QUEUED or torrent.state == TorrentState.UNCLAIMED:
+        if torrent.state in [TorrentState.RADARR_QUEUED, TorrentState.UNCLAIMED, TorrentState.ERROR]:
             ### We need to find the home client for this torrent
             found = False
             for _, client in download_clients.items():
