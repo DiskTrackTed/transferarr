@@ -4,3 +4,5 @@ tqdm
 paramiko
 pysftp
 python-abc
+deluge-client
+tqdm-loggable

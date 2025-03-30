@@ -1,16 +1,14 @@
-from ftplib import FTP, error_perm
 import os
 import logging
 import traceback
 from tqdm import tqdm
 from paramiko import SSHConfig
-from transferarr.transfer_client import TransferClient
 import pysftp
 
 logger = logging.getLogger(__name__)
 
-class SFTPClient(TransferClient):
-    def __init__(self, host=None, username=None, password=None, private_key=None, ssh_config_host=None, ssh_config_file='~/.ssh/config'):
+class SFTPClient():
+    def __init__(self, host=None, port=22, username=None, password=None, private_key=None, ssh_config_host=None, ssh_config_file='~/.ssh/config'):
         """
         Connect using either:
         - Direct credentials (host, username, password/key)
@@ -18,6 +16,9 @@ class SFTPClient(TransferClient):
         """
         cnopts = pysftp.CnOpts()
         cnopts.hostkeys = None
+
+        self.host = host
+        self.port = port
         
         if ssh_config_host:
             logger.debug(f"Setup SFTP using ssh config {ssh_config_file} and host: {ssh_config_host}")
@@ -26,22 +27,30 @@ class SFTPClient(TransferClient):
                 config.parse(f)
             host_config = config.lookup(ssh_config_host)
             self.host = host_config.get('hostname', ssh_config_host)
+            self.port = host_config.get('port', port)
             self.connection_args = {
                 'host': self.host,
+                'port': self.port,
                 'username': host_config.get('user', username),
                 'private_key': host_config.get('identityfile', private_key)[0],
                 'cnopts': cnopts
             }
         else:
+            logger.debug(f"Setup SFTP using direct credentials: {host}:{port} {username}")
             self.connection_args = {
                 'host': host,
+                'port': port,
                 'username': username,
                 'password': password,
-                'private_key': private_key,
                 'cnopts': cnopts
             }
         self.open_connection()
         self.connection.close()
+
+    def stat(self, path):
+        self.open_connection()
+        self.connection.stat(path)
+        self.close()
 
     def open_connection(self):
         self.connection = pysftp.Connection(**self.connection_args)

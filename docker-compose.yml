@@ -1,0 +1,14 @@
+version: "3.8"
+
+services:
+  transferarr:
+    build: .
+    container_name: transferarr
+    network_mode: container:b205b30a6284
+    volumes:
+      - ./config.json:/app/config.json
+      - ./state.json:/app/state.json
+      - /home/closet/.ssh/:/root/.ssh/:ro
+    environment:
+      - CONFIG_FILE=/app/config.json
+    restart: unless-stopped

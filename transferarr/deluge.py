@@ -1,6 +1,5 @@
 import logging
 from transferarr.utils import decode_bytes
-from transferarr.ftp import SFTPClient
 from deluge_client import DelugeRPCClient
 from transferarr.torrent import TorrentState
 
