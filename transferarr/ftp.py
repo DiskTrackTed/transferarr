@@ -32,12 +32,6 @@ class SFTPClient(TransferClient):
                 'private_key': host_config.get('identityfile', private_key)[0],
                 'cnopts': cnopts
             }
-            # self.connection = pysftp.Connection(
-            #     host=self.host,
-            #     username=host_config.get('user', username),
-            #     private_key=host_config.get('identityfile', private_key)[0],
-            #     cnopts=cnopts
-            # )
         else:
             self.connection_args = {
                 'host': host,
@@ -46,13 +40,6 @@ class SFTPClient(TransferClient):
                 'private_key': private_key,
                 'cnopts': cnopts
             }
-            # self.connection = pysftp.Connection(
-            #     host=host,
-            #     username=username,
-            #     password=password,
-            #     private_key=private_key,
-            #     cnopts=cnopts
-            # )
         self.open_connection()
         self.connection.close()
 

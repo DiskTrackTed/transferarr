@@ -33,10 +33,6 @@ def validate_config(config):
     :param config: The configuration dictionary.
     :return: The validated and updated configuration dictionary.
     """
-    required_fields = ["radarr_host", "radarr_api_key", "local_deluge", "sb_deluge"]
-    for field in required_fields:
-        if field not in config:
-            raise ConfigError(f"Missing required configuration field: {field}")
 
     # Set defaults for optional fields
     config.setdefault("log_level", "INFO")
