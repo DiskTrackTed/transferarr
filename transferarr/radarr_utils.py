@@ -1,7 +1,7 @@
 import radarr
 import logging
 from radarr.rest import ApiException
-from transferarr.torrent import Torrent
+from transferarr.torrent import Torrent, TorrentState
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +26,7 @@ def get_radarr_queue_updates(config, torrents, save_torrents_state):
                             radarr_info=item,
                             save_callback=save_torrents_state
                         )
+                        new_torrent.state = TorrentState.RADARR_QUEUED
                         torrents.append(new_torrent)
                         logger.info(f"New torrent: {item.title}")
                     else:

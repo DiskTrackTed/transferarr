@@ -2,31 +2,64 @@ from enum import Enum
 
 class TorrentState(Enum):
     RADARR_QUEUED = 0
-    LOCAL_DOWNLOADING = 1
-    LOCAL_PAUSED = 2
-    LOCAL_SEEDING = 3
-    COPYING = 4
-    COPIED = 5
-    SB_SEEDING = 6
-    ERROR = 7
-    MISSING = 8
+    UNCLAIMED = 1
+    HOME_QUEUED = 2
+    HOME_CHECKING = 3
+    HOME_ALLOCATING = 4
+    HOME_DOWNLOADING = 5
+    HOME_SEEDING = 6
+    HOME_PAUSED = 7
+    HOME_MOVING = 8
+    HOME_ERROR = 9
+    COPYING = 10
+    COPIED = 11
+    TARGET_QUEUED = 12
+    TARGET_CHECKING = 13
+    TARGET_ALLOCATING = 14
+    TARGET_DOWNLOADING = 15
+    TARGET_SEEDING = 16
+    TARGET_PAUSED = 17
+    TARGET_MOVING = 18
+    TARGET_ERROR = 19
+    ERROR = 20
+    MISSING = 21
 
 class Torrent:
     _state = None
     save_callback = None
 
-    def __init__(self, name=None, id=None, state=None, radarr_info=None, local_deluge_info=None, sb_deluge_info=None, dot_torrent_file_path=None, save_callback=None):
+    def __init__(self, name=None, id=None, state=None, radarr_info=None, 
+                 home_client=None, target_client=None,
+                 home_client_info=None, home_client_name=None, target_client_info=None, 
+                 target_client_name=None, save_callback=None):
         self.name = name
         self.id = id
         self.state = state
         self.radarr_info = radarr_info
-        self.local_deluge_info = local_deluge_info
-        self.sb_deluge_info = sb_deluge_info
-        self.dot_torrent_file_path = dot_torrent_file_path
+        self.home_client = home_client
+        self.home_client_name = home_client_name
+        self.home_client_info = home_client_info
+        self.target_client = target_client
+        self.target_client_name = target_client_name
+        self.target_client_info = target_client_info
         self.save_callback = save_callback
 
+    def set_home_client_info(self, home_client_info):
+        self.home_client_info = home_client_info
+
+    def set_target_client_info(self, target_client_info):
+        self.target_client_info = target_client_info
+
+    def set_home_client(self, client):
+        self.home_client = client
+        self.home_client_name = client.name
+
+    def set_target_client(self, client):
+        self.target_client = client
+        self.target_client_name = client.name
+
     def __str__(self):
-        return f"{self.name} - {self.id}"
+        return f"{self.name} - {self.id}: - {self.state.name if self.state else None}"
 
     @property
     def state(self):
@@ -45,21 +78,25 @@ class Torrent:
             "id": self.id,
             "state": self.state.name if self.state else None,
             # "radarr_info": self.radarr_info,
-            "local_deluge_info": self.local_deluge_info,
-            "sb_deluge_info": self.sb_deluge_info,
-            "dot_torrent_file_path": self.dot_torrent_file_path,
+            "home_client_name": self.home_client_name,
+            "home_client_info": self.home_client_info,
+            "target_client_info": self.target_client_info,
+            "target_client_name": self.target_client_name,
         }
 
     @classmethod
-    def from_dict(cls, data, save_callback=None):
+    def from_dict(cls, data, download_clients, save_callback=None):
         """Create a Torrent object from a dictionary."""
         return cls(
             name=data.get("name"),
             id=data.get("id"),
             state=TorrentState[data["state"]] if data.get("state") else None,
             radarr_info=data.get("radarr_info"),
-            local_deluge_info=data.get("local_deluge_info"),
-            sb_deluge_info=data.get("sb_deluge_info"),
-            dot_torrent_file_path=data.get("dot_torrent_file_path"),
+            home_client=download_clients.get(data.get("home_client_name")),
+            home_client_info=data.get("home_client_info"),
+            home_client_name=data.get("home_client_name"),
+            target_client=download_clients.get(data.get("target_client_name")),
+            target_client_info=data.get("target_client_info"),
+            target_client_name=data.get("target_client_name"),
             save_callback=save_callback,
         )
