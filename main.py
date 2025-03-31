@@ -192,19 +192,61 @@ def update_torrents(torrents, download_clients, connections):
                         logger.warning(f"Torrent {torrent.name} not found on home client {torrent.home_client.name}, removing from watchlist")
                     torrents.remove(torrent)
 
-
-
 # Load torrents state
 torrents = load_torrents_state()
 logger.info(f"Loaded {len(torrents)} torrents from state file.")
 
+
 app = Flask(__name__)
 
+# Configure web server logging
+flask_log_file = config.get("web_log_file", None)
+if flask_log_file:
+    # Create directory for log file if it doesn't exist
+    log_dir = os.path.dirname(flask_log_file)
+    if log_dir and not os.path.exists(log_dir):
+        os.makedirs(log_dir)
+    
+    # Configure Flask logging to file
+    from logging.handlers import RotatingFileHandler
+    flask_handler = RotatingFileHandler(
+        flask_log_file, 
+        maxBytes=10485760,  # 10MB
+        backupCount=5       # Keep 5 backup logs
+    )
+    flask_handler.setLevel(logging.INFO)
+    flask_handler.setFormatter(logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    ))
+    
+    # Add handler to Flask logger
+    flask_logger = logging.getLogger('werkzeug')
+    flask_logger.setLevel(logging.INFO)
+    flask_logger.addHandler(flask_handler)
+    
+    # Disable Flask's default handler (console output)
+    flask_logger.propagate = False
+    
+    app.logger.addHandler(flask_handler)
+    app.logger.setLevel(logging.INFO)
+    app.logger.propagate = False
+    
+    logger.info(f"Flask logs redirected to {flask_log_file}")
 
 @app.route("/")
-def index():
-    """Render the main page."""
-    return render_template("index.html")
+def dashboard_page():
+    """Render the dashboard page."""
+    return render_template("pages/dashboard.html")
+
+@app.route("/torrents")
+def torrents_page():
+    """Render the torrents page."""
+    return render_template("pages/torrents.html")
+
+@app.route("/settings")
+def settings_page():
+    """Render the settings page."""
+    return render_template("pages/settings.html")
 
 @app.route("/api/torrents")
 def get_torrents():

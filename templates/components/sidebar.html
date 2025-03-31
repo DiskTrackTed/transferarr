@@ -1,0 +1,20 @@
+<div class="sidebar">
+    <div class="logo-container">
+        <a href="/">
+            <h1 class="logo">Transferarr</h1>
+        </a>
+    </div>
+    <nav>
+        <ul class="tabs">
+            <li class="tab-link {% if request.path == '/' %}active{% endif %}">
+                <a href="/"><i class="fas fa-chart-line"></i> Dashboard</a>
+            </li>
+            <li class="tab-link {% if request.path == '/torrents' %}active{% endif %}">
+                <a href="/torrents"><i class="fas fa-download"></i> Torrents</a>
+            </li>
+            <li class="tab-link {% if request.path == '/settings' %}active{% endif %}">
+                <a href="/settings"><i class="fas fa-cog"></i> Settings</a>
+            </li>
+        </ul>
+    </nav>
+</div>
