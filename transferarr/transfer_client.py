@@ -48,6 +48,7 @@ class SFTPAndSFTPClient(TransferClient):
     def __init__(self, source_sftp_config, target_sftp_config):
         self.source_sftp_client = SFTPClient(**source_sftp_config)
         self.target_sftp_client = SFTPClient(**target_sftp_config)
+        self.current_progress = {}
 
     def get_dot_torrent_file_dump(self, dot_torrent_file_path):
         self.source_sftp_client.open_connection()
@@ -58,16 +59,41 @@ class SFTPAndSFTPClient(TransferClient):
             self.source_sftp_client.close()
             return b64encode(data)
 
-    def upload(self, source_path, target_path):
+    def count_files(self, source_path):
+        """Count the total number of files that need to be copied"""
+        try:
+            file_count = 0
+            
+            def count_recursively(path):
+                nonlocal file_count
+                if self.source_sftp_client.connection.isfile(path):
+                    file_count += 1
+                elif self.source_sftp_client.connection.isdir(path):
+                    for item in self.source_sftp_client.connection.listdir(path):
+                        count_recursively(os.path.join(path, item))
+            
+            count_recursively(source_path)
+            return file_count
+        except Exception as e:
+            logger.error(f"Error counting files: {e}")
+            return 0
+
+    def upload(self, source_path, target_path, torrent):
         logger.debug(f"Uploading {self.source_sftp_client.host}:{source_path} to {self.target_sftp_client.host}:{target_path}")
         try:
             self.source_sftp_client.open_connection()
             self.target_sftp_client.open_connection()
             target_path = os.path.join(target_path, os.path.basename(source_path))
+            
+            # Count total files before starting the transfer
+            total_files = self.count_files(source_path)
+            torrent.total_files = total_files
+            torrent.current_file_count = 0
+            
             if self.source_sftp_client.connection.isfile(source_path):
-                self.upload_file(source_path, target_path)
+                self.upload_file(source_path, target_path, torrent)
             else:
-                self.upload_directory(source_path, target_path)
+                self.upload_directory(source_path, target_path, torrent)
             return True
         except Exception as e:
             logger.error(f"FTP upload failed: {e}")
@@ -77,7 +103,7 @@ class SFTPAndSFTPClient(TransferClient):
             self.source_sftp_client.close()
             self.target_sftp_client.close()
     
-    def upload_directory(self, source_path, target_path):
+    def upload_directory(self, source_path, target_path, torrent):
         """
         Upload a file from local storage to SFTP server
         """
@@ -97,80 +123,44 @@ class SFTPAndSFTPClient(TransferClient):
             print(target_path_tmp)
             
             if self.source_sftp_client.connection.isfile(source_path_tmp):
-                self.upload_file(source_path_tmp, target_path_tmp)
+                self.upload_file(source_path_tmp, target_path_tmp, torrent)
             elif self.source_sftp_client.connection.isdir(source_path_tmp):
-                self.upload_directory(source_path_tmp, target_path_tmp)
+                self.upload_directory(source_path_tmp, target_path_tmp, torrent)
 
-    def upload_file(self, source_path, target_path, chunk_size=4*1024*1024):
+    def upload_file(self, source_path, target_path, torrent):
         try:
-            ### Need to copy source to local tmp, then upload to target
             logger.debug(f"Uploading {self.source_sftp_client.host}:{source_path} to {self.target_sftp_client.host}:{target_path}")
             random_id = str(uuid.uuid4())
             tmp_file_path = os.path.join("/tmp", f"transferarr-{random_id}.tmp")
             file_size = self.source_sftp_client.connection.stat(source_path).st_size
+            
+            # Set the current file name in the torrent
+            file_name = os.path.basename(source_path)
+            torrent.current_file = file_name
+            torrent.progress = 0
+            torrent.current_file_count += 1
+
+            # def download_callback(sent, total):
+            #     torrent.progress = sent / file_size * 50
+
             logger.debug(f"Downloading {source_path} to {tmp_file_path}")
-            with tqdm(total=file_size, unit='B', unit_scale=True, 
-                    desc=f"Get: {os.path.basename(source_path)}") as pbar:
-                self.source_sftp_client.connection.get(source_path, tmp_file_path,
-                                        callback=lambda sent, total: pbar.update(sent - pbar.n))
+            # self.source_sftp_client.connection.get(source_path, tmp_file_path, callback=download_callback)
+            self.source_sftp_client.connection.get(source_path, tmp_file_path)
+
+            def upload_callback(sent, total):
+                torrent.progress = sent / file_size * 100
+
             logger.debug(f"Uploading {tmp_file_path} to {target_path}")
-            with tqdm(total=file_size, unit='B', unit_scale=True, 
-                    desc=f"Put: {os.path.basename(source_path)}") as pbar:
-                self.target_sftp_client.connection.put(tmp_file_path, target_path, 
-                                callback=lambda sent, total: pbar.update(sent - pbar.n))
+            self.target_sftp_client.connection.put(tmp_file_path, target_path, callback=upload_callback)
+
             os.remove(tmp_file_path)
+            torrent.progress = 100  # Mark progress as complete
             return True
         except Exception as e:
             logger.error(f"FTP upload failed: {e}")
             traceback.print_exc()
+            torrent.progress = 0  # Reset progress on failure
             return False
-
-        # try:
-        #     logger.debug(f"Uploading {self.source_sftp_client.host}:{source_path} to {self.target_sftp_client.host}:{target_path}")
-        #     # Check if target file exists and get its size
-        #     try:
-        #         existing_size = self.target_sftp_client.connection.stat(target_path).st_size
-        #     except Exception:
-        #         existing_size = 0
-            
-        #     file_size = self.source_sftp_client.connection.stat(source_path).st_size
-            
-        #     if existing_size == file_size:
-        #         logger.info("File already fully transferred")
-        #         return True
-            
-        #     logger.info(f"Resuming transfer at {existing_size}/{file_size} bytes")
-            
-        #     with tqdm(total=file_size, unit='B', unit_scale=True, 
-        #                 unit_divisor=1024, initial=existing_size, mininterval=0.5,
-        #                 desc=f"Transferring {os.path.basename(source_path)}") as pbar:
-        #         with self.source_sftp_client.connection.open(source_path, 'rb', bufsize=chunk_size) as src_file, \
-        #             self.target_sftp_client.connection.open(target_path, 'ab' if existing_size else 'wb', bufsize=chunk_size) as dst_file:
-                    
-        #             if existing_size:
-        #                 src_file.seek(existing_size)
-                    
-        #             while True:
-        #                 start = time.time_ns()
-        #                 chunk = src_file.read(chunk_size)
-        #                 duration = (time.time_ns() - start) / 1e9
-        #                 logger.debug(f"Read {len(chunk)} bytes in {duration:.2f} seconds")
-        #                 if not chunk:
-        #                     break
-        #                 start = time.time_ns()
-        #                 dst_file.write(chunk)
-        #                 duration = (time.time_ns() - start) / 1e9
-        #                 logger.debug(f"Wrote {len(chunk)} bytes in {duration:.2f} seconds")
-        #                 # logger.debug(f"Transferred up to {src_file.tell()}/{file_size} bytes")
-        #                 pbar.update(len(chunk))
-                
-        #         logger.info("Transfer completed")
-        #         return True
-            
-        # except Exception as e:
-        #     logger.error(f"Transfer failed: {str(e)}")
-        #     traceback.print_exc()
-        #     return False
     
 
 def get_transfer_client(from_config,to_config):

@@ -43,9 +43,19 @@ class Torrent:
         self.target_client_name = target_client_name
         self.target_client_info = target_client_info
         self.save_callback = save_callback
+        self.progress = 0
+        self.current_file = ""
+        self.current_file_count = 0
+        self.total_files = 0
 
     def set_home_client_info(self, home_client_info):
         self.home_client_info = home_client_info
+
+    def set_progress_from_home_client_info(self):
+        if self.home_client_info:
+            self.progress = int(self.home_client_info.get("progress", 0))
+        else:
+            self.progress = 0
 
     def set_target_client_info(self, target_client_info):
         self.target_client_info = target_client_info
@@ -77,17 +87,20 @@ class Torrent:
             "name": self.name,
             "id": self.id,
             "state": self.state.name if self.state else None,
-            # "radarr_info": self.radarr_info,
             "home_client_name": self.home_client_name,
             "home_client_info": self.home_client_info,
             "target_client_info": self.target_client_info,
             "target_client_name": self.target_client_name,
+            "progress": self.progress,
+            "current_file": self.current_file,
+            "current_file_count": self.current_file_count,
+            "total_files": self.total_files,
         }
 
     @classmethod
     def from_dict(cls, data, download_clients, save_callback=None):
         """Create a Torrent object from a dictionary."""
-        return cls(
+        torrent = cls(
             name=data.get("name"),
             id=data.get("id"),
             state=TorrentState[data["state"]] if data.get("state") else None,
@@ -100,3 +113,8 @@ class Torrent:
             target_client_name=data.get("target_client_name"),
             save_callback=save_callback,
         )
+        torrent.progress = data.get("progress", 0)
+        torrent.current_file = data.get("current_file", "")
+        torrent.current_file_count = data.get("current_file_count", 0)
+        torrent.total_files = data.get("total_files", 0)
+        return torrent

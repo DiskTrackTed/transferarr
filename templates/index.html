@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Torrent Tracker</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #f4f4f4; }
+        .progress-container { width: 100%; }
+        .file-name { 
+            font-size: 12px; 
+            margin-bottom: 3px; 
+            color: #555; 
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .file-count {
+            font-size: 12px;
+            margin-bottom: 3px;
+            color: #333;
+            font-weight: bold;
+        }
+        .progress-bar {
+            width: 100%; 
+            background-color: #f4f4f4; 
+            height: 20px; 
+            border: 1px solid #ddd; 
+            position: relative;
+        }
+        .progress-fill {
+            display: block; 
+            height: 100%; 
+            width: 0%; 
+            background-color: #4caf50; 
+            position: absolute;
+        }
+        .progress-text {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #000;
+            font-size: 12px;
+            font-weight: bold;
+            z-index: 1;
+            text-shadow: 
+                -1px -1px 0 #fff,
+                1px -1px 0 #fff,
+                -1px 1px 0 #fff,
+                1px 1px 0 #fff;
+        }
+    </style>
+</head>
+<body>
+    <h1>Transferarr</h1>
+    <table>
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>State</th>
+                <th>Progress</th>
+                <th>Home Client</th>
+                <th>Target Client</th>
+            </tr>
+        </thead>
+        <tbody id="torrent-table-body">
+            <!-- Data will be populated here -->
+        </tbody>
+    </table>
+
+    <script>
+        async function fetchTorrents() {
+            const response = await fetch('/api/torrents');
+            const torrents = await response.json();
+            const tableBody = document.getElementById('torrent-table-body');
+            tableBody.innerHTML = '';
+            torrents.forEach(torrent => {
+                const row = document.createElement('tr');
+                
+                // Create file count display if we're copying files
+                let fileCountHtml = '';
+                if (torrent.state === 'COPYING' && torrent.total_files > 0) {
+                    fileCountHtml = `<div class="file-count">Copying file ${torrent.current_file_count} / ${torrent.total_files}</div>`;
+                }
+                
+                row.innerHTML = `
+                    <td>${torrent.name}</td>
+                    <td>${torrent.state}</td>
+                    <td>
+                        <div class="progress-container">
+                            ${fileCountHtml}
+                            <div class="file-name">${torrent.current_file || ''}</div>
+                            <div class="progress-bar">
+                                <div class="progress-text">${Math.round(torrent.progress || 0)}%</div>
+                                <span class="progress-fill" style="width: ${torrent.progress || 0}%;"></span>
+                            </div>
+                        </div>
+                    </td>
+                    <td>${torrent.home_client_name || 'N/A'}</td>
+                    <td>${torrent.target_client_name || 'N/A'}</td>
+                `;
+                tableBody.appendChild(row);
+            });
+        }
+
+        setInterval(fetchTorrents, 1000); // Refresh every second
+        fetchTorrents(); // Initial fetch
+    </script>
+</body>
+</html>

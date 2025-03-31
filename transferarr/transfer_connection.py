@@ -1,4 +1,5 @@
 import logging
+import os
 from pathlib import Path
 from transferarr.utils import get_paths_to_copy
 from transferarr.torrent import TorrentState
@@ -29,25 +30,30 @@ class TransferConnection:
         torrent.state = TorrentState.COPYING
         dot_torrent_file_path = str(Path(self.source_dot_torrent_path).joinpath(f"{torrent.id}.torrent"))
 
-
         file_dump = self.transfer_client.get_dot_torrent_file_dump(dot_torrent_file_path)
 
-        success = self.transfer_client.upload(dot_torrent_file_path, self.destination_dot_torrent_tmp_dir)
+        torrent.current_file = os.path.basename(dot_torrent_file_path)
+        success = self.transfer_client.upload(dot_torrent_file_path, self.destination_dot_torrent_tmp_dir, torrent)
         if not success:
             torrent.state = TorrentState.ERROR
             logger.error(f"Failed to copy .torrent file: {dot_torrent_file_path}")
             return
-        dest_dot_torrent_path = self.destination_dot_torrent_tmp_dir + f"{id}.torrent"
+            
+        dest_dot_torrent_path = str(Path(self.destination_dot_torrent_tmp_dir).joinpath(f"{torrent.id}.torrent"))
         paths_to_copy = get_paths_to_copy(torrent)
         for path in paths_to_copy:
             source_file_path = str(Path(self.source_torrent_download_path).joinpath(Path(path)))
             destination = self.destination_torrent_download_path
 
-            success = self.transfer_client.upload(source_file_path, destination)
+            success = self.transfer_client.upload(source_file_path, destination, torrent)
             if success:
                 torrent.state = TorrentState.COPIED
             else:
                 torrent.state = TorrentState.ERROR
+                break
+                
+        torrent.current_file = ""  # Clear current file when all transfers are complete
+                
         if torrent.state == TorrentState.COPIED:
             try:
                 self.to_client.add_torrent_file(dest_dot_torrent_path, file_dump, {})

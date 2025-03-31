@@ -6,3 +6,4 @@ pysftp
 python-abc
 deluge-client
 tqdm-loggable
+Flask

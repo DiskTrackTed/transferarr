@@ -43,7 +43,7 @@ class DelugeClient:
         return False
     
     def get_torrent_info(self, torrent):
-        current_torrents = decode_bytes(self.client.core.get_torrents_status({}, ['name', 'state','files']))
+        current_torrents = decode_bytes(self.client.core.get_torrents_status({}, ['name', 'state','files','progress']))
         for key in current_torrents:
             if current_torrents[key]['name'] == torrent.name:
                 torrent.id = key
