@@ -4,16 +4,17 @@ FROM python:3.9-slim
 WORKDIR /app
 
 # Copy application files
-COPY ./main.py /app/
+# COPY ./main.py /app/
 COPY ./requirements.txt /app/
-COPY ./transferarr /app/transferarr/
+# COPY ./transferarr /app/transferarr/
+# COPY ./templates /app/templates/
 
 # Install dependencies
 RUN apt-get update && apt-get install -y git && apt-get clean
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Expose port (if needed)
-EXPOSE 8000
+EXPOSE 10444
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1

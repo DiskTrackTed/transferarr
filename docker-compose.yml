@@ -4,11 +4,12 @@ services:
   transferarr:
     build: .
     container_name: transferarr
-    network_mode: container:b205b30a6284
+    network_mode: container:a3e4ea8d550b
     volumes:
       - ./config.json:/app/config.json
       - ./state.json:/app/state.json
       - /home/closet/.ssh/:/root/.ssh/:ro
+      - /home/closet/Documents/Coding/transferarr:/app/
     environment:
       - CONFIG_FILE=/app/config.json
     restart: unless-stopped

@@ -9,6 +9,8 @@ from transferarr.deluge import  DelugeClient
 from transferarr.torrent import Torrent, TorrentState
 from transferarr.config import load_config, parse_args
 from transferarr.transfer_connection import TransferConnection
+from flask import Flask, jsonify, render_template
+from threading import Thread
 
 # Parse command-line arguments
 args = parse_args()
@@ -122,6 +124,7 @@ def update_torrents(torrents, download_clients, connections):
             if torrent.home_client.has_torrent(torrent):
                 torrent.state = torrent.home_client.get_torrent_state(torrent)
                 torrent.set_home_client_info(torrent.home_client.get_torrent_info(torrent))
+                torrent.set_progress_from_home_client_info()
             else:
                 logger.warning(f"Torrent {torrent.name} not found on home client {torrent.home_client.name}")
                 torrents.remove(torrent)
@@ -142,15 +145,14 @@ def update_torrents(torrents, download_clients, connections):
                                 logger.debug(f"Torrent {torrent.name} not found on {torrent.target_client.name}, ready to copy")
                                 connection.do_copy_torrent(torrent)
         ### If state begins with TARGET
-        elif str(torrent.state.name).startswith("TARGET"):
+        elif str(torrent.state.name).startswith("TARGET") or torrent.state == TorrentState.COPIED:
             ### Gotta update its state first:
             if torrent.target_client.has_torrent(torrent):
                 torrent.state = torrent.target_client.get_torrent_state(torrent)
                 torrent.set_target_client_info(torrent.target_client.get_torrent_info(torrent))
             else:
                 logger.warning(f"Torrent {torrent.name} not found on target client {torrent.target_client.name}")
-                ## idk what to do here?
-                # torrents.remove(torrent)
+                torrent.state = TorrentState.UNCLAIMED
                 continue
             logger.debug(f"Torrent {torrent.name} has target client {torrent.target_client.name}, state: {torrent.state.name}")
             ### If it's seeding on the target, we can remove it from the home and list
@@ -168,6 +170,27 @@ def update_torrents(torrents, download_clients, connections):
 # Load torrents state
 torrents = load_torrents_state()
 logger.info(f"Loaded {len(torrents)} torrents from state file.")
+
+app = Flask(__name__)
+
+
+@app.route("/")
+def index():
+    """Render the main page."""
+    return render_template("index.html")
+
+@app.route("/api/torrents")
+def get_torrents():
+    """API endpoint to get the current state of torrents."""
+    return jsonify([torrent.to_dict() for torrent in torrents])
+
+def start_web_server():
+    """Start the Flask web server."""
+    app.run(host="0.0.0.0", port=10444, debug=False)
+
+# Start the web server in a separate thread
+web_server_thread = Thread(target=start_web_server, daemon=True)
+web_server_thread.start()
 
 logger.info("Starting transfer cycle")
 try:
