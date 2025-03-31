@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+
+{% block title %}Transferarr - Dashboard{% endblock %}
+
+{% block styles %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/dashboard.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="card-header">
+    <h2 class="card-title">Dashboard</h2>
+</div>
+
+<div class="stats-container">
+    <div class="stat-card">
+        <i class="fas fa-download fa-2x"></i>
+        <div id="active-torrents" class="stat-value">0</div>
+        <div class="stat-label">Active Torrents</div>
+    </div>
+    
+    <div class="stat-card">
+        <i class="fas fa-check-circle fa-2x"></i>
+        <div id="completed-torrents" class="stat-value">0</div>
+        <div class="stat-label">Completed</div>
+    </div>
+    
+    <div class="stat-card">
+        <i class="fas fa-sync fa-2x"></i>
+        <div id="copying-torrents" class="stat-value">0</div>
+        <div class="stat-label">Copying</div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h3 class="card-title">Current Transfers</h3>
+    </div>
+    <div id="recent-torrents-container" class="torrent-cards">
+        <!-- Data populated by JavaScript -->
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/pages/dashboard.js') }}"></script>
+{% endblock %}

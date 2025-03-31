@@ -1,0 +1,163 @@
+/* Client tabs styles */
+.client-tabs {
+    display: flex;
+    border-bottom: 1px solid #ddd;
+    margin-bottom: 20px;
+    padding: 0;
+    overflow-x: auto;
+}
+
+.client-tab {
+    padding: 10px 15px;
+    cursor: pointer;
+    background-color: #f5f5f5;
+    margin-right: 5px;
+    border-radius: 5px 5px 0 0;
+    border: 1px solid #ddd;
+    border-bottom: none;
+    position: relative; /* Added for the indicator positioning */
+}
+
+.client-tab.active {
+    background-color: white;
+    border-bottom: 1px solid white;
+    margin-bottom: -1px;
+    /* Use box-shadow instead of font-weight to prevent layout shifts */
+    box-shadow: inset 0 3px 0 #2c3e50;
+}
+
+.client-tab-content {
+    display: none;
+}
+
+.client-tab-content.active {
+    display: block;
+}
+
+/* Simple torrent card for client tabs */
+.simple-torrent-card {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px;
+    border-bottom: 1px solid #eee;
+    background-color: white;
+}
+
+.simple-torrent-card:last-child {
+    border-bottom: none;
+}
+
+.simple-torrent-card:hover {
+    background-color: #f9f9f9;
+}
+
+.simple-torrent-name {
+    flex: 1;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    padding-right: 15px;
+}
+
+.simple-torrent-state {
+    flex: 0 0 120px;
+    display: flex;
+    align-items: center;
+}
+
+.simple-torrent-progress {
+    flex: 0 0 150px;
+    margin-left: 15px;
+}
+
+.simple-progress-bar {
+    width: 100%; 
+    background-color: #f4f4f4; 
+    height: 12px; 
+    border: 1px solid #ddd; 
+    position: relative;
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.simple-progress-fill {
+    display: block; 
+    height: 100%; 
+    background-color: #4caf50; 
+    position: absolute;
+    transition: width 0.3s ease;
+}
+
+.simple-progress-text {
+    font-size: 12px;
+    color: #666;
+    margin-top: 3px;
+    text-align: right;
+}
+
+/* Client torrents section styles */
+.client-torrents-section {
+    margin-bottom: 20px;
+}
+
+/* Empty message styles */
+.empty-message {
+    padding: 20px;
+    text-align: center;
+    color: #666;
+}
+
+/* Loading indicator styles */
+.loading-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 20px;
+    text-align: center;
+}
+
+.loading-container p {
+    margin-top: 15px;
+    color: #666;
+}
+
+.loading-spinner {
+    width: 40px;
+    height: 40px;
+    border: 4px solid rgba(0, 0, 0, 0.1);
+    border-radius: 50%;
+    border-left-color: #2c3e50;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% {
+        transform: rotate(0deg);
+    }
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+/* Hide loading indicator when not needed */
+.loading-container.hidden {
+    display: none;
+}
+
+/* Responsive design adjustments */
+@media (max-width: 768px) {
+    .simple-torrent-card {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    
+    .simple-torrent-state, 
+    .simple-torrent-progress {
+        width: 100%;
+        margin-left: 0;
+        margin-top: 8px;
+    }
+}

@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Transferarr{% endblock %}</title>
+    <!-- Common CSS -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Page-specific CSS -->
+    {% block styles %}{% endblock %}
+</head>
+<body>
+    <!-- Sidebar with tabs -->
+    {% include 'components/sidebar.html' %}
+
+    <!-- Main content area -->
+    <div class="content">
+        {% block content %}{% endblock %}
+    </div>
+
+    <!-- Common JS -->
+    <script src="{{ url_for('static', filename='js/api.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/common.js') }}"></script>
+    <!-- Page-specific JS -->
+    {% block scripts %}{% endblock %}
+</body>
+</html>

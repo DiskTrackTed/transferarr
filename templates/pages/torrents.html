@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+
+{% block title %}Transferarr - Torrents{% endblock %}
+
+{% block styles %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/torrents.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="card-header">
+    <h2 class="card-title">All Torrents</h2>
+</div>
+<div class="card">
+    <!-- Add loading indicator -->
+    <div id="loading-indicator" class="loading-container">
+        <div class="loading-spinner"></div>
+        <p>Loading torrent data...</p>
+    </div>
+    
+    <div class="client-tabs" id="client-tabs">
+        <!-- Client tabs will be populated by JavaScript -->
+    </div>
+    <div id="client-tab-contents">
+        <!-- Client tab contents will be populated by JavaScript -->
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/pages/torrents.js') }}"></script>
+{% endblock %}
