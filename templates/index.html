@@ -3,13 +3,197 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Torrent Tracker</title>
+    <title>Transferarr</title>
     <style>
-        body { font-family: Arial, sans-serif; margin: 20px; }
-        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-        th { background-color: #f4f4f4; }
-        .progress-container { width: 100%; }
+        /* Base styles */
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            min-height: 100vh;
+        }
+        
+        /* Sidebar styles */
+        .sidebar {
+            width: 200px;
+            background-color: #2c3e50;
+            color: white;
+            display: flex;
+            flex-direction: column;
+            padding: 20px 0;
+        }
+        
+        .sidebar-header {
+            padding: 0 20px 20px;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            margin-bottom: 20px;
+        }
+        
+        .sidebar-header h1 {
+            margin: 0;
+            font-size: 24px;
+        }
+        
+        .tabs {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        
+        .tab-link {
+            padding: 12px 20px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            transition: background-color 0.3s;
+        }
+        
+        .tab-link:hover {
+            background-color: rgba(255,255,255,0.1);
+        }
+        
+        .tab-link.active {
+            background-color: rgba(255,255,255,0.2);
+            font-weight: bold;
+        }
+        
+        .tab-link i {
+            margin-right: 10px;
+            font-size: 18px;
+        }
+        
+        /* Content area styles */
+        .content {
+            flex: 1;
+            padding: 20px;
+            background-color: #f5f5f5;
+            overflow-y: auto;
+        }
+        
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+        
+        /* Card styles for content sections */
+        .card {
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .card-title {
+            margin: 0;
+            font-size: 18px;
+            color: #333;
+        }
+        
+        /* Table styles */
+        table { 
+            width: 100%; 
+            border-collapse: collapse; 
+        }
+        
+        th, td { 
+            border: 1px solid #ddd; 
+            padding: 12px; 
+            text-align: left; 
+        }
+        
+        th { 
+            background-color: #f4f4f4; 
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+        
+        /* Torrent card styles */
+        .torrent-cards {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+        
+        .torrent-card {
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            padding: 16px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            transition: box-shadow 0.2s;
+            min-height: 90px; /* Prevent height jittering */
+        }
+        
+        .torrent-card:hover {
+            box-shadow: 0 0 8px 2px rgba(44, 62, 80, 0.3);
+        }
+        
+        .torrent-name {
+            flex: 1 1 100%;
+            font-weight: bold;
+            font-size: 16px;
+            margin-bottom: 8px;
+            color: #2c3e50;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        
+        .torrent-info {
+            flex: 1 1 200px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        
+        .info-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .info-label {
+            font-size: 12px;
+            color: #666;
+            min-width: 80px;
+        }
+        
+        .info-value {
+            font-size: 14px;
+            color: #333;
+            font-weight: 500;
+            background-color: #f5f5f5;
+            padding: 4px 8px;
+            border-radius: 4px;
+        }
+        
+        .torrent-progress {
+            flex: 2 1 300px;
+        }
+        
+        /* Progress bar styles */
+        .progress-container { 
+            width: 100%; 
+            position: relative; /* Ensure proper positioning */
+        }
+        
         .file-name { 
             font-size: 12px; 
             margin-bottom: 3px; 
@@ -17,27 +201,37 @@
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
+            min-height: 15px; /* Prevent layout shifts */
         }
+        
         .file-count {
             font-size: 12px;
             margin-bottom: 3px;
             color: #333;
             font-weight: bold;
+            min-height: 15px; /* Consistent height even when empty */
+            display: block; /* Ensure it takes space even when empty */
         }
+        
         .progress-bar {
             width: 100%; 
             background-color: #f4f4f4; 
             height: 20px; 
             border: 1px solid #ddd; 
             position: relative;
+            border-radius: 10px;
+            overflow: hidden;
         }
+        
         .progress-fill {
             display: block; 
             height: 100%; 
             width: 0%; 
             background-color: #4caf50; 
             position: absolute;
+            transition: width 0.3s ease;
         }
+        
         .progress-text {
             position: absolute;
             width: 100%;
@@ -55,62 +249,1241 @@
                 -1px 1px 0 #fff,
                 1px 1px 0 #fff;
         }
+        
+        /* Dashboard stats styles */
+        .stats-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .stat-card {
+            background-color: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        
+        .stat-value {
+            font-size: 28px;
+            font-weight: bold;
+            margin: 10px 0;
+        }
+        
+        .stat-label {
+            color: #666;
+            font-size: 14px;
+            text-transform: uppercase;
+        }
+
+        /* State color indicators */
+        .state-indicator {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 5px;
+        }
+
+        .state-copying {
+            background-color: #3498db;
+        }
+
+        .state-seeding {
+            background-color: #2ecc71;
+        }
+
+        .state-error {
+            background-color: #e74c3c;
+        }
+
+        .state-queued {
+            background-color: #f39c12;
+        }
+
+        .state-default {
+            background-color: #95a5a6;
+        }
+
+        /* Client tabs styles */
+        .client-tabs {
+            display: flex;
+            border-bottom: 1px solid #ddd;
+            margin-bottom: 20px;
+            padding: 0;
+            overflow-x: auto;
+        }
+        
+        .client-tab {
+            padding: 10px 15px;
+            cursor: pointer;
+            background-color: #f5f5f5;
+            margin-right: 5px;
+            border-radius: 5px 5px 0 0;
+            border: 1px solid #ddd;
+            border-bottom: none;
+        }
+        
+        .client-tab.active {
+            background-color: white;
+            border-bottom: 1px solid white;
+            margin-bottom: -1px;
+            font-weight: bold;
+        }
+        
+        .client-tab-content {
+            display: none;
+        }
+        
+        .client-tab-content.active {
+            display: block;
+        }
+        
+        /* Simple torrent card for client tabs */
+        .simple-torrent-card {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px;
+            border-bottom: 1px solid #eee;
+            background-color: white;
+        }
+        
+        .simple-torrent-card:last-child {
+            border-bottom: none;
+        }
+        
+        .simple-torrent-card:hover {
+            background-color: #f9f9f9;
+        }
+        
+        .simple-torrent-name {
+            flex: 1;
+            font-weight: 500;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            padding-right: 15px;
+        }
+        
+        .simple-torrent-state {
+            flex: 0 0 120px;
+            display: flex;
+            align-items: center;
+        }
+        
+        .simple-torrent-progress {
+            flex: 0 0 150px;
+            margin-left: 15px;
+        }
+        
+        .simple-progress-bar {
+            width: 100%; 
+            background-color: #f4f4f4; 
+            height: 12px; 
+            border: 1px solid #ddd; 
+            position: relative;
+            border-radius: 6px;
+            overflow: hidden;
+        }
+        
+        .simple-progress-fill {
+            display: block; 
+            height: 100%; 
+            background-color: #4caf50; 
+            position: absolute;
+            transition: width 0.3s ease;
+        }
+        
+        .simple-progress-text {
+            font-size: 12px;
+            color: #666;
+            margin-top: 3px;
+            text-align: right;
+        }
+
+        /* Responsive design */
+        @media (max-width: 768px) {
+            body {
+                flex-direction: column;
+            }
+            
+            .sidebar {
+                width: 100%;
+                padding: 10px 0;
+            }
+            
+            .tabs {
+                display: flex;
+                overflow-x: auto;
+            }
+            
+            .tab-link {
+                padding: 10px 15px;
+            }
+            
+            .content {
+                padding: 10px;
+            }
+            
+            .torrent-card {
+                flex-direction: column;
+            }
+            
+            .torrent-info, .torrent-progress {
+                flex: 1 1 100%;
+            }
+
+            .simple-torrent-card {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+            
+            .simple-torrent-state, 
+            .simple-torrent-progress {
+                width: 100%;
+                margin-left: 0;
+                margin-top: 8px;
+            }
+        }
     </style>
+    <!-- Add Font Awesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
 <body>
-    <h1>Transferarr</h1>
-    <table>
-        <thead>
-            <tr>
-                <th>Name</th>
-                <th>State</th>
-                <th>Progress</th>
-                <th>Home Client</th>
-                <th>Target Client</th>
-            </tr>
-        </thead>
-        <tbody id="torrent-table-body">
-            <!-- Data will be populated here -->
-        </tbody>
-    </table>
+    <!-- Sidebar with tabs -->
+    <div class="sidebar">
+        <div class="sidebar-header">
+            <h1>Transferarr</h1>
+        </div>
+        <ul class="tabs">
+            <li class="tab-link active" data-tab="dashboard">
+                <i class="fas fa-chart-bar"></i> Dashboard
+            </li>
+            <li class="tab-link" data-tab="torrents">
+                <i class="fas fa-exchange-alt"></i> Torrents
+            </li>
+            <li class="tab-link" data-tab="settings">
+                <i class="fas fa-cog"></i> Settings
+            </li>
+        </ul>
+    </div>
+
+    <!-- Main content area -->
+    <div class="content">
+        <!-- Dashboard Tab -->
+        <div id="dashboard" class="tab-content active">
+            <div class="card-header">
+                <h2 class="card-title">Dashboard</h2>
+            </div>
+            
+            <div class="stats-container">
+                <div class="stat-card">
+                    <i class="fas fa-download fa-2x"></i>
+                    <div id="active-torrents" class="stat-value">0</div>
+                    <div class="stat-label">Active Torrents</div>
+                </div>
+                
+                <div class="stat-card">
+                    <i class="fas fa-check-circle fa-2x"></i>
+                    <div id="completed-torrents" class="stat-value">0</div>
+                    <div class="stat-label">Completed</div>
+                </div>
+                
+                <div class="stat-card">
+                    <i class="fas fa-sync fa-2x"></i>
+                    <div id="copying-torrents" class="stat-value">0</div>
+                    <div class="stat-label">Copying</div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">Current Transfers</h3>
+                </div>
+                <div id="recent-torrents-container" class="torrent-cards">
+                    <!-- Data populated by JavaScript -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Torrents Tab -->
+        <div id="torrents" class="tab-content">
+            <div class="card-header">
+                <h2 class="card-title">All Torrents</h2>
+            </div>
+            <div class="card">
+                <div class="client-tabs" id="client-tabs">
+                    <!-- Client tabs will be populated by JavaScript -->
+                </div>
+                <div id="client-tab-contents">
+                    <!-- Client tab contents will be populated by JavaScript -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Settings Tab -->
+        <div id="settings" class="tab-content">
+            <div class="card-header">
+                <h2 class="card-title">Settings</h2>
+            </div>
+            <div class="card">
+                <p>Settings will be available in a future update.</p>
+                <p>Currently running with the following configuration:</p>
+                <pre id="config-info">Loading...</pre>
+            </div>
+        </div>
+    </div>
 
     <script>
-        async function fetchTorrents() {
-            const response = await fetch('/api/torrents');
-            const torrents = await response.json();
-            const tableBody = document.getElementById('torrent-table-body');
-            tableBody.innerHTML = '';
-            torrents.forEach(torrent => {
-                const row = document.createElement('tr');
+        // Tab navigation
+        document.querySelectorAll('.tab-link').forEach(tab => {
+            tab.addEventListener('click', function() {
+                // Remove active class from all tabs and content
+                document.querySelectorAll('.tab-link').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
                 
-                // Create file count display if we're copying files
-                let fileCountHtml = '';
-                if (torrent.state === 'COPYING' && torrent.total_files > 0) {
-                    fileCountHtml = `<div class="file-count">Copying file ${torrent.current_file_count} / ${torrent.total_files}</div>`;
+                // Add active class to clicked tab and corresponding content
+                this.classList.add('active');
+                document.getElementById(this.getAttribute('data-tab')).classList.add('active');
+            });
+        });
+
+        // Helper function to get state indicator class
+        function getStateIndicatorClass(state) {
+            if (state.includes('COPYING')) return 'state-copying';
+            if (state.includes('SEEDING')) return 'state-seeding';
+            if (state.includes('ERROR')) return 'state-error';
+            if (state.includes('QUEUED')) return 'state-queued';
+            return 'state-default';
+        }
+        
+        // Create the initial card structure
+        function createTorrentCard(torrent, isCompact = false) {
+            const card = document.createElement('div');
+            card.className = 'torrent-card';
+            card.dataset.id = torrent.name; // Use name as unique identifier
+            
+            // Create the basic structure that won't change
+            const nameDiv = document.createElement('div');
+            nameDiv.className = 'torrent-name';
+            nameDiv.textContent = torrent.name;
+            
+            const infoDiv = document.createElement('div');
+            infoDiv.className = 'torrent-info';
+            
+            const progressDiv = document.createElement('div');
+            progressDiv.className = 'torrent-progress';
+            
+            const progressContainer = document.createElement('div');
+            progressContainer.className = 'progress-container';
+            
+            const fileCountDiv = document.createElement('div');
+            fileCountDiv.className = 'file-count';
+            fileCountDiv.dataset.container = 'file-count';
+            
+            const fileNameDiv = document.createElement('div');
+            fileNameDiv.className = 'file-name';
+            fileNameDiv.dataset.container = 'file-name';
+            
+            const progressBar = document.createElement('div');
+            progressBar.className = 'progress-bar';
+            
+            const progressText = document.createElement('div');
+            progressText.className = 'progress-text';
+            progressText.dataset.container = 'progress-text';
+            
+            const progressFill = document.createElement('span');
+            progressFill.className = 'progress-fill';
+            progressFill.dataset.container = 'progress-fill';
+            
+            progressBar.appendChild(progressText);
+            progressBar.appendChild(progressFill);
+            
+            progressContainer.appendChild(fileCountDiv);
+            progressContainer.appendChild(fileNameDiv);
+            progressContainer.appendChild(progressBar);
+            
+            progressDiv.appendChild(progressContainer);
+            
+            // Create info rows
+            if (isCompact) {
+                const stateRow = createInfoRow('State', torrent.state, getStateIndicatorClass(torrent.state));
+                const homeRow = createInfoRow('Home', torrent.home_client_name || 'N/A');
+                const targetRow = createInfoRow('Target', torrent.target_client_name || 'N/A');
+                
+                infoDiv.appendChild(stateRow);
+                infoDiv.appendChild(homeRow);
+                infoDiv.appendChild(targetRow);
+            } else {
+                const stateRow = createInfoRow('State', torrent.state, getStateIndicatorClass(torrent.state));
+                const homeRow = createInfoRow('Home', torrent.home_client_name || 'N/A');
+                const targetRow = createInfoRow('Target', torrent.target_client_name || 'N/A');
+                
+                infoDiv.appendChild(stateRow);
+                infoDiv.appendChild(homeRow);
+                infoDiv.appendChild(targetRow);
+            }
+            
+            card.appendChild(nameDiv);
+            card.appendChild(infoDiv);
+            card.appendChild(progressDiv);
+            
+            // Now update the card with current values
+            updateCardContent(card, torrent);
+            
+            return card;
+        }
+        
+        function createInfoRow(label, value, stateClass = null) {
+            const row = document.createElement('div');
+            row.className = 'info-row';
+            
+            const labelDiv = document.createElement('div');
+            labelDiv.className = 'info-label';
+            labelDiv.textContent = `${label}:`;
+            
+            const valueDiv = document.createElement('div');
+            valueDiv.className = 'info-value';
+            valueDiv.dataset.label = label.toLowerCase();
+            
+            if (stateClass) {
+                const indicator = document.createElement('span');
+                indicator.className = `state-indicator ${stateClass}`;
+                indicator.dataset.container = 'state-indicator';
+                valueDiv.appendChild(indicator);
+            }
+            
+            const valueText = document.createTextNode(value);
+            valueDiv.appendChild(valueText);
+            
+            row.appendChild(labelDiv);
+            row.appendChild(valueDiv);
+            
+            return row;
+        }
+        
+        // This function only updates parts of a card that have changed
+        function updateCardContent(card, torrent) {
+            // Update file count if needed
+            const fileCountDiv = card.querySelector('.file-count');
+            if (torrent.state === 'COPYING' && torrent.total_files > 0) {
+                fileCountDiv.textContent = `Copying file ${torrent.current_file_count} / ${torrent.total_files}`;
+                fileCountDiv.style.display = 'block';
+            } else {
+                fileCountDiv.textContent = '';
+                fileCountDiv.style.display = 'none';
+            }
+            
+            // Update current file
+            const fileNameDiv = card.querySelector('.file-name');
+            fileNameDiv.textContent = torrent.current_file || '';
+            
+            // Update progress text
+            const progressText = card.querySelector('.progress-text');
+            progressText.textContent = `${Math.round(torrent.progress || 0)}%`;
+            
+            // Update progress fill
+            const progressFill = card.querySelector('.progress-fill');
+            progressFill.style.width = `${torrent.progress || 0}%`;
+            
+            // Update state indicator and value
+            const stateValue = card.querySelector('[data-label="state"]');
+            if (stateValue) {
+                // Remove all text nodes (but keep the indicator)
+                Array.from(stateValue.childNodes).forEach(node => {
+                    if (node.nodeType === Node.TEXT_NODE) {
+                        stateValue.removeChild(node);
+                    }
+                });
+                
+                // Update state indicator
+                const stateIndicator = stateValue.querySelector('.state-indicator');
+                if (stateIndicator) {
+                    stateIndicator.className = `state-indicator ${getStateIndicatorClass(torrent.state)}`;
                 }
                 
-                row.innerHTML = `
-                    <td>${torrent.name}</td>
-                    <td>${torrent.state}</td>
-                    <td>
-                        <div class="progress-container">
-                            ${fileCountHtml}
-                            <div class="file-name">${torrent.current_file || ''}</div>
-                            <div class="progress-bar">
-                                <div class="progress-text">${Math.round(torrent.progress || 0)}%</div>
-                                <span class="progress-fill" style="width: ${torrent.progress || 0}%;"></span>
-                            </div>
-                        </div>
-                    </td>
-                    <td>${torrent.home_client_name || 'N/A'}</td>
-                    <td>${torrent.target_client_name || 'N/A'}</td>
-                `;
-                tableBody.appendChild(row);
+                // Add updated text
+                stateValue.appendChild(document.createTextNode(torrent.state));
+            }
+            
+            // Update home client if present
+            const homeValue = card.querySelector('[data-label="home"]');
+            if (homeValue) {
+                homeValue.textContent = torrent.home_client_name || 'N/A';
+            }
+            
+            // Update target client if present
+            const targetValue = card.querySelector('[data-label="target"]');
+            if (targetValue) {
+                targetValue.textContent = torrent.target_client_name || 'N/A';
+            }
+        }
+
+        // Create a simplified torrent card for the clients tab
+        function createSimpleTorrentCard(torrent, clientType) {
+            const card = document.createElement('div');
+            card.className = 'simple-torrent-card';
+            card.dataset.id = torrent.name; // Use name as unique identifier
+            
+            const nameDiv = document.createElement('div');
+            nameDiv.className = 'simple-torrent-name';
+            nameDiv.textContent = torrent.name;
+            
+            const stateDiv = document.createElement('div');
+            stateDiv.className = 'simple-torrent-state';
+            
+            let stateText = '';
+            let stateClass = '';
+            
+            if (clientType === 'home' && torrent.home_client_info) {
+                stateText = torrent.home_client_info.state || 'Unknown';
+                stateClass = getStateIndicatorClass(`HOME_${stateText.toUpperCase()}`);
+            } else if (clientType === 'target' && torrent.target_client_info) {
+                stateText = torrent.target_client_info.state || 'Unknown';
+                stateClass = getStateIndicatorClass(`TARGET_${stateText.toUpperCase()}`);
+            }
+            
+            const stateIndicator = document.createElement('span');
+            stateIndicator.className = `state-indicator ${stateClass}`;
+            stateDiv.appendChild(stateIndicator);
+            stateDiv.appendChild(document.createTextNode(' ' + stateText));
+            
+            const progressDiv = document.createElement('div');
+            progressDiv.className = 'simple-torrent-progress';
+            
+            const progressBar = document.createElement('div');
+            progressBar.className = 'simple-progress-bar';
+            
+            const progressFill = document.createElement('span');
+            progressFill.className = 'simple-progress-fill';
+            
+            let progressValue = 0;
+            if (clientType === 'home' && torrent.home_client_info) {
+                progressValue = torrent.home_client_info.progress || 0;
+            } else if (clientType === 'target' && torrent.target_client_info) {
+                progressValue = torrent.target_client_info.progress || 0;
+            }
+            progressFill.style.width = `${progressValue}%`;
+            
+            const progressText = document.createElement('div');
+            progressText.className = 'simple-progress-text';
+            progressText.textContent = `${Math.round(progressValue)}%`;
+            
+            progressBar.appendChild(progressFill);
+            progressDiv.appendChild(progressBar);
+            progressDiv.appendChild(progressText);
+            
+            card.appendChild(nameDiv);
+            card.appendChild(stateDiv);
+            card.appendChild(progressDiv);
+            
+            return card;
+        }
+
+        // Update the simplified torrent card
+        function updateSimpleTorrentCard(card, torrent, clientType) {
+            const stateDiv = card.querySelector('.simple-torrent-state');
+            const progressFill = card.querySelector('.simple-progress-fill');
+            const progressText = card.querySelector('.simple-progress-text');
+            
+            let stateText = '';
+            let stateClass = '';
+            let progressValue = 0;
+            
+            if (clientType === 'home' && torrent.home_client_info) {
+                stateText = torrent.home_client_info.state || 'Unknown';
+                stateClass = getStateIndicatorClass(`HOME_${stateText.toUpperCase()}`);
+                progressValue = torrent.home_client_info.progress || 0;
+            } else if (clientType === 'target' && torrent.target_client_info) {
+                stateText = torrent.target_client_info.state || 'Unknown';
+                stateClass = getStateIndicatorClass(`TARGET_${stateText.toUpperCase()}`);
+                progressValue = torrent.target_client_info.progress || 0;
+            }
+            
+            // Update state
+            const stateIndicator = stateDiv.querySelector('.state-indicator');
+            if (stateIndicator) {
+                stateIndicator.className = `state-indicator ${stateClass}`;
+            }
+            
+            // Remove all text nodes from stateDiv
+            Array.from(stateDiv.childNodes).forEach(node => {
+                if (node.nodeType === Node.TEXT_NODE) {
+                    stateDiv.removeChild(node);
+                }
+            });
+            
+            // Add the updated state text
+            stateDiv.appendChild(document.createTextNode(' ' + stateText));
+            
+            // Update progress
+            progressFill.style.width = `${progressValue}%`;
+            progressText.textContent = `${Math.round(progressValue)}%`;
+        }
+
+        // Create a client torrent card based on direct client data
+        function createClientTorrentCard(torrentId, torrentData) {
+            const card = document.createElement('div');
+            card.className = 'simple-torrent-card';
+            card.dataset.id = torrentId;
+            
+            const nameDiv = document.createElement('div');
+            nameDiv.className = 'simple-torrent-name';
+            nameDiv.textContent = torrentData.name || 'Unknown';
+            
+            const stateDiv = document.createElement('div');
+            stateDiv.className = 'simple-torrent-state';
+            
+            const stateText = torrentData.state || 'Unknown';
+            const stateClass = getStateIndicatorClass(stateText.toUpperCase());
+            
+            const stateIndicator = document.createElement('span');
+            stateIndicator.className = `state-indicator ${stateClass}`;
+            stateDiv.appendChild(stateIndicator);
+            stateDiv.appendChild(document.createTextNode(' ' + stateText));
+            
+            const progressDiv = document.createElement('div');
+            progressDiv.className = 'simple-torrent-progress';
+            
+            const progressBar = document.createElement('div');
+            progressBar.className = 'simple-progress-bar';
+            
+            const progressFill = document.createElement('span');
+            progressFill.className = 'simple-progress-fill';
+            
+            const progressValue = torrentData.progress || 0;
+            progressFill.style.width = `${progressValue}%`;
+            
+            const progressText = document.createElement('div');
+            progressText.className = 'simple-progress-text';
+            progressText.textContent = `${Math.round(progressValue)}%`;
+            
+            progressBar.appendChild(progressFill);
+            progressDiv.appendChild(progressBar);
+            progressDiv.appendChild(progressText);
+            
+            card.appendChild(nameDiv);
+            card.appendChild(stateDiv);
+            card.appendChild(progressDiv);
+            
+            return card;
+        }
+
+        // Update a client torrent card
+        function updateClientTorrentCard(card, torrentData) {
+            const stateDiv = card.querySelector('.simple-torrent-state');
+            const progressFill = card.querySelector('.simple-progress-fill');
+            const progressText = card.querySelector('.simple-progress-text');
+            
+            const stateText = torrentData.state || 'Unknown';
+            const stateClass = getStateIndicatorClass(stateText.toUpperCase());
+            
+            // Update state
+            const stateIndicator = stateDiv.querySelector('.state-indicator');
+            if (stateIndicator) {
+                stateIndicator.className = `state-indicator ${stateClass}`;
+            }
+            
+            // Remove all text nodes from stateDiv
+            Array.from(stateDiv.childNodes).forEach(node => {
+                if (node.nodeType === Node.TEXT_NODE) {
+                    stateDiv.removeChild(node);
+                }
+            });
+            
+            // Add the updated state text
+            stateDiv.appendChild(document.createTextNode(' ' + stateText));
+            
+            // Update progress
+            const progressValue = torrentData.progress || 0;
+            progressFill.style.width = `${progressValue}%`;
+            progressText.textContent = `${Math.round(progressValue)}%`;
+        }
+
+        // Fetch torrents data for dashboard and managed transfers
+        async function fetchTorrents() {
+            try {
+                const response = await fetch('/api/torrents');
+                const torrents = await response.json();
+                
+                // Update dashboard stats
+                updateDashboardStats(torrents);
+                
+                // Update recent torrents on dashboard
+                updateRecentTorrents(torrents);
+            } catch (error) {
+                console.error('Error fetching torrents:', error);
+            }
+        }
+
+        // Fetch all torrents directly from clients for the torrents tab
+        async function fetchAllTorrents() {
+            try {
+                const response = await fetch('/api/all_torrents');
+                const allTorrentsData = await response.json();
+                
+                // Update client tabs with all torrents
+                updateClientTabsWithAllTorrents(allTorrentsData);
+            } catch (error) {
+                console.error('Error fetching all torrents:', error);
+            }
+        }
+
+        // Update client tabs with all torrents from all clients
+        function updateClientTabsWithAllTorrents(allTorrentsData) {
+            console.log("Updating client tabs with all torrents:", allTorrentsData);
+            
+            // Get client names from the response
+            const clientNames = Object.keys(allTorrentsData);
+            
+            if (clientNames.length === 0) {
+                console.warn("No clients found in the response");
+                return;
+            }
+            
+            // Create tabs if they don't exist
+            const clientTabsContainer = document.getElementById('client-tabs');
+            const clientTabContentsContainer = document.getElementById('client-tab-contents');
+            
+            // Clear existing tabs if client list changed
+            if (clientTabsContainer.children.length !== clientNames.length) {
+                clientTabsContainer.innerHTML = '';
+                clientTabContentsContainer.innerHTML = '';
+            }
+            
+            let activeTabSet = false;
+            let activeTabName = '';
+            
+            // If we have a currently active tab, remember it
+            const currentActive = document.querySelector('.client-tab.active');
+            if (currentActive) {
+                activeTabName = currentActive.dataset.client;
+            }
+            
+            // Check if we need to create the tabs
+            if (clientTabsContainer.children.length === 0 && clientNames.length > 0) {
+                clientNames.forEach((clientName, index) => {
+                    // Create tab
+                    const tab = document.createElement('div');
+                    tab.className = 'client-tab';
+                    
+                    // If this was the previously active tab, or it's the first one and we had no active tab
+                    if ((activeTabName && clientName === activeTabName) || 
+                        (!activeTabName && index === 0)) {
+                        tab.classList.add('active');
+                        activeTabSet = true;
+                    }
+                    
+                    tab.textContent = clientName;
+                    tab.dataset.client = clientName;
+                    clientTabsContainer.appendChild(tab);
+                    
+                    // Create tab content container
+                    const tabContent = document.createElement('div');
+                    tabContent.className = 'client-tab-content';
+                    
+                    if ((activeTabName && clientName === activeTabName) || 
+                        (!activeTabName && index === 0)) {
+                        tabContent.classList.add('active');
+                    }
+                    
+                    tabContent.id = `client-${clientName.replace(/\s+/g, '-').replace(/[^a-zA-Z0-9-]/g, '')}`;
+                    clientTabContentsContainer.appendChild(tabContent);
+                });
+                
+                // Add event listeners to tabs
+                document.querySelectorAll('.client-tab').forEach(tab => {
+                    tab.addEventListener('click', function() {
+                        // Remove active class from all tabs and content
+                        document.querySelectorAll('.client-tab').forEach(t => t.classList.remove('active'));
+                        document.querySelectorAll('.client-tab-content').forEach(c => c.classList.remove('active'));
+                        
+                        // Add active class to clicked tab and corresponding content
+                        this.classList.add('active');
+                        const clientName = this.dataset.client;
+                        const safeClientName = clientName.replace(/\s+/g, '-').replace(/[^a-zA-Z0-9-]/g, '');
+                        const contentElement = document.getElementById(`client-${safeClientName}`);
+                        
+                        if (contentElement) {
+                            contentElement.classList.add('active');
+                        }
+                    });
+                });
+            }
+            
+            // Update each client tab content with its torrents
+            clientNames.forEach(clientName => {
+                const clientTorrents = allTorrentsData[clientName] || {};
+                const safeClientName = clientName.replace(/\s+/g, '-').replace(/[^a-zA-Z0-9-]/g, '');
+                const tabContentId = `client-${safeClientName}`;
+                const tabContent = document.getElementById(tabContentId);
+                
+                if (!tabContent) {
+                    console.error(`Tab content element not found: ${tabContentId}`);
+                    return;
+                }
+                
+                // Clear any existing message
+                const existingMessage = tabContent.querySelector('.empty-message');
+                if (existingMessage) {
+                    tabContent.removeChild(existingMessage);
+                }
+                
+                // Get the container for torrent cards
+                let container = tabContent.querySelector('.client-torrent-container');
+                
+                // Create container if it doesn't exist
+                if (!container) {
+                    container = document.createElement('div');
+                    container.className = 'client-torrent-container';
+                    tabContent.appendChild(container);
+                }
+                
+                // Create a map of existing cards
+                const existingCards = {};
+                Array.from(container.children).forEach(card => {
+                    if (card.dataset.id) {
+                        existingCards[card.dataset.id] = card;
+                    }
+                });
+                
+                // Get the torrent IDs from this client
+                const torrentIds = Object.keys(clientTorrents);
+                
+                // If no torrents, show message
+                if (torrentIds.length === 0) {
+                    container.innerHTML = '';
+                    const emptyMessage = document.createElement('div');
+                    emptyMessage.className = 'empty-message';
+                    emptyMessage.textContent = `No torrents for ${clientName}`;
+                    emptyMessage.style.padding = '20px';
+                    emptyMessage.style.textAlign = 'center';
+                    emptyMessage.style.color = '#666';
+                    tabContent.appendChild(emptyMessage);
+                    return;
+                }
+                
+                // Update or create cards for each torrent
+                torrentIds.forEach(torrentId => {
+                    const torrentData = clientTorrents[torrentId];
+                    
+                    if (existingCards[torrentId]) {
+                        // Update existing card
+                        updateClientTorrentCard(existingCards[torrentId], torrentData);
+                        delete existingCards[torrentId];
+                    } else {
+                        // Create new card
+                        container.appendChild(createClientTorrentCard(torrentId, torrentData));
+                    }
+                });
+                
+                // Remove cards for torrents that no longer exist
+                Object.values(existingCards).forEach(card => {
+                    container.removeChild(card);
+                });
+            });
+            
+            // If no tabs are active and we have clients, set the first one active
+            const activeTab = document.querySelector('.client-tab.active');
+            if (!activeTab && clientNames.length > 0 && !activeTabSet) {
+                const firstTab = document.querySelector('.client-tab');
+                if (firstTab) {
+                    firstTab.classList.add('active');
+                    const clientName = firstTab.dataset.client;
+                    const safeClientName = clientName.replace(/\s+/g, '-').replace(/[^a-zA-Z0-9-]/g, '');
+                    const contentElement = document.getElementById(`client-${safeClientName}`);
+                    
+                    if (contentElement) {
+                        contentElement.classList.add('active');
+                    }
+                }
+            }
+        }
+
+        // Update the main torrents table using in-place updates
+        function updateTorrentsTable(torrents) {
+            const container = document.getElementById('torrent-cards-container');
+            
+            // Create a map of existing cards
+            const existingCards = {};
+            Array.from(container.children).forEach(card => {
+                if (card.dataset.id) {
+                    existingCards[card.dataset.id] = card;
+                }
+            });
+            
+            // Create/update cards
+            const fragment = document.createDocumentFragment();
+            const updatedIds = new Set();
+            
+            torrents.forEach(torrent => {
+                updatedIds.add(torrent.name);
+                
+                if (existingCards[torrent.name]) {
+                    // Update existing card content without replacing the entire element
+                    updateCardContent(existingCards[torrent.name], torrent);
+                    delete existingCards[torrent.name];
+                } else {
+                    // Create new card
+                    fragment.appendChild(createTorrentCard(torrent));
+                }
+            });
+            
+            // Add new cards
+            container.appendChild(fragment);
+            
+            // Remove cards for torrents that no longer exist
+            Object.values(existingCards).forEach(card => {
+                card.remove(); // Use remove() instead of removeChild for cleaner code
+            });
+            
+            if (torrents.length === 0 && container.children.length === 0) {
+                const emptyMessage = document.createElement('div');
+                emptyMessage.textContent = 'No torrents available.';
+                emptyMessage.style.padding = '20px';
+                emptyMessage.style.textAlign = 'center';
+                emptyMessage.style.color = '#666';
+                container.appendChild(emptyMessage);
+            }
+        }
+
+        // Update the dashboard stats
+        function updateDashboardStats(torrents) {
+            const activeTorrents = torrents.length;
+            const completedTorrents = torrents.filter(t => 
+                t.state === 'TARGET_SEEDING' || t.state === 'COPIED'
+            ).length;
+            const copyingTorrents = torrents.filter(t => 
+                t.state === 'COPYING'
+            ).length;
+            
+            document.getElementById('active-torrents').textContent = activeTorrents;
+            document.getElementById('completed-torrents').textContent = completedTorrents;
+            document.getElementById('copying-torrents').textContent = copyingTorrents;
+        }
+
+        // Update current torrents on dashboard with in-place updates
+        function updateRecentTorrents(torrents) {
+            const recentContainer = document.getElementById('recent-torrents-container');
+            
+            // Create a map of existing cards
+            const existingCards = {};
+            Array.from(recentContainer.children).forEach(card => {
+                if (card.dataset.id) {
+                    existingCards[card.dataset.id] = card;
+                }
+            });
+            
+            // Show only the 5 most relevant torrents (active ones first)
+            const sortedTorrents = [...torrents].sort((a, b) => {
+                // Sort COPYING torrents first
+                if (a.state === 'COPYING' && b.state !== 'COPYING') return -1;
+                if (b.state === 'COPYING' && a.state !== 'COPYING') return 1;
+                
+                // Then sort by progress for downloading torrents
+                return b.progress - a.progress;
+            }).slice(0, 5);
+            
+            // Create a set of torrent names that should be displayed
+            const shouldDisplay = new Set(sortedTorrents.map(t => t.name));
+            
+            // Update existing cards that should remain
+            sortedTorrents.forEach(torrent => {
+                if (existingCards[torrent.name]) {
+                    // Update existing card content without replacing the entire element
+                    updateCardContent(existingCards[torrent.name], torrent);
+                    delete existingCards[torrent.name]; // Remove from the tracking object
+                } else {
+                    // Create new card
+                    const newCard = createTorrentCard(torrent, true);
+                    
+                    // Find insertion point to maintain sort order
+                    let insertBefore = null;
+                    for (const child of recentContainer.children) {
+                        if (child.dataset.id && !shouldDisplay.has(child.dataset.id)) {
+                            insertBefore = child;
+                            break;
+                        }
+                    }
+                    
+                    if (insertBefore) {
+                        recentContainer.insertBefore(newCard, insertBefore);
+                    } else {
+                        recentContainer.appendChild(newCard);
+                    }
+                }
+            });
+            
+            // Remove cards for torrents that no longer exist in the top 5
+            Object.values(existingCards).forEach(card => {
+                card.remove();
+            });
+            
+            if (sortedTorrents.length === 0 && recentContainer.children.length === 0) {
+                const emptyMessage = document.createElement('div');
+                emptyMessage.textContent = 'No current transfers.';
+                emptyMessage.style.padding = '20px';
+                emptyMessage.style.textAlign = 'center';
+                emptyMessage.style.color = '#666';
+                recentContainer.appendChild(emptyMessage);
+            }
+        }
+        
+        // Create and update client tabs
+        function updateClientTabs(torrents) {
+            // Log the data we're working with to debug
+            console.log("Updating client tabs with torrents:", torrents);
+            
+            // Get unique client names
+            const uniqueClients = new Set();
+            torrents.forEach(torrent => {
+                if (torrent.home_client_name) uniqueClients.add(torrent.home_client_name);
+                if (torrent.target_client_name) uniqueClients.add(torrent.target_client_name);
+            });
+            const clientNames = Array.from(uniqueClients);
+            
+            console.log("Found client names:", clientNames);
+            
+            // Create tabs if they don't exist
+            const clientTabsContainer = document.getElementById('client-tabs');
+            const clientTabContentsContainer = document.getElementById('client-tab-contents');
+            
+            // Clear existing tabs if client list changed
+            if (clientTabsContainer.children.length !== clientNames.length) {
+                console.log("Rebuilding client tabs");
+                clientTabsContainer.innerHTML = '';
+                clientTabContentsContainer.innerHTML = '';
+            }
+            
+            let activeTabSet = false;
+            let activeTabName = '';
+            
+            // If we have a currently active tab, remember it
+            const currentActive = document.querySelector('.client-tab.active');
+            if (currentActive) {
+                activeTabName = currentActive.dataset.client;
+                console.log("Current active tab:", activeTabName);
+            }
+            
+            // Check if we need to create the tabs
+            if (clientTabsContainer.children.length === 0 && clientNames.length > 0) {
+                console.log("Creating client tabs");
+                clientNames.forEach((clientName, index) => {
+                    // Create tab
+                    const tab = document.createElement('div');
+                    tab.className = 'client-tab';
+                    
+                    // If this was the previously active tab, or it's the first one and we had no active tab
+                    if ((activeTabName && clientName === activeTabName) || 
+                        (!activeTabName && index === 0)) {
+                        tab.classList.add('active');
+                        activeTabSet = true;
+                    }
+                    
+                    tab.textContent = clientName;
+                    tab.dataset.client = clientName;
+                    clientTabsContainer.appendChild(tab);
+                    
+                    // Create tab content container
+                    const tabContent = document.createElement('div');
+                    tabContent.className = 'client-tab-content';
+                    
+                    if ((activeTabName && clientName === activeTabName) || 
+                        (!activeTabName && index === 0)) {
+                        tabContent.classList.add('active');
+                    }
+                    
+                    tabContent.id = `client-${clientName.replace(/\s+/g, '-').replace(/[^a-zA-Z0-9-]/g, '')}`;
+                    clientTabContentsContainer.appendChild(tabContent);
+                });
+                
+                // Add event listeners to tabs
+                document.querySelectorAll('.client-tab').forEach(tab => {
+                    tab.addEventListener('click', function() {
+                        console.log("Tab clicked:", this.dataset.client);
+                        // Remove active class from all tabs and content
+                        document.querySelectorAll('.client-tab').forEach(t => t.classList.remove('active'));
+                        document.querySelectorAll('.client-tab-content').forEach(c => c.classList.remove('active'));
+                        
+                        // Add active class to clicked tab and corresponding content
+                        this.classList.add('active');
+                        const clientName = this.dataset.client;
+                        const safeClientName = clientName.replace(/\s+/g, '-').replace(/[^a-zA-Z0-9-]/g, '');
+                        const contentElement = document.getElementById(`client-${safeClientName}`);
+                        
+                        if (contentElement) {
+                            contentElement.classList.add('active');
+                        } else {
+                            console.error(`Could not find tab content for client: ${clientName} (safe: ${safeClientName})`);
+                        }
+                    });
+                });
+            }
+            
+            // Update each client tab content
+            clientNames.forEach(clientName => {
+                const safeClientName = clientName.replace(/\s+/g, '-').replace(/[^a-zA-Z0-9-]/g, '');
+                const tabContentId = `client-${safeClientName}`;
+                const tabContent = document.getElementById(tabContentId);
+                
+                if (!tabContent) {
+                    console.error(`Tab content element not found: ${tabContentId}`);
+                    return;
+                }
+                
+                // Get torrents for this client (both as home and target)
+                const homeTorrents = torrents.filter(t => t.home_client_name === clientName);
+                const targetTorrents = torrents.filter(t => t.target_client_name === clientName);
+                
+                console.log(`Client ${clientName}: ${homeTorrents.length} home torrents, ${targetTorrents.length} target torrents`);
+                
+                // Update home torrents section
+                updateClientTorrentSection(tabContent, homeTorrents, clientName, 'home');
+                
+                // Update target torrents section
+                updateClientTorrentSection(tabContent, targetTorrents, clientName, 'target');
+                
+                // If no torrents for this client, show message
+                if (homeTorrents.length === 0 && targetTorrents.length === 0) {
+                    // Only add the message if there are no child elements or if the only child is not our message
+                    if (tabContent.children.length === 0 || 
+                        !tabContent.firstChild.classList ||
+                        !tabContent.firstChild.classList.contains('empty-message')) {
+                        
+                        // Clear any existing content
+                        tabContent.innerHTML = '';
+                        
+                        const emptyMessage = document.createElement('div');
+                        emptyMessage.className = 'empty-message';
+                        emptyMessage.textContent = `No torrents for ${clientName}`;
+                        emptyMessage.style.padding = '20px';
+                        emptyMessage.style.textAlign = 'center';
+                        emptyMessage.style.color = '#666';
+                        tabContent.appendChild(emptyMessage);
+                    }
+                } else if (tabContent.querySelector('.empty-message')) {
+                    // Remove the empty message if it exists but we now have torrents
+                    tabContent.querySelector('.empty-message').remove();
+                }
+            });
+            
+            // If no tabs are active and we have clients, set the first one active
+            const activeTab = document.querySelector('.client-tab.active');
+            if (!activeTab && clientNames.length > 0 && !activeTabSet) {
+                const firstTab = document.querySelector('.client-tab');
+                if (firstTab) {
+                    firstTab.classList.add('active');
+                    const clientName = firstTab.dataset.client;
+                    const safeClientName = clientName.replace(/\s+/g, '-').replace(/[^a-zA-Z0-9-]/g, '');
+                    const contentElement = document.getElementById(`client-${safeClientName}`);
+                    
+                    if (contentElement) {
+                        contentElement.classList.add('active');
+                    }
+                }
+            }
+        }
+        
+        // Update the torrent section for a specific client
+        function updateClientTorrentSection(tabContent, torrents, clientName, clientType) {
+            const safeClientName = clientName.replace(/\s+/g, '-').replace(/[^a-zA-Z0-9-]/g, '');
+            const sectionId = `${clientType}-torrents-${safeClientName}`;
+            let section = tabContent.querySelector(`#${sectionId}`);
+            
+            // If there are no torrents and section exists, remove it
+            if (torrents.length === 0 && section) {
+                section.remove();
+                return;
+            }
+            
+            // Create section if it doesn't exist and we have torrents
+            if (!section && torrents.length > 0) {
+                section = document.createElement('div');
+                section.id = sectionId;
+                section.className = 'client-torrents-section';
+                
+                const heading = document.createElement('h3');
+                heading.textContent = clientType === 'home' ? 'Home Torrents' : 'Target Torrents';
+                heading.style.marginTop = '15px';
+                heading.style.borderBottom = '1px solid #eee';
+                heading.style.paddingBottom = '10px';
+                
+                section.appendChild(heading);
+                tabContent.appendChild(section);
+            }
+            
+            // If no section or no torrents, exit
+            if (!section || torrents.length === 0) return;
+            
+            // Create a map of existing cards
+            const existingCards = {};
+            let container = section.querySelector('.simple-torrent-cards');
+            
+            // Create container if it doesn't exist
+            if (!container) {
+                container = document.createElement('div');
+                container.className = 'simple-torrent-cards';
+                section.appendChild(container);
+            } else {
+                // Map existing cards
+                Array.from(container.children).forEach(card => {
+                    if (card.dataset.id) {
+                        existingCards[card.dataset.id] = card;
+                    }
+                });
+            }
+            
+            // Create/update cards
+            const updatedIds = new Set();
+            
+            torrents.forEach(torrent => {
+                updatedIds.add(torrent.name);
+                
+                if (existingCards[torrent.name]) {
+                    // Update existing card
+                    updateSimpleTorrentCard(existingCards[torrent.name], torrent, clientType);
+                    delete existingCards[torrent.name];
+                } else {
+                    // Create new card
+                    container.appendChild(createSimpleTorrentCard(torrent, clientType));
+                }
+            });
+            
+            // Remove cards for torrents that no longer exist
+            Object.values(existingCards).forEach(card => {
+                card.remove();
             });
         }
 
-        setInterval(fetchTorrents, 1000); // Refresh every second
-        fetchTorrents(); // Initial fetch
+        // Fetch basic configuration info to display in settings
+        async function fetchConfigInfo() {
+            try {
+                const response = await fetch('/api/stats');
+                const stats = await response.json();
+                document.getElementById('config-info').textContent = 
+                    `Active transfers: ${stats.active_transfers}\n` +
+                    `Total torrents: ${stats.total_torrents}\n` +
+                    `Connections: ${stats.connections}`;
+            } catch (error) {
+                document.getElementById('config-info').textContent = 
+                    "Unable to fetch system statistics.";
+            }
+        }
+
+        // Initial data fetch
+        fetchTorrents();
+        fetchAllTorrents();
+        fetchConfigInfo();
+        
+        // Set up regular updates
+        setInterval(fetchTorrents, 2000); // Refresh torrents for dashboard every 2 seconds
+        setInterval(fetchAllTorrents, 3000); // Refresh all torrents every 3 seconds
+        setInterval(fetchConfigInfo, 5000); // Refresh stats every 5 seconds
     </script>
 </body>
 </html>

@@ -9,6 +9,7 @@ from transferarr.deluge import  DelugeClient
 from transferarr.torrent import Torrent, TorrentState
 from transferarr.config import load_config, parse_args
 from transferarr.transfer_connection import TransferConnection
+from transferarr.utils import decode_bytes
 from flask import Flask, jsonify, render_template
 from threading import Thread
 
@@ -105,6 +106,10 @@ def update_torrents(torrents, download_clients, connections):
                     break
             if not found:
                 logger.warning(f"Torrent {torrent.name} not found on any client yet")
+                if torrent.state == TorrentState.ERROR:
+                    logger.error(f"Torrent {torrent.name} is in ERROR state, removing from list")
+                    torrents.remove(torrent)
+                    save_torrents_state()
                 continue
             else:
                 ### Time to find it's target using our connections
@@ -119,7 +124,7 @@ def update_torrents(torrents, download_clients, connections):
                     torrents.remove(torrent)
                     continue
         ### Next case is a torrent with any state that starts with HOME or COPYING (in which case we need to figure out what to do)
-        elif str(torrent.state.name).startswith("HOME") or torrent.state == TorrentState.COPYING:
+        elif str(torrent.state.name).startswith("HOME"):
             ### Gotta update its state first:
             if torrent.home_client.has_torrent(torrent):
                 torrent.state = torrent.home_client.get_torrent_state(torrent)
@@ -143,7 +148,29 @@ def update_torrents(torrents, download_clients, connections):
                                 logger.debug(f"Torrent {torrent.name} already exists on {torrent.target_client.name}")
                             else:
                                 logger.debug(f"Torrent {torrent.name} not found on {torrent.target_client.name}, ready to copy")
-                                connection.do_copy_torrent(torrent)
+                                connection.enqueue_copy_torrent(torrent)
+        ### If the torrent is in COPYING state, check if it's in the connection queue
+        elif torrent.state == TorrentState.COPYING:
+            # Check if the torrent is in any connection's active transfers
+            already_in_queue = False
+            active_transfers = TransferConnection.get_active_transfers()
+            if any(t.name == torrent.name for t in active_transfers):
+                already_in_queue = True
+                logger.debug(f"Torrent {torrent.name} is already in the transfer queue")
+            
+            # If not in the queue, find the appropriate connection and enqueue it
+            if not already_in_queue and torrent.home_client and torrent.target_client:
+                connection_found = False
+                for connection in connections:
+                    if (connection.from_client.name == torrent.home_client.name and 
+                        connection.to_client.name == torrent.target_client.name):
+                        logger.debug(f"Re-enqueueing torrent {torrent.name} for copying with connection from {connection.from_client.name} to {connection.to_client.name}")
+                        connection.enqueue_copy_torrent(torrent)
+                        connection_found = True
+                        break
+                
+                if not connection_found:
+                    logger.warning(f"Could not find appropriate connection for torrent {torrent.name} from {torrent.home_client.name} to {torrent.target_client.name}")
         ### If state begins with TARGET
         elif str(torrent.state.name).startswith("TARGET") or torrent.state == TorrentState.COPIED:
             ### Gotta update its state first:
@@ -184,6 +211,47 @@ def get_torrents():
     """API endpoint to get the current state of torrents."""
     return jsonify([torrent.to_dict() for torrent in torrents])
 
+@app.route("/api/all_torrents")
+def get_all_torrents():
+    """API endpoint to get all torrents from all clients."""
+    all_torrents = {}
+    
+    for client_name, client in download_clients.items():
+        try:
+            if isinstance(client, DelugeClient):
+                # Handle disconnected clients gracefully
+                if not client.is_connected():
+                    logger.warning(f"Client {client_name} is not connected, skipping")
+                    all_torrents[client_name] = {}
+                    continue
+                
+                # Get safely decoded torrent data using client method
+                processed_torrents = client.get_all_torrents_status()
+                
+                # If there's an error and we get back an empty dict,
+                # at least return a valid response
+                if not processed_torrents:
+                    all_torrents[client_name] = {}
+                    continue
+                    
+                all_torrents[client_name] = processed_torrents
+        except Exception as e:
+            # Log the error but don't crash the endpoint
+            logger.error(f"Failed to get torrents from client {client_name}: {e}")
+            all_torrents[client_name] = {}
+    
+    # Return whatever data we were able to collect
+    return jsonify(all_torrents)
+
+@app.route("/api/stats")
+def get_stats():
+    """API endpoint to get system stats."""
+    return jsonify({
+        "active_transfers": TransferConnection.get_active_transfers_count(),
+        "total_torrents": len(torrents),
+        "connections": len(connections)
+    })
+
 def start_web_server():
     """Start the Flask web server."""
     app.run(host="0.0.0.0", port=10444, debug=False)
@@ -203,3 +271,5 @@ try:
 except KeyboardInterrupt:
     logger.info("Application interrupted. Saving state before exiting...")
     save_torrents_state()
+    # Shutdown transfer executor
+    TransferConnection.shutdown()

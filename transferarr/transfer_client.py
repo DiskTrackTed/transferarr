@@ -161,6 +161,16 @@ class SFTPAndSFTPClient(TransferClient):
             traceback.print_exc()
             torrent.progress = 0  # Reset progress on failure
             return False
+        
+    def file_exists_on_source(self, path):
+        try:
+            self.source_sftp_client.open_connection()
+            return self.source_sftp_client.connection.isfile(path)
+        except Exception as e:
+            logger.error(f"Error checking file existence on source: {e}")
+            return False
+        finally:
+            self.source_sftp_client.close()
     
 
 def get_transfer_client(from_config,to_config):
