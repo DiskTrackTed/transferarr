@@ -27,6 +27,7 @@ class TorrentState(Enum):
 class Torrent:
     _state = None
     save_callback = None
+    not_found_attempts = 0
 
     def __init__(self, name=None, id=None, state=None, radarr_info=None, 
                  home_client=None, target_client=None,
@@ -43,13 +44,16 @@ class Torrent:
         self.target_client_name = target_client_name
         self.target_client_info = target_client_info
         self.save_callback = save_callback
+        self.size = 0
         self.progress = 0
+        self.transfer_speed = 0
         self.current_file = ""
         self.current_file_count = 0
         self.total_files = 0
 
     def set_home_client_info(self, home_client_info):
         self.home_client_info = home_client_info
+        self.size = int(home_client_info.get("total_size", 0))
 
     def set_progress_from_home_client_info(self):
         if self.home_client_info:
@@ -92,6 +96,8 @@ class Torrent:
             "target_client_info": self.target_client_info,
             "target_client_name": self.target_client_name,
             "progress": self.progress,
+            "size": self.size,
+            "transfer_speed": self.transfer_speed,
             "current_file": self.current_file,
             "current_file_count": self.current_file_count,
             "total_files": self.total_files,
@@ -113,6 +119,7 @@ class Torrent:
             target_client_name=data.get("target_client_name"),
             save_callback=save_callback,
         )
+        torrent.transfer_speed = data.get("transfer_speed", 0)
         torrent.progress = data.get("progress", 0)
         torrent.current_file = data.get("current_file", "")
         torrent.current_file_count = data.get("current_file_count", 0)

@@ -90,6 +90,22 @@
     border-radius: 4px;
 }
 
+/* Add styling for the speed value */
+.speed-value {
+    background-color: #e3f2fd;
+    color: #0277bd;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+}
+
+.speed-value::before {
+    content: "\f3fd"; /* Font Awesome speedometer icon code */
+    font-family: "Font Awesome 5 Free"; /* Make sure Font Awesome is available */
+    margin-right: 5px;
+    font-size: 12px;
+}
+
 .torrent-progress {
     flex: 2 1 300px;
 }
@@ -145,15 +161,44 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    color: #000;
+    color: #ffffff;
     font-size: 12px;
     font-weight: bold;
     z-index: 1;
-    text-shadow: 
-        -1px -1px 0 #fff,
-        1px -1px 0 #fff,
-        -1px 1px 0 #fff,
-        1px 1px 0 #fff;
+}
+
+/* Progress bar styles for different states */
+.progress-copying {
+    background-color: #2196f3; /* Blue for copying */
+    background-image: linear-gradient(
+        45deg,
+        rgba(255, 255, 255, 0.15) 25%,
+        transparent 25%,
+        transparent 50%,
+        rgba(255, 255, 255, 0.15) 50%,
+        rgba(255, 255, 255, 0.15) 75%,
+        transparent 75%,
+        transparent
+    );
+    background-size: 1rem 1rem;
+    animation: progress-bar-stripes 1s linear infinite;
+}
+
+.progress-seeding {
+    background-color: #4caf50; /* Green for seeding */
+}
+
+.progress-downloaded {
+    background-color: #ff9800; /* Orange for downloaded but not seeding */
+}
+
+.progress-downloaded {
+    background-color: #9c27b0; /* Purple for downloaded */
+}
+
+@keyframes progress-bar-stripes {
+    from { background-position: 1rem 0; }
+    to { background-position: 0 0; }
 }
 
 @media (max-width: 768px) {

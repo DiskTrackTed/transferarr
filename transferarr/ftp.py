@@ -1,6 +1,7 @@
 import os
 import logging
 import traceback
+import stat
 from tqdm import tqdm
 from paramiko import SSHConfig
 import pysftp
@@ -36,7 +37,7 @@ class SFTPClient():
                 'cnopts': cnopts
             }
         else:
-            logger.debug(f"Setup SFTP using direct credentials: {host}:{port} {username}")
+            logger.debug(f"Attempting SFTP using direct credentials: {host}:{port} {username}")
             self.connection_args = {
                 'host': host,
                 'port': port,
@@ -101,4 +102,37 @@ class SFTPClient():
             self.connection.close()
 
     def close(self):
-        self.connection.close()
+        try:
+            self.connection.close()
+        except Exception as e:
+            logger.error(f"Failed to close SFTP connection: {e}")
+
+    def normalize(self,path):
+        """Normalize path for SFTP"""
+        self.open_connection()
+        new_path = self.connection.normalize(path)
+        self.close()
+        return new_path
+    
+    def list_dir(self, path):
+        """List directory contents"""
+        try:
+            self.open_connection()
+            entries_with_stat = []
+            for attr in self.connection.listdir_attr(path):
+                name = attr.filename
+                full_path = os.path.join(path, name)
+                is_dir = stat.S_ISDIR(attr.st_mode)
+                entry = {
+                    "name": name,
+                    "path": full_path,
+                    "is_dir": is_dir
+                    # "size": size
+                }
+                entries_with_stat.append(entry)
+            self.close()
+            return entries_with_stat
+        except Exception as e:
+            raise e
+        finally:
+            self.close()

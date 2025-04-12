@@ -1,0 +1,228 @@
+<!-- Add/Edit Connection Modal -->
+<div class="modal fade" id="connectionModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="connectionModalTitle">Add Connection</h5>
+                <button class="btn-close" data-bs-dismiss="modal" aria-label="Close">
+                    <i class="fas fa-times" style="font-size: 24px;"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <form id="connectionForm">
+                    <input type="hidden" id="connectionId" value="">
+                    
+                    <div class="connection-layout-container">
+                        <!-- Source (From) Client Section -->
+                        <div class="connection-section">
+                            <h4 class="section-title">Source (From)</h4>
+                            <div class="form-group row">
+                                <div class="col-md-8">
+                                    <label for="fromClient" class="form-label">From Client</label>
+                                    <select class="form-control" id="fromClient" required>
+                                        <!-- Options will be populated dynamically -->
+                                    </select>
+                                </div>
+                                <div class="col-md-4">
+                                    <label for="fromType" class="form-label">Type</label>
+                                    <select class="form-control" id="fromType" required>
+                                        <option value="sftp">SFTP</option>
+                                        <option value="local">Local</option>
+                                    </select>
+                                </div>
+                            </div>
+                            
+                            <!-- SFTP Config for From -->
+                            <div id="fromSftpConfig" class="config-section">
+                                <!-- ... existing SFTP config fields ... -->
+                                <div class="form-group">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="fromUseSshConfig">
+                                        <label class="form-check-label" for="fromUseSshConfig">
+                                            Use SSH Config Instead
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="form-group">
+                                    <label for="fromSftpHost" class="form-label">SFTP Host</label>
+                                    <input type="text" class="form-control" id="fromSftpHost">
+                                </div>
+                                <div class="form-group">
+                                    <label for="fromSftpPort" class="form-label">SFTP Port</label>
+                                    <input type="number" class="form-control" id="fromSftpPort" value="22">
+                                </div>
+                                <div class="form-group">
+                                    <label for="fromSftpUsername" class="form-label">SFTP Username</label>
+                                    <input type="text" class="form-control" id="fromSftpUsername">
+                                </div>
+                                <div class="form-group">
+                                    <label for="fromSftpPassword" class="form-label">SFTP Password</label>
+                                    <div class="password-field-container">
+                                        <input type="text" class="form-control obfuscated-field" id="fromSftpPassword">
+                                        <button type="button" class="toggle-visibility" tabindex="-1">
+                                            <i class="fas fa-eye"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                                <div id="fromSshConfigSection" style="display: none;">
+                                    <div class="form-group">
+                                        <label for="fromSshConfigFile" class="form-label">SSH Config File</label>
+                                        <input type="text" class="form-control" id="fromSshConfigFile" value="~/.ssh/config">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="fromSshConfigHost" class="form-label">SSH Config Host</label>
+                                        <input type="text" class="form-control" id="fromSshConfigHost">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Destination (To) Client Section -->
+                        <div class="connection-section">
+                            <h4 class="section-title">Destination (To)</h4>
+                            <div class="form-group row">
+                                <div class="col-md-8">
+                                    <label for="toClient" class="form-label">To Client</label>
+                                    <select class="form-control" id="toClient" required>
+                                        <!-- Options will be populated dynamically -->
+                                    </select>
+                                </div>
+                                <div class="col-md-4">
+                                    <label for="toType" class="form-label">Type</label>
+                                    <select class="form-control" id="toType" required>
+                                        <option value="sftp">SFTP</option>
+                                        <option value="local">Local</option>
+                                    </select>
+                                </div>
+                            </div>
+                            
+                            <!-- SFTP Config for To -->
+                            <div id="toSftpConfig" class="config-section">
+                                <!-- ... existing SFTP config fields ... -->
+                                <div class="form-group">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="toUseSshConfig">
+                                        <label class="form-check-label" for="toUseSshConfig">
+                                            Use SSH Config Instead
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="form-group">
+                                    <label for="toSftpHost" class="form-label">SFTP Host</label>
+                                    <input type="text" class="form-control" id="toSftpHost">
+                                </div>
+                                <div class="form-group">
+                                    <label for="toSftpPort" class="form-label">SFTP Port</label>
+                                    <input type="number" class="form-control" id="toSftpPort" value="22">
+                                </div>
+                                <div class="form-group">
+                                    <label for="toSftpUsername" class="form-label">SFTP Username</label>
+                                    <input type="text" class="form-control" id="toSftpUsername">
+                                </div>
+                                <div class="form-group">
+                                    <label for="toSftpPassword" class="form-label">SFTP Password</label>
+                                    <div class="password-field-container">
+                                        <input type="text" class="form-control obfuscated-field" id="toSftpPassword">
+                                        <button type="button" class="toggle-visibility" tabindex="-1">
+                                            <i class="fas fa-eye"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                                <div id="toSshConfigSection" style="display: none;">
+                                    <div class="form-group">
+                                        <label for="toSshConfigFile" class="form-label">SSH Config File</label>
+                                        <input type="text" class="form-control" id="toSshConfigFile" value="~/.ssh/config">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="toSshConfigHost" class="form-label">SSH Config Host</label>
+                                        <input type="text" class="form-control" id="toSshConfigHost">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </form>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-info" id="testConnectionBtn2">
+                        <i class="fas fa-plug"></i> Test Connection
+                    </button>
+                    <button type="button" class="btn btn-primary" id="saveConnectionBtn" disabled>Save</button>
+                </div>
+                <!-- Path Configuration Section -->
+                <div class="path-config-section mt-4">
+                    <h4 class="section-title">Path Configuration</h4>
+                    <div id="pathConfigDisabledOverlay" class="path-config-disabled-overlay">
+                        <div class="path-config-message">
+                            <i class="fas fa-lock"></i>
+                            Test connection success required to configure paths
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <!-- Source Paths -->
+                        <div class="col-md-6">
+                            <h4 class="sub-section-title">Source Paths</h4>
+                            
+                            <div class="form-group">
+                                <label for="sourceDotTorrentPath" class="form-label">Dot Torrent Files Path</label>
+                                <div class="input-group">
+                                    <input type="text" class="form-control" id="sourceDotTorrentPath" placeholder="/path/to/torrents/" disabled>
+                                    <button type="button" class="btn btn-outline-secondary browse-btn" data-target="sourceDotTorrentPath" data-side="from" disabled>
+                                        <i class="fas fa-folder-open"></i>
+                                    </button>
+                                </div>
+                                <small class="form-text text-muted">Path to .torrent files on source</small>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="sourceTorrentDownloadPath" class="form-label">Download Path</label>
+                                <div class="input-group">
+                                    <input type="text" class="form-control" id="sourceTorrentDownloadPath" placeholder="/path/to/downloads/" disabled>
+                                    <button type="button" class="btn btn-outline-secondary browse-btn" data-target="sourceTorrentDownloadPath" data-side="from" disabled>
+                                        <i class="fas fa-folder-open"></i>
+                                    </button>
+                                </div>
+                                <small class="form-text text-muted">Location of torrent downloads on source</small>
+                            </div>
+                        </div>
+                        
+                        <!-- Destination Paths -->
+                        <div class="col-md-6">
+                            <h4 class="sub-section-title">Destination Paths</h4>
+                            
+                            <div class="form-group">
+                                <label for="destinationDotTorrentTmpDir" class="form-label">Temporary Files Path</label>
+                                <div class="input-group">
+                                    <input type="text" class="form-control" id="destinationDotTorrentTmpDir" placeholder="/path/to/tmp/" disabled>
+                                    <button type="button" class="btn btn-outline-secondary browse-btn" data-target="destinationDotTorrentTmpDir" data-side="to" disabled>
+                                        <i class="fas fa-folder-open"></i>
+                                    </button>
+                                </div>
+                                <small class="form-text text-muted">Temporary path for .torrent files on destination</small>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="destinationTorrentDownloadPath" class="form-label">Download Path</label>
+                                <div class="input-group">
+                                    <input type="text" class="form-control" id="destinationTorrentDownloadPath" placeholder="/path/to/downloads/" disabled>
+                                    <button type="button" class="btn btn-outline-secondary browse-btn" data-target="destinationTorrentDownloadPath" data-side="to" disabled>
+                                        <i class="fas fa-folder-open"></i>
+                                    </button>
+                                </div>
+                                <small class="form-text text-muted">Target client torrent download path</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <!-- <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-info" id="testConnectionBtn2">
+                    <i class="fas fa-plug"></i> Test Connection
+                </button>
+                <button type="button" class="btn btn-primary" id="saveConnectionBtn" disabled>Save</button>
+            </div> -->
+        </div>
+    </div>
+</div>

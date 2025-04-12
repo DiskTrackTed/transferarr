@@ -10,6 +10,7 @@ logger = logging.getLogger(__name__)
 class DelugeClient:
     def __init__(self, name, host, port, username, password):
         self.name = name
+        self.type = "deluge"
         self.host = host
         self.port = port
         self.username = username
@@ -23,7 +24,7 @@ class DelugeClient:
         self._lock = threading.RLock()  # Use reentrant lock for thread safety
         self._connect()
     
-    def _connect(self):
+    def _connect(self, handle_exception=True):
         """Connect to the Deluge client with proper error handling"""
         try:
             self.client = DelugeRPCClient(
@@ -39,8 +40,12 @@ class DelugeClient:
             else:
                 logger.error(f"Failed to connect to {self.name} deluge on {self.host}:{self.port}")
         except Exception as e:
-            logger.error(f"Error connecting to {self.name} deluge: {e}")
-            self.client = None
+            if handle_exception:
+                logger.error(f"Error connecting to {self.name} deluge: {e}")
+            else:
+                raise e
+            # logger.error(f"Error connecting to {self.name} deluge: {e}")
+            # self.client = None
 
     def ensure_connected(self):
         """Ensure client is connected, reconnect if needed"""
@@ -79,6 +84,7 @@ class DelugeClient:
             try:
                 current_torrents = decode_bytes(self.client.core.get_torrents_status({}, ['name']))
                 for key in current_torrents:
+                    # print(f"Looking for: {torrent.name}, found: {current_torrents[key]['name']}")
                     if current_torrents[key]['name'] == torrent.name:
                         return True
                 return False
@@ -87,26 +93,37 @@ class DelugeClient:
                 return False
     
     def get_torrent_info(self, torrent):
+        old_info = None
+        if torrent.home_client and torrent.home_client.name == self.name:
+            old_info = torrent.home_client_info
+        elif torrent.target_client and torrent.target_client.name == self.name:
+            old_info = torrent.target_client_info
         with self._lock:
             if not self.ensure_connected():
-                return None
+                logger.debug(f"Not connected to {self.name} deluge")
+                return old_info
             
             try:
-                current_torrents = decode_bytes(self.client.core.get_torrents_status({}, ['name', 'state', 'files', 'progress']))
+                current_torrents = decode_bytes(
+                    self.client.core.get_torrents_status({}, [
+                        'name', 'state', 'files', 'progress','total_size'
+                        ]))
                 for key in current_torrents:
                     if current_torrents[key]['name'] == torrent.name:
                         torrent.id = key
                         return current_torrents[key]
-                return None
+                logger.debug(f"Torrent {torrent.name} not found in {self.name} deluge")
+                return old_info
             except Exception as e:
                 logger.error(f"Error getting torrent info for {torrent.name} from {self.name}: {e}")
-                return None
+                return old_info
     
     def get_torrent_state(self, torrent):
         try:
             if torrent.home_client and torrent.home_client.name == self.name:
                 info = self.get_torrent_info(torrent)
                 if not info:
+                    logger.debug(f"Torrent {torrent.name} info not found in home client {self.name}")
                     return TorrentState.ERROR
                 
                 torrent.home_client_info = info
@@ -120,6 +137,7 @@ class DelugeClient:
             elif torrent.target_client and torrent.target_client.name == self.name:
                 info = self.get_torrent_info(torrent)
                 if not info:
+                    logger.debug(f"Torrent {torrent.name} info not found in target client {self.name}")
                     return TorrentState.ERROR
                 
                 torrent.target_client_info = info
@@ -188,6 +206,37 @@ class DelugeClient:
             except Exception as e:
                 logger.error(f"Error getting torrent statuses from {self.name} after {max_retries} attempts: {e}")
                 return {}
+
+    def test_connection(self):
+        """Test the connection to the deluge client.
+        
+        Returns:
+            dict: A dict with 'success' indicating if connection succeeded and 'message' with details
+        """
+        try:
+            if not self.is_connected():
+                try:
+                    self._connect(handle_exception=False)
+                except Exception as e:
+                    logger.info(f"Connection test failed: {str(e)}")
+                    return {
+                        "success": False,
+                        "message": f"Connection failed: {str(e)}"
+                    }
+            
+            # If we got here, we're connected. Test a simple API call
+            self.client.daemon.info()
+            
+            return {
+                "success": True,
+                "message": "Connection successful"
+            }
+        except Exception as e:
+            logger.error(f"Error testing connection to {self.name}: {e}")
+            return {
+                "success": False,
+                "message": f"Error: {str(e)}"
+            }
 
 def get_local_deluge_info(local_client, torrents):
     items = local_client.client.core.get_torrents_status({}, [])

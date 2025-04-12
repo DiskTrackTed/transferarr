@@ -4,26 +4,29 @@ from pathlib import Path
 from transferarr.utils import get_paths_to_copy
 from transferarr.torrent import TorrentState
 from transferarr.transfer_client import get_transfer_client
+from transferarr.exceptions import TrasnferClientException
 from concurrent.futures import ThreadPoolExecutor
 import threading
 
 logger = logging.getLogger(__name__)
 
 class TransferConnection:
-    # Transfer thread pool shared across all connections
-    _transfer_executor = ThreadPoolExecutor(max_workers=3)  # Adjust max_workers as needed
-    _active_transfers = {}
-    _lock = threading.Lock()
+    max_transfers = 3
     
     def __init__(self, config, from_client, to_client):
         self.config = config
+        self.transfer_config = config.get("transfer_config")
         self.source_dot_torrent_path = config.get("source_dot_torrent_path")
         self.source_torrent_download_path = config.get("source_torrent_download_path")
         self.destination_dot_torrent_tmp_dir = config.get("destination_dot_torrent_tmp_dir")
         self.destination_torrent_download_path = config.get("destination_torrent_download_path")
         self.from_client = from_client
         self.to_client = to_client
-        # Remove the transfer_client instance variable
+        
+        # Create instance-level thread pool and tracking variables
+        self._transfer_executor = ThreadPoolExecutor(max_workers=self.max_transfers)
+        self._active_transfers = {}
+        self._lock = threading.Lock()
     
     def setup_transfer_clients(self):
         # This method is now a no-op, but kept for compatibility
@@ -37,15 +40,15 @@ class TransferConnection:
     
     def enqueue_copy_torrent(self, torrent):
         """Enqueue a torrent for copying in the background"""
-        with TransferConnection._lock:
-            if torrent.name in TransferConnection._active_transfers:
+        with self._lock:
+            if torrent.name in self._active_transfers:
                 logger.debug(f"Torrent {torrent.name} already queued for transfer, skipping")
                 return False
             
             logger.info(f"Enqueueing torrent {torrent.name} for copying")
             torrent.state = TorrentState.COPYING
-            TransferConnection._active_transfers[torrent.name] = torrent
-            TransferConnection._transfer_executor.submit(self._do_copy_torrent_task, torrent)
+            self._active_transfers[torrent.name] = torrent
+            self._transfer_executor.submit(self._do_copy_torrent_task, torrent)
             return True
     
     def _do_copy_torrent_task(self, torrent):
@@ -53,9 +56,9 @@ class TransferConnection:
         try:
             self._do_copy_torrent(torrent)
         finally:
-            with TransferConnection._lock:
-                if torrent.name in TransferConnection._active_transfers:
-                    del TransferConnection._active_transfers[torrent.name]
+            with self._lock:
+                if torrent.name in self._active_transfers:
+                    del self._active_transfers[torrent.name]
     
     def _do_copy_torrent(self, torrent):
         ## Copy .torrent file to tmp dir
@@ -104,22 +107,40 @@ class TransferConnection:
                 logger.error(f"Error adding torrent: {e}")
                 torrent.state = TorrentState.ERROR
 
-    def upload(self, source, destination):
-        """Upload a file to the destination using the transfer clients."""
-        
-    @classmethod
-    def get_active_transfers_count(cls):
-        """Get the number of active transfers"""
-        with cls._lock:
-            return len(cls._active_transfers)
     
-    @classmethod
-    def get_active_transfers(cls):
+    def get_active_transfers(self):
         """Get a list of currently transferring torrents"""
-        with cls._lock:
-            return list(cls._active_transfers.values())
+        with self._lock:
+            return list(self._active_transfers.values())
     
-    @classmethod
-    def shutdown(cls):
+    def shutdown(self):
         """Shutdown the transfer executor"""
-        cls._transfer_executor.shutdown(wait=True)
+        self._transfer_executor.shutdown(wait=True)
+
+    def get_active_transfers_count(self):
+        active_count = len(self._active_transfers)
+        return active_count
+    
+    def get_total_transfers_count(self):
+        """Get the total number of transfers for this connection."""
+        # This is a placeholder - you might want to implement historical transfer tracking
+        # For now, return the queue length plus active transfers
+        total_count = self.get_active_transfers_count()
+        return total_count
+    
+    def test_connection(self):
+        """Test the connection to the transfer client"""
+        try:
+            self.get_transfer_client()
+            return  {"success": True, "message": "Connection successful"}
+        except TrasnferClientException as e:
+            logger.debug(f"Connection test failed: {e}")
+            return {"success": False, "message": str(e)}
+        try:
+            transfer_client = self.get_transfer_client()
+            transfer_client.test_connection()
+            logger.debug(f"Connection test successful for {self.from_client.name} to {self.to_client.name}")
+            return {"success": True, "message": "Connection successful"}
+        except Exception as e:
+            logger.debug(f"Connection test failed for {self.from_client.name} to {self.to_client.name}: {e}")
+            return {"success": False, "message": str(e)}

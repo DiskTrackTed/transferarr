@@ -1,0 +1,25 @@
+<!-- Connections Tab Content -->
+<div class="client-tab-content" id="connections-tab-content">
+    <div class="card settings-section">
+        <div class="card-header">
+            <button class="btn btn-primary" id="addConnectionBtn">
+                <i class="fas fa-plus"></i> Add Connection
+            </button>
+        </div>
+        <div class="card-body">
+            <div id="loadingConnections" class="loading-container">
+                <div class="loading-spinner"></div>
+                <p>Loading connections...</p>
+            </div>
+            
+            <!-- Connection cards will be added here -->
+            <div id="connectionsList" class="connections-container">
+                <div class="empty-state">
+                    <i class="fas fa-exchange-alt"></i>
+                    <h4>No Connections</h4>
+                    <p>Add a connection to transfer torrents between clients</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
