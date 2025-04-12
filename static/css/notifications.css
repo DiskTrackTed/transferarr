@@ -1,0 +1,239 @@
+/* Notification Container */
+.notification-container {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    max-width: 400px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    max-height: 95vh; /* Limit height to 80% of viewport */
+    z-index: 10000;
+    display: flex;
+    flex-direction: column-reverse; /* Stack with newest at top */
+    align-items: flex-end;
+    gap: 10px;
+    pointer-events: none; /* Allow clicking through the container */
+}
+
+/* Basic Notification Card */
+.notification {
+    background-color: white;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    padding: 14px 20px;
+    margin: 0;
+    max-width: 100%;
+    opacity: 0;
+    transform: translateX(30px);
+    transition: opacity 0.3s ease, transform 0.3s ease;
+    position: relative;
+    pointer-events: auto; /* Make the notification itself clickable */
+    display: flex;
+    align-items: flex-start;
+    width: fit-content;
+    border-left: 4px solid #ccc;
+}
+
+.notification.show {
+    opacity: 1;
+    transform: translateX(0);
+}
+
+/* Close Button */
+.notification-close {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    background: none;
+    border: none;
+    color: #999;
+    font-size: 16px;
+    cursor: pointer;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    transition: background-color 0.2s ease;
+}
+
+.notification-close:hover {
+    background-color: rgba(0, 0, 0, 0.1);
+    color: #555;
+}
+
+/* Notification Content */
+.notification-icon {
+    margin-right: 12px;
+    font-size: 20px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.notification-content {
+    flex: 1;
+    min-width: 0;
+}
+
+.notification-title {
+    font-weight: 600;
+    margin: 0 0 4px 0;
+    font-size: 15px;
+}
+
+.notification-message {
+    margin: 0;
+    color: #555;
+    font-size: 14px;
+    line-height: 1.4;
+    word-wrap: break-word;
+}
+
+/* Notification Types */
+.notification-success {
+    background-color: #f0fff4;
+    border-left-color: #48bb78;
+}
+
+.notification-success .notification-icon {
+    color: #48bb78;
+}
+
+.notification-success .notification-title {
+    color: #276749;
+}
+
+.notification-error {
+    background-color: #fff5f5;
+    border-left-color: #f56565;
+}
+
+.notification-error .notification-icon {
+    color: #f56565;
+}
+
+.notification-error .notification-title {
+    color: #c53030;
+}
+
+.notification-warning {
+    background-color: #fffbeb;
+    border-left-color: #f6ad55;
+}
+
+.notification-warning .notification-icon {
+    color: #f6ad55;
+}
+
+.notification-warning .notification-title {
+    color: #c05621;
+}
+
+.notification-info {
+    background-color: #ebf8ff;
+    border-left-color: #4299e1;
+}
+
+.notification-info .notification-icon {
+    color: #4299e1;
+}
+
+.notification-info .notification-title {
+    color: #2b6cb0;
+}
+
+/* Animation for removal */
+@keyframes fadeOut {
+    from {
+        opacity: 1;
+        transform: translateX(0);
+    }
+    to {
+        opacity: 0;
+        transform: translateX(30px);
+    }
+}
+
+.notification.removing {
+    animation: fadeOut 0.3s ease forwards;
+}
+
+/* Dismiss All Button */
+.dismiss-all-button {
+    position: fixed;
+    top: 20px;
+    right: calc(400px + 30px); /* Position to the left of notifications */
+    background-color: #fff;
+    border: 1px solid #e2e8f0;
+    color: #4a5568;
+    padding: 8px 12px;
+    border-radius: 6px;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+    font-size: 14px;
+    cursor: pointer;
+    display: none; /* Hidden by default */
+    z-index: 10000;
+    transition: all 0.2s ease;
+    opacity: 0;
+    transform: translateX(20px);
+    pointer-events: auto;
+}
+
+.dismiss-all-button.visible {
+    display: flex;
+    align-items: center;
+    opacity: 1;
+    transform: translateX(0);
+}
+
+.dismiss-all-button:hover {
+    background-color: #f7fafc;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.dismiss-all-button i {
+    margin-right: 6px;
+}
+
+/* Animation for dismiss all button */
+@keyframes buttonFadeIn {
+    from {
+        opacity: 0;
+        transform: translateX(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+@keyframes buttonFadeOut {
+    from {
+        opacity: 1;
+        transform: translateX(0);
+    }
+    to {
+        opacity: 0;
+        transform: translateX(20px);
+    }
+}
+
+.dismiss-all-button.appearing {
+    animation: buttonFadeIn 0.3s ease forwards;
+}
+
+.dismiss-all-button.disappearing {
+    animation: buttonFadeOut 0.3s ease forwards;
+}
+
+/* Adjustments for small screens */
+@media (max-width: 768px) {
+    .dismiss-all-button {
+        right: auto;
+        left: 20px;
+        top: 20px;
+    }
+}
