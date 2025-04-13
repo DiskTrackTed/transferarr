@@ -29,22 +29,4 @@ const API = {
             return {};
         }
     },
-    
-    /**
-     * Fetch system statistics
-     * @returns {Promise<Object>} System stats
-     */
-    fetchStats: async function() {
-        try {
-            const response = await fetch('/api/stats');
-            return await response.json();
-        } catch (error) {
-            console.error('Error fetching stats:', error);
-            return {
-                active_transfers: 0,
-                total_torrents: 0,
-                connections: 0
-            };
-        }
-    }
 };
