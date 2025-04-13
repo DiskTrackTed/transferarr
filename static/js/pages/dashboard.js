@@ -1,11 +1,9 @@
 document.addEventListener('DOMContentLoaded', function() {
     // Initial data fetch
     fetchTorrents();
-    fetchConfigInfo();
     
     // Set up regular updates
     setInterval(fetchTorrents, 2000); // Refresh torrents for dashboard every 2 seconds
-    setInterval(fetchConfigInfo, 5000); // Refresh stats every 5 seconds
 });
 
 // Fetch torrents data for dashboard and managed transfers
@@ -236,14 +234,4 @@ function formatTransferSpeed(bytesPerSecond) {
     const sizes = ['B/s', 'KB/s', 'MB/s', 'GB/s'];
     const i = Math.floor(Math.log(bytesPerSecond) / Math.log(k));
     return parseFloat((bytesPerSecond / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-}
-
-// Fetch basic configuration info to display in settings
-async function fetchConfigInfo() {
-    try {
-        const stats = await API.fetchStats();
-        // Use stats data if needed on dashboard
-    } catch (error) {
-        console.error('Error fetching config info:', error);
-    }
 }
