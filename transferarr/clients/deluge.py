@@ -85,8 +85,10 @@ class DelugeClient:
                 current_torrents = decode_bytes(self.client.core.get_torrents_status({}, ['name']))
                 for key in current_torrents:
                     # print(f"Looking for: {torrent.name}, found: {current_torrents[key]['name']}")
-                    if current_torrents[key]['name'] == torrent.name:
+                    if key == torrent.id:
                         return True
+                    # if current_torrents[key]['name'] == torrent.name:
+                    #     return True
                 return False
             except Exception as e:
                 logger.error(f"Error checking if {self.name} has torrent {torrent.name}: {e}")
@@ -109,8 +111,9 @@ class DelugeClient:
                         'name', 'state', 'files', 'progress','total_size'
                         ]))
                 for key in current_torrents:
-                    if current_torrents[key]['name'] == torrent.name:
-                        torrent.id = key
+                    # if current_torrents[key]['name'] == torrent.name:
+                        # torrent.id = key
+                    if key.lower() == torrent.id:
                         return current_torrents[key]
                 logger.debug(f"Torrent {torrent.name} not found in {self.name} deluge")
                 return old_info
