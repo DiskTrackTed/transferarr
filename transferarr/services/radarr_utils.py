@@ -14,8 +14,7 @@ def radrr_torrent_ready_to_remove(config, torrent):
                 api_response = api_instance.get_queue()
                 radarr_queue = api_response
                 for item in radarr_queue.records:
-                    logger.debug(f"Looking for: {torrent.name} found {item.title}")
-                    if item.title == torrent.name:
+                    if item.download_id == torrent.id:
                         ready = False
                 return ready
             except Exception as e:
@@ -36,12 +35,16 @@ def get_radarr_queue_updates(config, torrents, save_torrents_state):
                 for item in radarr_queue.records:
                     match = None
                     for torrent in torrents:
-                        if item.title == torrent.name:
+                        # if item.title == torrent.name:
+                        #     match = torrent
+                        #     break
+                        if item.download_id.lower() == torrent.id.lower():
                             match = torrent
                             break
                     if match is None:
                         new_torrent = Torrent(
                             name=item.title,
+                            id = item.download_id.lower(),
                             radarr_info=item,
                             save_callback=save_torrents_state
                         )

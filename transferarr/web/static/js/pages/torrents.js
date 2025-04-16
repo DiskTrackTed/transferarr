@@ -45,8 +45,6 @@ async function fetchAllTorrents() {
 
 // Update client tabs with all torrents from all clients
 function updateClientTabsWithAllTorrents(allTorrentsData) {
-    console.log("Updating client tabs with all torrents:", allTorrentsData);
-    
     // Get client names from the response
     const clientNames = Object.keys(allTorrentsData);
     
