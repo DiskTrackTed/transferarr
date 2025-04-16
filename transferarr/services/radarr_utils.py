@@ -1,7 +1,6 @@
 import radarr
 import logging
-from radarr.rest import ApiException
-from transferarr.torrent import Torrent, TorrentState
+from transferarr.models.torrent import Torrent, TorrentState
 
 logger = logging.getLogger(__name__)
 

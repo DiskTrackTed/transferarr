@@ -2,8 +2,8 @@ import logging
 import os
 from pathlib import Path
 from transferarr.utils import get_paths_to_copy
-from transferarr.torrent import TorrentState
-from transferarr.transfer_client import get_transfer_client
+from transferarr.models.torrent import TorrentState
+from transferarr.clients.transfer_client import get_transfer_client
 from transferarr.exceptions import TrasnferClientException
 from concurrent.futures import ThreadPoolExecutor
 import threading

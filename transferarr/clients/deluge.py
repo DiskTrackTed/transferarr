@@ -3,7 +3,7 @@ import threading
 import time
 from transferarr.utils import decode_bytes
 from deluge_client import DelugeRPCClient
-from transferarr.torrent import TorrentState
+from transferarr.models.torrent import TorrentState
 
 logger = logging.getLogger(__name__)
 

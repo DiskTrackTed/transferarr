@@ -20,4 +20,4 @@ EXPOSE 10444
 ENV PYTHONUNBUFFERED=1
 
 # Command to run the application
-CMD ["python", "main.py"]
+CMD ["python3", "-m", "transferarr.main"]
