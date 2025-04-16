@@ -3,8 +3,8 @@ import subprocess
 import logging
 import time
 from pathlib import Path
-from flask import Flask, jsonify
-from transferarr.ftp import SFTPClient
+from flask import jsonify
+from transferarr.clients.ftp import SFTPClient
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +43,7 @@ def get_paths_to_copy(torrent):
 def connection_modal_browse(path, connection_type, connection_config):
     try:
         if connection_type == "local":
-            browse_local(path)
+            return browse_local(path)
         
         elif connection_type == "sftp":
             if "sftp" not in connection_config:

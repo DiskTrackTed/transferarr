@@ -3,11 +3,9 @@ import os
 import traceback
 import time
 import uuid
-# from tqdm import tqdm
-from tqdm_loggable.auto import tqdm
 from base64 import b64encode
 from abc import ABC
-from transferarr.ftp import SFTPClient
+from transferarr.clients.ftp import SFTPClient
 from transferarr.exceptions import TrasnferClientException
 
 logger = logging.getLogger(__name__)

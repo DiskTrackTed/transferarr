@@ -1,8 +1,11 @@
 import json
 import os
 import argparse
+import logging
 
 DEFAULT_CONFIG_PATH = "config.json"
+
+logger = logging.getLogger("transferarr")
 
 class ConfigError(Exception):
     """Custom exception for configuration errors."""
