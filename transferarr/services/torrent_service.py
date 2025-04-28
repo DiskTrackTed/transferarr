@@ -7,7 +7,7 @@ from threading import Thread
 from transferarr.clients.base import load_download_clients
 from transferarr.services.transfer_connection import TransferConnection
 from transferarr.models.torrent import Torrent, TorrentState
-from transferarr.services.radarr_utils import get_radarr_queue_updates, radrr_torrent_ready_to_remove
+from transferarr.services.media_managers import RadarrManager
 from time import sleep
 
 logger = logging.getLogger("transferarr")
@@ -17,21 +17,29 @@ class TorrentManager:
         self.torrents = []
         self.config = config
         self.config_file = config_file
+        self.media_managers = []
         self.download_clients = {}
         self.connections = []
         self.state_file = config.get("state_file")
         self.running = False
-        self.setup_radarr_config(config)
+        self.setup_media_managers(config)
         self.load_download_clients(config)
         self.load_connections(config)
 
-    def setup_radarr_config(self, config):
-        """Set up the Radarr configuration."""
-        self.radarr_config = radarr.Configuration(
-            host=config["radarr_host"]
-        )
-        self.radarr_config.api_key['apikey'] = config["radarr_api_key"]
-        self.radarr_config.api_key['X-Api-Key'] = config["radarr_api_key"]
+    def setup_media_managers(self, config):
+        """Set up the media managers."""
+        if "media_managers" not in config:
+            logger.warning("No media managers found in configuration.")
+            return
+        for manager in config["media_managers"]:
+            try:
+                if manager["type"] == "radarr":
+                    radarr_manager = RadarrManager(manager)
+                    self.media_managers.append(radarr_manager)
+                else:
+                    logger.warning(f"Unknown media manager type: {manager['type']}")
+            except Exception as e:
+                logger.error(f"Failed to set up media manager {manager['type']}: {e}")
 
     def load_download_clients(self, config):
         self.download_clients = load_download_clients(config)
@@ -99,13 +107,21 @@ class TorrentManager:
         """Main loop for the torrent manager"""
         while self.running:
             try:
-                get_radarr_queue_updates(self.radarr_config, self.torrents, self.save_torrents_state)
+                self.get_media_manager_updates()
                 self.update_torrents()
                 self.save_torrents_state()
                 sleep(2)
             except Exception as e:
                 logger.error(f"Error in torrent manager: {e}")
                 sleep(10)  # Sleep longer on error
+
+    def get_media_manager_updates(self):
+        """Get updates from the media managers"""
+        for media_manager in self.media_managers:
+            try:
+                media_manager.get_queue_updates(self.torrents, self.save_torrents_state)
+            except Exception as e:
+                logger.error(f"Error in media manager {media_manager}: {e}")
 
     def update_torrents(self):
         """Update the state of all torrents"""
@@ -208,7 +224,7 @@ class TorrentManager:
                 logger.debug(f"Torrent {torrent.name} has target client {torrent.target_client.name}, state: {torrent.state.name}")
                 ### If it's seeding on the target, we can remove it from the home and list
                 if torrent.state == TorrentState.TARGET_SEEDING:
-                    if (radrr_torrent_ready_to_remove(self.radarr_config, torrent)):
+                    if torrent.media_manager.torrent_ready_to_remove(torrent):
                         if torrent.target_client.has_torrent(torrent):
                             if torrent.home_client.has_torrent(torrent):
                                 torrent.home_client.remove_torrent(torrent.id, remove_data=True)

@@ -32,7 +32,7 @@ class Torrent:
     def __init__(self, name=None, id=None, state=None, radarr_info=None, 
                  home_client=None, target_client=None,
                  home_client_info=None, home_client_name=None, target_client_info=None, 
-                 target_client_name=None, save_callback=None):
+                 target_client_name=None, save_callback=None, media_manager=None):
         self.name = name
         self.id = id
         self.state = state
@@ -44,6 +44,7 @@ class Torrent:
         self.target_client_name = target_client_name
         self.target_client_info = target_client_info
         self.save_callback = save_callback
+        self.media_manager = media_manager
         self.size = 0
         self.progress = 0
         self.transfer_speed = 0
