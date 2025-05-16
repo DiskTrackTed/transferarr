@@ -1,7 +1,7 @@
 from enum import Enum
 
 class TorrentState(Enum):
-    RADARR_QUEUED = 0
+    MANAGER_QUEUED = 0
     UNCLAIMED = 1
     HOME_QUEUED = 2
     HOME_CHECKING = 3
@@ -29,14 +29,13 @@ class Torrent:
     save_callback = None
     not_found_attempts = 0
 
-    def __init__(self, name=None, id=None, state=None, radarr_info=None, 
+    def __init__(self, name=None, id=None, state=None, 
                  home_client=None, target_client=None,
                  home_client_info=None, home_client_name=None, target_client_info=None, 
                  target_client_name=None, save_callback=None, media_manager=None):
         self.name = name
         self.id = id
         self.state = state
-        self.radarr_info = radarr_info
         self.home_client = home_client
         self.home_client_name = home_client_name
         self.home_client_info = home_client_info
@@ -111,7 +110,6 @@ class Torrent:
             name=data.get("name"),
             id=data.get("id"),
             state=TorrentState[data["state"]] if data.get("state") else None,
-            radarr_info=data.get("radarr_info"),
             home_client=download_clients.get(data.get("home_client_name")),
             home_client_info=data.get("home_client_info"),
             home_client_name=data.get("home_client_name"),

@@ -96,7 +96,7 @@ def update_torrents(torrents, download_clients, connections):
     torrents_to_remove = []
     for torrent in torrents:
         ### First case is a torrent that was just added to the radarr queue, state is RADARR_QUEUE
-        if torrent.state in [TorrentState.RADARR_QUEUED, TorrentState.UNCLAIMED, TorrentState.ERROR]:
+        if torrent.state in [TorrentState.MANAGER_QUEUED, TorrentState.UNCLAIMED, TorrentState.ERROR]:
             ### We need to find the home client for this torrent
             found = False
             for _, client in download_clients.items():
