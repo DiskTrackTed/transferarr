@@ -1,4 +1,5 @@
 git+https://github.com/devopsarr/radarr-py.git
+git+https://github.com/devopsarr/sonarr-py.git
 bencode.py
 tqdm
 paramiko

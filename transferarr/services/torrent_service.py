@@ -7,7 +7,7 @@ from threading import Thread
 from transferarr.clients.base import load_download_clients
 from transferarr.services.transfer_connection import TransferConnection
 from transferarr.models.torrent import Torrent, TorrentState
-from transferarr.services.media_managers import RadarrManager
+from transferarr.services.media_managers import RadarrManager, SonarrManager
 from time import sleep
 
 logger = logging.getLogger("transferarr")
@@ -36,6 +36,9 @@ class TorrentManager:
                 if manager["type"] == "radarr":
                     radarr_manager = RadarrManager(manager)
                     self.media_managers.append(radarr_manager)
+                elif manager["type"] == "sonarr":
+                    sonarr_manager = SonarrManager(manager)
+                    self.media_managers.append(sonarr_manager)
                 else:
                     logger.warning(f"Unknown media manager type: {manager['type']}")
             except Exception as e:
@@ -128,7 +131,7 @@ class TorrentManager:
         torrents_to_remove = []
         for torrent in self.torrents:
             ### First case is a torrent that was just added to the radarr queue, state is RADARR_QUEUE
-            if torrent.state in [TorrentState.RADARR_QUEUED, TorrentState.UNCLAIMED, TorrentState.ERROR]:
+            if torrent.state in [TorrentState.MANAGER_QUEUED, TorrentState.UNCLAIMED, TorrentState.ERROR]:
                 ### We need to find the home client for this torrent
                 found = False
                 for _, client in self.download_clients.items():
