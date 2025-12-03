@@ -105,20 +105,6 @@ class DelugeClient:
                 raise ConnectionError(f"Not connected to {self.name} deluge")
             try:
                 if self.connection_type == "web":
-                    # url = f"{self.base_url}/json"
-                    # payload = {
-                    #     "method": "core.add_torrent_file",
-                    #     "params": [
-                    #         torrent_file_path,
-                    #          decode_bytes(torrent_file_data),
-                    #          options],
-                    #     "id": 3
-                    # }
-                    # response = self.session.post(url, json=payload)
-                    # if response.status_code != 200:
-                    #     logger.error(f"Failed to add torrent file via web: HTTP {response.status_code} - {response.text}")
-                    #     raise Exception(f"Web client error: HTTP {response.status_code}")
-                    # result = response.json()
                     result = self._send_web_request(
                         "core.add_torrent_file",
                         [torrent_file_path, decode_bytes(torrent_file_data), options],
@@ -154,13 +140,6 @@ class DelugeClient:
                 return False
             try:
                 if self.connection_type == "web":
-                    # url = f"{self.base_url}/json"
-                    # payload = {
-                    #     "method": "web.update_ui",
-                    #     "params": [["name", "state"], {}],
-                    #     "id": 3
-                    # }
-                    # response = self.session.post(url, json=payload).json()
                     result = self._send_web_request(
                         "web.update_ui",
                         [["name", "state"], {}],
@@ -190,13 +169,6 @@ class DelugeClient:
             
             try:
                 if self.connection_type == "web":
-                    # url = f"{self.base_url}/json"
-                    # payload = {
-                    #     "method": "web.update_ui",
-                    #     "params": [["name", "state", "files", "progress", "total_size"], {}],
-                    #     "id": 3
-                    # }
-                    # response = self.session.post(url, json=payload).json()
                     result = self._send_web_request(
                         "web.update_ui",
                         [["name", "state", "files", "progress", "total_size"], {}],
