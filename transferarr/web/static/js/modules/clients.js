@@ -34,7 +34,7 @@ export function initClients(modals) {
     document.getElementById('testConnectionBtn').addEventListener('click', testConnection);
     
     // Add event listeners to all form input fields to disable save button when changed
-    const connectionFields = ['clientType', 'clientHost', 'clientPort', 'clientUsername', 'clientPassword'];
+    const connectionFields = ['clientType', 'clientConnectionType', 'clientHost', 'clientPort', 'clientUsername', 'clientPassword'];
     connectionFields.forEach(fieldId => {
         document.getElementById(fieldId).addEventListener('change', () => {
             document.getElementById('saveClientBtn').disabled = true;
@@ -45,6 +45,26 @@ export function initClients(modals) {
             resetTestConnectionButton();
         });
     });
+    
+    // Add event listener for connection type to toggle username field
+    document.getElementById('clientConnectionType').addEventListener('change', toggleUsernameField);
+    
+    // Initialize username field visibility
+    toggleUsernameField();
+}
+
+// Toggle username field visibility based on connection type
+function toggleUsernameField() {
+    const connectionType = document.getElementById('clientConnectionType').value;
+    const usernameField = document.getElementById('usernameField');
+    
+    if (connectionType === 'web') {
+        usernameField.style.display = 'none';
+        document.getElementById('clientUsername').removeAttribute('required');
+    } else {
+        usernameField.style.display = 'block';
+        document.getElementById('clientUsername').setAttribute('required', 'required');
+    }
 }
 
 // Load clients from the API
@@ -143,8 +163,9 @@ function createClientCard(name, client) {
     // Add client details
     clientInfo.innerHTML = `
         <p><strong>Type:</strong> ${client.type}</p>
+        <p><strong>Connection:</strong> ${client.connection_type || 'web'}</p>
         <p><strong>Host:</strong> ${client.host}:${client.port}</p>
-        <p><strong>Username:</strong> ${client.username}</p>
+        <p><strong>Username:</strong> ${client.username || ''}</p>
     `;
     
     // Create actions div
@@ -190,10 +211,14 @@ function editClient(name, client) {
     document.getElementById('originalName').value = name;
     document.getElementById('clientName').value = name;
     document.getElementById('clientType').value = client.type;
+    document.getElementById('clientConnectionType').value = client.connection_type || 'rpc';
     document.getElementById('clientHost').value = client.host;
     document.getElementById('clientPort').value = client.port;
-    document.getElementById('clientUsername').value = client.username;
+    document.getElementById('clientUsername').value = client.username || '';
     document.getElementById('clientPassword').value = client.password;
+    
+    // Update username field visibility based on connection type
+    toggleUsernameField();
     
     document.getElementById('clientModalTitle').textContent = 'Edit Download Client';
     resetTestConnectionButton();
@@ -222,6 +247,7 @@ function resetClientForm() {
     document.getElementById('editMode').value = 'false';
     document.getElementById('originalName').value = '';
     document.getElementById('saveClientBtn').disabled = true;
+    toggleUsernameField();
 }
 
 // Save a client
@@ -240,14 +266,20 @@ function saveClient() {
         return;
     }
     
+    const connectionType = document.getElementById('clientConnectionType').value;
     const clientData = {
         name: name,
         type: document.getElementById('clientType').value,
+        connection_type: connectionType,
         host: document.getElementById('clientHost').value,
         port: parseInt(document.getElementById('clientPort').value),
-        username: document.getElementById('clientUsername').value,
         password: document.getElementById('clientPassword').value
     };
+    
+    // Only include username if using RPC connection
+    if (connectionType === 'rpc') {
+        clientData.username = document.getElementById('clientUsername').value;
+    }
     
     let url = '/api/download_clients';
     let method = 'POST';
@@ -334,21 +366,29 @@ function testConnection() {
     testBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Testing...';
     testBtn.disabled = true;
     
+    const connectionType = document.getElementById('clientConnectionType').value;
+    
     // Collect client data from the form
     const clientData = {
         type: document.getElementById('clientType').value,
+        connection_type: connectionType,
         host: document.getElementById('clientHost').value,
         port: parseInt(document.getElementById('clientPort').value),
-        username: document.getElementById('clientUsername').value,
         password: document.getElementById('clientPassword').value
     };
     
+    // Only include username if using RPC connection
+    if (connectionType === 'rpc') {
+        clientData.username = document.getElementById('clientUsername').value;
+    }
+    
     // Validate fields before test
-    if (!clientData.host || !clientData.port || !clientData.username || !clientData.password) {
+    if (!clientData.host || !clientData.port || !clientData.password || 
+        (connectionType === 'rpc' && !clientData.username)) {
         // Reset button
         testBtn.innerHTML = originalText;
         testBtn.disabled = false;
-        alert('Please fill in all fields before testing the connection');
+        alert('Please fill in all required fields before testing the connection');
         return;
     }
     

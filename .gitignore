@@ -55,6 +55,7 @@ venv-dev/
 
 # Logs
 *.log
+*.log.*
 *.out
 *.err
 

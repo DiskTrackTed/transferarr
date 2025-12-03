@@ -1,6 +1,7 @@
 import logging
 import threading
 import time
+import requests
 from transferarr.utils import decode_bytes
 from deluge_client import DelugeRPCClient
 from transferarr.models.torrent import TorrentState
@@ -8,62 +9,129 @@ from transferarr.models.torrent import TorrentState
 logger = logging.getLogger(__name__)
 
 class DelugeClient:
-    def __init__(self, name, host, port, username, password):
-        self.name = name
+    def __init__(self, name, host, port, password, username=None, connection_type="rpc"):
         self.type = "deluge"
+        self.name = name
         self.host = host
         self.port = port
         self.username = username
         self.password = password
-        self.client = None
-        self.torrent_download_path = None
-        self.dot_torrent_path = None
-        self.dot_torrent_tmp_dir = None
-        self.transfer_client = None
+        self.connection_type = connection_type
+        self.rpc_client = None
         self.connections = []
-        self._lock = threading.RLock()  # Use reentrant lock for thread safety
+        self._lock = threading.RLock()
+        if self.connection_type == "web":
+            self.base_url = f"http://{self.host}:{self.port}"
+            self.web_authenticated = False
+            self.session = requests.Session()
+
         self._connect()
     
     def _connect(self, handle_exception=True):
-        """Connect to the Deluge client with proper error handling"""
-        try:
-            self.client = DelugeRPCClient(
-                host=self.host, 
-                port=self.port, 
-                username=self.username, 
-                password=self.password,
-                automatic_reconnect=True
-            )
-            self.client.connect()
-            if self.client.connected:
-                logger.info(f"Connected to {self.name} deluge on {self.host}:{self.port}")
+        """Connect to the Deluge rpc_client with proper error handling"""
+        if self.connection_type == "web":
+            logger.debug(f"Connecting to Deluge Web client at {self.base_url}")
+            url = f"{self.base_url}/json"
+            payload = {
+                "method": "auth.login",
+                "params": [self.password],
+                "id": 1
+            }
+            response = self.session.post(url, json=payload)
+            if response.status_code == 200 and response.json().get("result") is True:
+                self.web_authenticated = True
             else:
-                logger.error(f"Failed to connect to {self.name} deluge on {self.host}:{self.port}")
-        except Exception as e:
-            if handle_exception:
-                logger.error(f"Error connecting to {self.name} deluge: {e}")
-            else:
-                raise e
-            # logger.error(f"Error connecting to {self.name} deluge: {e}")
-            # self.client = None
+                self.web_authenticated = False
+                if handle_exception:
+                    logger.error(f"Failed to authenticate with Deluge Web client: {response.status_code} - {response.text}")
+                else:
+                    raise Exception(f"Web client authentication failed: {response.status_code} - {response.text}")
+        elif self.connection_type == "rpc":
+            try:
+                self.rpc_client = DelugeRPCClient(
+                    host=self.host, 
+                    port=self.port, 
+                    username=self.username, 
+                    password=self.password,
+                    automatic_reconnect=True
+                )
+                self.rpc_client.connect()
+                if self.rpc_client.connected:
+                    logger.info(f"Connected to {self.name} deluge on {self.host}:{self.port}")
+                else:
+                    logger.error(f"Failed to connect to {self.name} deluge on {self.host}:{self.port}")
+            except Exception as e:
+                if handle_exception:
+                    logger.error(f"Error connecting to {self.name} deluge: {e}")
+                else:
+                    raise e
+        else:
+            logger.error(f"Unsupported connection type: {self.connection_type}")
+            if not handle_exception:
+                raise ValueError(f"Unsupported connection type: {self.connection_type}")
 
     def ensure_connected(self):
-        """Ensure client is connected, reconnect if needed"""
+        """Ensure rpc_client is connected, reconnect if needed"""
         with self._lock:
-            if not self.client or not self.is_connected():
-                logger.info(f"Reconnecting to {self.name} deluge...")
+            if self.connection_type == "web":
                 self._connect()
-            return self.is_connected()
+                return self.web_authenticated
+            elif self.connection_type == "rpc":
+                if not self.rpc_client or not self.is_connected():
+                    logger.info(f"Reconnecting to {self.name} deluge...")
+                    self._connect()
+                return self.is_connected()
+            else:
+                logger.error(f"Unsupported connection type: {self.connection_type}")
+                return False
+
+    def _send_web_request(self, method, params, id=1):
+        """Send a request to the Deluge Web client"""
+        url = f"{self.base_url}/json"
+        payload = {
+            "method": method,
+            "params": params,
+            "id": id
+        }
+        response = self.session.post(url, json=payload)
+        if response.status_code != 200:
+            logger.error(f"Failed to send request to Deluge Web client: HTTP {response.status_code} - {response.text}")
+            raise Exception(f"Web client error: HTTP {response.status_code}")
+        return response.json()
 
     def add_torrent_file(self, torrent_file_path, torrent_file_data, options):
         with self._lock:
             if not self.ensure_connected():
                 raise ConnectionError(f"Not connected to {self.name} deluge")
             try:
-                self.client.core.add_torrent_file(torrent_file_path, torrent_file_data, options)
+                if self.connection_type == "web":
+                    # url = f"{self.base_url}/json"
+                    # payload = {
+                    #     "method": "core.add_torrent_file",
+                    #     "params": [
+                    #         torrent_file_path,
+                    #          decode_bytes(torrent_file_data),
+                    #          options],
+                    #     "id": 3
+                    # }
+                    # response = self.session.post(url, json=payload)
+                    # if response.status_code != 200:
+                    #     logger.error(f"Failed to add torrent file via web: HTTP {response.status_code} - {response.text}")
+                    #     raise Exception(f"Web client error: HTTP {response.status_code}")
+                    # result = response.json()
+                    result = self._send_web_request(
+                        "core.add_torrent_file",
+                        [torrent_file_path, decode_bytes(torrent_file_data), options],
+                        id=3
+                    )
+                    if not result.get("result"):
+                        logger.error(f"Failed to add torrent file via web: {result.get('error', 'Unknown error')}")
+                        raise Exception(f"Web client error: {result.get('error', 'Unknown error')}")
+                elif self.connection_type == "rpc":
+                    self.rpc_client.core.add_torrent_file(torrent_file_path, torrent_file_data, options)
             except Exception as e:
                 logger.error(f"Error adding torrent file: {e}")
-                raise
+                raise e
 
     def add_connection(self, connection):
         self.connections.append(connection)
@@ -73,7 +141,10 @@ class DelugeClient:
 
     def is_connected(self):
         try:
-            return self.client and self.client.connected
+            if self.connection_type == "web":
+                return self.web_authenticated
+            else:
+                return self.rpc_client.connected
         except:
             return False
     
@@ -82,13 +153,25 @@ class DelugeClient:
             if not self.ensure_connected():
                 return False
             try:
-                current_torrents = decode_bytes(self.client.core.get_torrents_status({}, ['name']))
+                if self.connection_type == "web":
+                    # url = f"{self.base_url}/json"
+                    # payload = {
+                    #     "method": "web.update_ui",
+                    #     "params": [["name", "state"], {}],
+                    #     "id": 3
+                    # }
+                    # response = self.session.post(url, json=payload).json()
+                    result = self._send_web_request(
+                        "web.update_ui",
+                        [["name", "state"], {}],
+                        id=3
+                    )
+                    current_torrents = result['result']['torrents']
+                else:
+                    current_torrents = decode_bytes(self.rpc_client.core.get_torrents_status({}, ['name']))
                 for key in current_torrents:
-                    # print(f"Looking for: {torrent.name}, found: {current_torrents[key]['name']}")
                     if key == torrent.id:
                         return True
-                    # if current_torrents[key]['name'] == torrent.name:
-                    #     return True
                 return False
             except Exception as e:
                 logger.error(f"Error checking if {self.name} has torrent {torrent.name}: {e}")
@@ -106,13 +189,26 @@ class DelugeClient:
                 return old_info
             
             try:
-                current_torrents = decode_bytes(
-                    self.client.core.get_torrents_status({}, [
-                        'name', 'state', 'files', 'progress','total_size'
-                        ]))
+                if self.connection_type == "web":
+                    # url = f"{self.base_url}/json"
+                    # payload = {
+                    #     "method": "web.update_ui",
+                    #     "params": [["name", "state", "files", "progress", "total_size"], {}],
+                    #     "id": 3
+                    # }
+                    # response = self.session.post(url, json=payload).json()
+                    result = self._send_web_request(
+                        "web.update_ui",
+                        [["name", "state", "files", "progress", "total_size"], {}],
+                        id=3
+                    )
+                    current_torrents = result['result']['torrents']
+                else:
+                    current_torrents = decode_bytes(
+                        self.rpc_client.core.get_torrents_status({}, [
+                            'name', 'state', 'files', 'progress','total_size'
+                            ]))
                 for key in current_torrents:
-                    # if current_torrents[key]['name'] == torrent.name:
-                        # torrent.id = key
                     if key.lower() == torrent.id:
                         return current_torrents[key]
                 logger.debug(f"Torrent {torrent.name} not found in {self.name} deluge")
@@ -126,7 +222,7 @@ class DelugeClient:
             if torrent.home_client and torrent.home_client.name == self.name:
                 info = self.get_torrent_info(torrent)
                 if not info:
-                    logger.debug(f"Torrent {torrent.name} info not found in home client {self.name}")
+                    logger.debug(f"Torrent {torrent.name} info not found in home rpc_client {self.name}")
                     return TorrentState.ERROR
                 
                 torrent.home_client_info = info
@@ -140,7 +236,7 @@ class DelugeClient:
             elif torrent.target_client and torrent.target_client.name == self.name:
                 info = self.get_torrent_info(torrent)
                 if not info:
-                    logger.debug(f"Torrent {torrent.name} info not found in target client {self.name}")
+                    logger.debug(f"Torrent {torrent.name} info not found in target rpc_client {self.name}")
                     return TorrentState.ERROR
                 
                 torrent.target_client_info = info
@@ -163,7 +259,14 @@ class DelugeClient:
             
             try:
                 logger.debug(f"Removing torrent {torrent_id} from {self.name}")
-                self.client.core.remove_torrent(torrent_id, remove_data)
+                if self.connection_type == "web":
+                    self._send_web_request(
+                        "core.remove_torrent",
+                        [torrent_id, remove_data],
+                        id=3
+                    )
+                else:
+                    self.rpc_client.core.remove_torrent(torrent_id, remove_data)
             except Exception as e:
                 logger.error(f"Error removing torrent {torrent_id} from {self.name}: {e}")
                 raise
@@ -186,18 +289,15 @@ class DelugeClient:
                 
                 while retry_count < max_retries:
                     try:
-                        result = self.client.core.get_torrents_status({}, fields)
-                        decoded = decode_bytes(result)
-                        
-                        # Create a new dictionary with just the fields we need
-                        filtered = {}
-                        for torrent_id, torrent_data in decoded.items():
-                            filtered[torrent_id] = {
-                                'name': torrent_data.get('name', ''),
-                                'state': torrent_data.get('state', ''),
-                                'progress': torrent_data.get('progress', 0)
-                            }
-                        return filtered
+                        if self.connection_type == "web":
+                            return self._send_web_request(
+                                "core.get_torrents_status",
+                                [[], fields],
+                                id=3
+                            )['result']
+                        else:
+                            result = self.rpc_client.core.get_torrents_status({}, fields)
+                            return decode_bytes(result)
                     except Exception as e:
                         retry_count += 1
                         if retry_count >= max_retries:
@@ -211,7 +311,7 @@ class DelugeClient:
                 return {}
 
     def test_connection(self):
-        """Test the connection to the deluge client.
+        """Test the connection to the deluge rpc_client.
         
         Returns:
             dict: A dict with 'success' indicating if connection succeeded and 'message' with details
@@ -228,7 +328,7 @@ class DelugeClient:
                     }
             
             # If we got here, we're connected. Test a simple API call
-            self.client.daemon.info()
+            # self.rpc_client.daemon.info()
             
             return {
                 "success": True,
@@ -240,30 +340,3 @@ class DelugeClient:
                 "success": False,
                 "message": f"Error: {str(e)}"
             }
-
-def get_local_deluge_info(local_client, torrents):
-    items = local_client.client.core.get_torrents_status({}, [])
-    decoded_dict = decode_bytes(items)
-    for key in decoded_dict:
-        match = None
-        for torrent in torrents:
-            if decoded_dict[key]['name'] == torrent.name:
-                match = torrent
-                break
-        if match:
-            match.id = key
-            match.home_client_info = decoded_dict[key]
-    return torrents
-
-def get_sb_deluge_info(sb_client, torrents):
-    items = sb_client.client.core.get_torrents_status({}, [])
-    decoded_dict = decode_bytes(items)
-    for key in decoded_dict:
-        match = None
-        for torrent in torrents:
-            if decoded_dict[key]['name'] == torrent.name:
-                match = torrent
-                break
-        if match:
-            match.target_client_info = decoded_dict[key]
-    return torrents

@@ -210,7 +210,6 @@ class SFTPAndSFTPClient(TransferClient):
     def get_dot_torrent_file_dump(self, dot_torrent_file_path):
         self.source_sftp_client.open_connection()
         logger.debug(f"Getting .torrent file dump from {self.source_sftp_client.host}:{dot_torrent_file_path}")
-        # print(self.source_sftp_client.connection.listdir("/closet-deluge/state"))
         with self.source_sftp_client.connection.open(str(dot_torrent_file_path), 'rb') as f:
             data = f.read()
             self.source_sftp_client.close()
@@ -268,14 +267,11 @@ class SFTPAndSFTPClient(TransferClient):
         except OSError:
             pass  # Directory exists
 
-        print(self.source_sftp_client.connection.listdir(source_path))
         for item in self.source_sftp_client.connection.listdir(source_path):
         # for item in os.listdir(local_dir):
             source_path_tmp = os.path.join(source_path, item)
             target_path_tmp = os.path.join(target_path, item)
 
-            print(source_path_tmp)
-            print(target_path_tmp)
             
             if self.source_sftp_client.connection.isfile(source_path_tmp):
                 self.upload_file(source_path_tmp, target_path_tmp, torrent)
