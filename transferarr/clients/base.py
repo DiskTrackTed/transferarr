@@ -17,8 +17,9 @@ def load_download_clients(config):
                 download_client,
                 download_client_config["host"],
                 download_client_config["port"],
-                download_client_config["username"],
-                download_client_config["password"]
+                username=download_client_config.get("username", None),
+                password=download_client_config["password"],
+                connection_type=download_client_config.get("connection_type", "rpc")
             )
 
     return download_clients

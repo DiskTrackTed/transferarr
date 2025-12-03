@@ -240,6 +240,8 @@ class TorrentManager:
                             logger.warning(f"Torrent {torrent.name} not found on target client {torrent.target_client.name}, but seeding somehow, removing from list")
                             torrents_to_remove.append(torrent)
                             continue
+                    else:
+                        logger.debug(f"Torrent {torrent.name} not ready to be removed from home client {torrent.home_client.name}, still in radarr queue")
 
         for torrent in torrents_to_remove:
             if torrent in self.torrents:

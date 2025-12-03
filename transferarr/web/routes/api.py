@@ -49,7 +49,7 @@ def add_download_client():
             return jsonify({"error": "Invalid client data"}), 400
         
         # Validate required fields
-        required_fields = ["type", "host", "port", "username", "password"]
+        required_fields = ["type", "host", "port", "password", "connection_type"]
         for field in required_fields:
             if field not in client_data:
                 return jsonify({"error": f"Missing required field: {field}"}), 400
@@ -81,8 +81,9 @@ def add_download_client():
                     name,
                     client_data["host"],
                     client_data["port"],
-                    client_data["username"],
-                    client_data["password"]
+                    username=client_data.get("username", None),
+                    password=client_data["password"],
+                    connection_type=client_data.get("connection_type", "rpc")
                 )
             
             return jsonify({"success": True, "message": f"Client '{name}' added successfully"})
@@ -103,7 +104,7 @@ def edit_download_client(name):
             return jsonify({"error": "Invalid client data"}), 400
         
         # Validate required fields
-        required_fields = ["type", "host", "port", "username", "password"]
+        required_fields = ["type", "host", "port", "password", "connection_type"]
         for field in required_fields:
             if field not in client_data:
                 return jsonify({"error": f"Missing required field: {field}"}), 400
@@ -138,8 +139,9 @@ def edit_download_client(name):
                     name,
                     client_data["host"],
                     client_data["port"],
-                    client_data["username"],
-                    client_data["password"]
+                    username=client_data.get("username", None),
+                    password=client_data["password"],
+                    connection_type=client_data.get("connection_type", "rpc")
                 )
             
             return jsonify({"success": True, "message": f"Client '{name}' updated successfully"})
@@ -196,7 +198,7 @@ def test_download_client():
             return jsonify({"error": "Invalid client data"}), 400
         
         # Validate required fields
-        required_fields = ["type", "host", "port", "username", "password"]
+        required_fields = ["type", "host", "port", "password", "connection_type"]
         for field in required_fields:
             if field not in client_data:
                 return jsonify({"error": f"Missing required field: {field}"}), 400
@@ -207,8 +209,9 @@ def test_download_client():
                 "temp_client",
                 client_data["host"],
                 client_data["port"],
-                client_data["username"],
-                client_data["password"]
+                username=client_data.get("username", None),
+                password=client_data["password"],
+                connection_type=client_data.get("connection_type", "rpc")
             )
             
             # Test the connection
@@ -229,7 +232,6 @@ def get_connections():
     # TODO, put this in connection class?
     torrent_manager = current_app.config['TORRENT_MANAGER']
     connections_data = []
-    logger.info("Getting connections data")
     for idx, connection in enumerate(torrent_manager.connections):
         from_client = connection.from_client.name
         to_client = connection.to_client.name

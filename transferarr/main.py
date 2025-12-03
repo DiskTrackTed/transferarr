@@ -5,7 +5,6 @@ from threading import Thread
 from time import sleep
 
 from transferarr.config import load_config, parse_args
-from transferarr.clients.deluge import DelugeClient
 from transferarr.web import create_app
 from transferarr.services.torrent_service import TorrentManager
 
