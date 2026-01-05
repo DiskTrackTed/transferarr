@@ -1,0 +1,17 @@
+# Dockerfile for running torrent creation script
+# Provides Python environment with torf library for creating .torrent files
+
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install torf for torrent creation
+RUN pip install --no-cache-dir torf
+
+# Copy the script
+COPY create-test-torrent.py /app/
+
+# Make script executable
+RUN chmod +x /app/create-test-torrent.py
+
+ENTRYPOINT ["python", "/app/create-test-torrent.py"]

@@ -1,0 +1,12 @@
+# Dockerfile for service-registrar
+# Extracts API keys from Radarr/Sonarr and generates transferarr config
+
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install requests library for API calls
+RUN pip install --no-cache-dir requests
+
+# Script will be mounted at runtime
+CMD ["python", "/scripts/register-services.py"]

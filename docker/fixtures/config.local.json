@@ -1,0 +1,60 @@
+{
+    "log_level": "DEBUG",
+    "state_file": "./docker/fixtures/state.local.json",
+    "media_managers": [
+        {
+            "type": "radarr",
+            "host": "http://localhost",
+            "port": 17878,
+            "api_key": "ab0edd9d1da2467697639992f64b4c93"
+        },
+        {
+            "type": "sonarr",
+            "host": "http://localhost",
+            "port": 18989,
+            "api_key": "284c7ef932be4a75aae1bf2d0ec64780"
+        }
+    ],
+    "download_clients": {
+        "source-deluge": {
+            "type": "deluge",
+            "connection_type": "rpc",
+            "host": "localhost",
+            "port": 18846,
+            "username": "localclient",
+            "password": "testpassword"
+        },
+        "target-deluge": {
+            "type": "deluge",
+            "connection_type": "rpc",
+            "host": "localhost",
+            "port": 18847,
+            "username": "localclient",
+            "password": "testpassword"
+        }
+    },
+    "connections": [
+        {
+            "from": "source-deluge",
+            "to": "target-deluge",
+            "transfer_config": {
+                "from": {
+                    "type": "sftp",
+                    "sftp": {
+                        "host": "localhost",
+                        "port": 2222,
+                        "username": "testuser",
+                        "password": "testpass"
+                    }
+                },
+                "to": {
+                    "type": "local"
+                }
+            },
+            "source_dot_torrent_path": "/home/testuser/state/",
+            "source_torrent_download_path": "/home/testuser/downloads/",
+            "destination_dot_torrent_tmp_dir": "/tmp/transferarr-test/",
+            "destination_torrent_download_path": "/tmp/transferarr-test/downloads/"
+        }
+    ]
+}

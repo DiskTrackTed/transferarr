@@ -53,7 +53,8 @@ class DelugeClient:
                     port=self.port, 
                     username=self.username, 
                     password=self.password,
-                    automatic_reconnect=True
+                    automatic_reconnect=True,
+                    decode_utf8=True,
                 )
                 self.rpc_client.connect()
                 if self.rpc_client.connected:

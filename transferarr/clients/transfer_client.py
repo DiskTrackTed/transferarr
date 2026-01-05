@@ -1,10 +1,12 @@
 import logging
 import os
+import shutil
 import traceback
 import time
 import uuid
 from base64 import b64encode
 from abc import ABC
+from pathlib import Path
 from transferarr.clients.ftp import SFTPClient
 from transferarr.exceptions import TrasnferClientException
 
@@ -15,8 +17,76 @@ class TransferClient(ABC):
         pass
 
 class LocalStorageClient(TransferClient):
+    """Transfer client for local-to-local file copying."""
+    
     def __init__(self):
         pass
+    
+    def test_connection(self):
+        """Test the connection (always succeeds for local storage)."""
+        return {"success": True, "message": "Local storage is always available"}
+    
+    def file_exists_on_source(self, path):
+        """Check if a file exists locally."""
+        return os.path.exists(path)
+    
+    def get_dot_torrent_file_dump(self, dot_torrent_file_path):
+        """Read a .torrent file and return base64 encoded contents."""
+        logger.debug(f"Getting .torrent file dump from {dot_torrent_file_path}")
+        with open(str(dot_torrent_file_path), 'rb') as f:
+            data = f.read()
+            return b64encode(data)
+    
+    def count_files(self, source_path):
+        """Count the total number of files that need to be copied."""
+        return local_count_files(source_path)
+    
+    def upload(self, source_path, target_path, torrent):
+        """Copy files from source to target locally."""
+        logger.debug(f"Starting local copy of {source_path} to {target_path}")
+        try:
+            target_path = os.path.join(target_path, os.path.basename(source_path))
+            
+            # Count total files before starting the transfer
+            total_files = self.count_files(source_path)
+            torrent.total_files = total_files
+            torrent.current_file_count = 0
+            
+            if os.path.isfile(source_path):
+                # Single file copy
+                os.makedirs(os.path.dirname(target_path), exist_ok=True)
+                shutil.copy2(source_path, target_path)
+                torrent.current_file_count = 1
+                logger.debug(f"Copied file: {source_path} -> {target_path}")
+            else:
+                # Directory copy
+                self._copy_directory(source_path, target_path, torrent)
+            
+            return True
+        except Exception as e:
+            logger.error(f"Local copy failed: {e}")
+            traceback.print_exc()
+            return False
+    
+    def _copy_directory(self, source_path, target_path, torrent):
+        """Recursively copy a directory."""
+        os.makedirs(target_path, exist_ok=True)
+        
+        for item in os.listdir(source_path):
+            source_item = os.path.join(source_path, item)
+            target_item = os.path.join(target_path, item)
+            
+            if os.path.isfile(source_item):
+                shutil.copy2(source_item, target_item)
+                torrent.current_file_count += 1
+                torrent.current_file = item
+                logger.debug(f"Copied ({torrent.current_file_count}/{torrent.total_files}): {item}")
+            else:
+                self._copy_directory(source_item, target_item, torrent)
+    
+    def upload_directory(self, source_dir, destination_dir, torrent):
+        """Upload a directory (same as upload for local storage)."""
+        return self.upload(source_dir, destination_dir, torrent)
 
 
 class LocalAndSFTPClient(TransferClient):
@@ -408,8 +478,8 @@ def get_transfer_client(from_config,to_config):
     elif from_connection_type == 'local':
         if to_connection_type == 'sftp':
             return LocalAndSFTPClient(to_config["sftp"], source_type="local")
-        # elif to_connection_type == 'local':
-        #     return LocalStorageClient()
+        elif to_connection_type == 'local':
+            return LocalStorageClient()
         else:
             logger.error(f"Invalid connection type for target client: {to_connection_type}")
             return None

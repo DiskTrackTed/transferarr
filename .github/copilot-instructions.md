@@ -1,0 +1,477 @@
+# Copilot Instructions for Transferarr
+
+## Project Overview
+Transferarr is a Python application that automates torrent migration between download clients (primarily Deluge instances) across different servers. It integrates with media managers (Radarr/Sonarr) to track torrents and uses SFTP/local transfers to move files.
+
+## Architecture
+
+### Core Components
+- **`transferarr/main.py`** - Entry point: loads config, starts `TorrentManager` thread, runs Flask web server on port 10444
+- **`transferarr/services/torrent_service.py`** (`TorrentManager`) - Central orchestrator managing the torrent lifecycle, connections, and state persistence
+- **`transferarr/services/transfer_connection.py`** (`TransferConnection`) - Handles file transfers between source/destination with a ThreadPoolExecutor (max 3 concurrent transfers)
+- **`transferarr/services/media_managers.py`** - Radarr/Sonarr API integration using devopsarr Python SDKs
+
+### Data Flow
+1. `TorrentManager` polls Radarr/Sonarr queues for new torrents
+2. Torrents are tracked with state machine (`TorrentState` enum in `models/torrent.py`)
+3. `TransferConnection` copies files via SFTP or local storage
+4. Torrent is added to destination Deluge client, then removed from source
+
+### Client Abstractions
+- **`clients/deluge.py`** - Supports both RPC (`deluge-client`) and Web UI JSON API connections
+- **`clients/ftp.py`** (`SFTPClient`) - pysftp wrapper supporting SSH config aliases or direct credentials
+- **`clients/transfer_client.py`** - Composite clients (e.g., `LocalAndSFTPClient`) for source→destination transfers
+
+## Key Patterns
+
+### Configuration
+All configuration is JSON-based (`config.json`). Structure:
+```json
+{
+  "media_managers": [{"type": "radarr|sonarr", "host", "port", "api_key"}],
+  "download_clients": {"name": {"type": "deluge", "connection_type": "rpc|web", ...}},
+  "connections": [{"from": "client_name", "to": "client_name", "transfer_config": {...}}]
+}
+```
+
+### State Persistence
+- Torrent state saved to `state.json` via `save_callback` pattern on the `Torrent` model
+- State auto-saves whenever `torrent.state` property is set (see `models/torrent.py` setter)
+
+### Threading Model
+- `TorrentManager` runs in a daemon thread with periodic processing loop
+- Each `TransferConnection` has its own `ThreadPoolExecutor` for concurrent file transfers
+- Deluge clients use `threading.RLock` for connection safety
+
+### Web API
+Flask blueprints in `web/routes/`:
+- `api.py` - REST API (`/api/*`) for clients, connections, torrents
+- `ui.py` - HTML routes serving templates
+
+## Development Commands
+
+```bash
+# Run locally (venv-dev is the development environment)
+source venv-dev/bin/activate
+python -m transferarr.main --config config.json
+
+# Dependencies
+pip install -r requirements.txt
+```
+
+## Code Conventions
+
+### Docker
+- Use `docker compose` (v2) not `docker-compose` (v1, deprecated)
+- Compose files should not include the deprecated `version` field
+
+### Error Handling
+- Custom exceptions in `exceptions.py` (note: typo `TrasnferClientException` is intentional/existing)
+- Download clients use `handle_exception` parameter to control error propagation vs logging
+
+### Utility Functions
+- `utils.decode_bytes()` - Recursively decode bytes from Deluge RPC responses
+- `utils.get_paths_to_copy()` - Extract unique top-level paths from torrent file list
+
+### Client Connection Pattern
+```python
+# Always use ensure_connected() before operations
+with self._lock:
+    if not self.ensure_connected():
+        raise ConnectionError(...)
+    # perform operation
+```
+
+## Torrent State Machine
+
+Torrents progress through states defined in `models/torrent.py`. The `TorrentManager.update_torrents()` method drives transitions.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           TORRENT LIFECYCLE                                  │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+    ┌──────────────────┐
+    │  MANAGER_QUEUED  │  ← Radarr/Sonarr adds torrent to queue
+    └────────┬─────────┘
+             │ TorrentManager finds torrent on a download client
+             ▼
+    ┌──────────────────┐
+    │    HOME_* states │  ← Torrent downloading/seeding on source client
+    │  (DOWNLOADING,   │    States mirror Deluge status
+    │   SEEDING, etc.) │
+    └────────┬─────────┘
+             │ HOME_SEEDING + has target connection
+             ▼
+    ┌──────────────────┐
+    │     COPYING      │  ← TransferConnection copying files via SFTP/local
+    └────────┬─────────┘
+             │ All files transferred successfully
+             ▼
+    ┌──────────────────┐
+    │      COPIED      │  ← Files copied, .torrent added to target client
+    └────────┬─────────┘
+             │ Target client processes torrent
+             ▼
+    ┌──────────────────┐
+    │  TARGET_* states │  ← Torrent checking/seeding on destination
+    │  (CHECKING,      │
+    │   SEEDING, etc.) │
+    └────────┬─────────┘
+             │ TARGET_SEEDING + media manager confirms grab
+             ▼
+    ┌──────────────────┐
+    │    [REMOVED]     │  ← Removed from home client & tracking list
+    └──────────────────┘
+
+    Error States:
+    ─────────────
+    UNCLAIMED  → Torrent not found on any client (retries 10x then removed)
+    ERROR      → Transfer or client operation failed
+    MISSING    → Torrent disappeared unexpectedly
+```
+
+**Key transition logic** (in `torrent_service.py`):
+- `MANAGER_QUEUED` → `HOME_*`: When torrent found on a download client via `client.has_torrent()`
+- `HOME_SEEDING` → `COPYING`: When `connection.enqueue_copy_torrent()` is called
+- `COPYING` → `COPIED`: Set by `TransferConnection._do_copy_torrent()` on success
+- `COPIED` → `TARGET_*`: When target client reports torrent status
+- `TARGET_SEEDING` → removed: When `media_manager.torrent_ready_to_remove()` returns True
+
+## Adding New Download Clients
+
+To add a new download client type (e.g., qBittorrent, Transmission):
+
+1. **Create client class** in `clients/` implementing these methods:
+   ```python
+   class NewClient:
+       def __init__(self, name, host, port, ...): ...
+       def ensure_connected(self) -> bool: ...
+       def has_torrent(self, torrent) -> bool: ...
+       def get_torrent_info(self, torrent) -> dict: ...
+       def get_torrent_state(self, torrent) -> TorrentState: ...
+       def add_torrent_file(self, path, data, options): ...
+       def remove_torrent(self, torrent_id, remove_data=False): ...
+   ```
+
+2. **Register in `clients/base.py`** `load_download_clients()`:
+   ```python
+   if download_client_config["type"] == "newclient":
+       download_clients[name] = NewClient(...)
+   ```
+
+3. **Map client states** to `TorrentState` enum (HOME_* for source, TARGET_* for destination)
+
+## Important Files
+- `config.json` - Runtime configuration (gitignored, use `config copy.json` as template)
+- `state.json` - Persistent torrent state
+- `build.sh` - Docker image build script
+- `run_tests.sh` - Simplified test runner script (Docker or local)
+- `testing.ipynb` - Development/debugging notebook
+- `docs/integration-tests.md` - **Consolidated testing documentation** (test coverage, test names, patterns, troubleshooting)
+- `docs/plans/testing-infrastructure.md` - Original testing infrastructure plan (historical)
+
+## Testing Infrastructure
+
+### Docker Test Environment
+The `docker/` directory contains a complete test environment:
+
+```bash
+# Start test infrastructure (all services)
+docker compose -f docker/docker-compose.test.yml up -d
+
+# Check service status
+docker compose -f docker/docker-compose.test.yml ps
+
+# Tear down and reset
+docker compose -f docker/docker-compose.test.yml down -v
+```
+
+### Test Services (Host Ports)
+| Service | Host Port | Internal Port | Purpose |
+|---------|-----------|---------------|---------|
+| Tracker | 6969 | 6969 | OpenTracker for torrent seeding |
+| SFTP | 2222 | 2222 | File transfer between Deluge instances |
+| Deluge Source | 18112 (Web), 18846 (RPC) | 8112, 58846 | Source download client |
+| Deluge Target | 18113 (Web), 18847 (RPC) | 8112, 58846 | Target download client |
+| Deluge Target 2 | 18114 (Web), 18848 (RPC) | 8112, 58846 | Second target client |
+| Radarr | 17878 | 7878 | Movie manager |
+| Sonarr | 18989 | 8989 | TV show manager |
+| Mock Indexer | 9696 | 9696 | Fake Torznab indexer for testing |
+| Transferarr | 10445 | 10444 | Application under test |
+
+### Test Credentials
+- **Deluge Web UI**: password `testpassword`
+- **Deluge RPC**: users `localclient` and `transferarr`, password `testpassword`
+- **SFTP**: username `testuser`, password `testpass`
+
+### Creating Test Torrents
+```bash
+# Create a movie torrent (10MB) - requires --profile tools
+docker compose -f docker/docker-compose.test.yml --profile tools run --rm torrent-creator \
+  --name "Test.Movie.2024.1080p.WEB-DL" --size 10
+
+# Create a TV episode torrent (10MB)
+docker compose -f docker/docker-compose.test.yml --profile tools run --rm torrent-creator \
+  --name "Test.Series.S01E01.1080p.WEB-DL" --size 10
+
+# List available torrents
+curl http://localhost:9696/torrents
+```
+
+### Key Test Files
+- `docker/docker-compose.test.yml` - Main compose file for test environment
+- `docker/scripts/cleanup.sh` - Reset test environment (torrents, state, indexer)
+- `docker/scripts/register-services.py` - Auto-registers download clients with Radarr/Sonarr
+- `docker/scripts/create-test-torrent.py` - Test torrent generation script
+- `scripts/generate_movie_catalog.py` - Wikidata SPARQL script to expand movie catalog
+- `docker/services/mock-indexer/app.py` - Torznab API implementation
+- `docker/services/deluge/auth` - Shared RPC authentication file (same credentials for all Deluge instances)
+- `docker/services/deluge/web.conf` - Web UI password configuration
+- `docker/services/deluge/enable-remote.sh` - Init script to enable RPC remote connections
+- `docker/fixtures/config.local.json` - Config for running transferarr locally against Docker services
+
+### Running Transferarr with Test Environment
+```bash
+# Start all services (includes transferarr)
+docker compose -f docker/docker-compose.test.yml up -d
+
+# To run transferarr locally instead, stop the container and run locally
+docker stop test-transferarr
+./docker/fixtures/update-local-config.sh  # Updates API keys in config.local.json
+source venv-dev/bin/activate
+python -m transferarr.main --config docker/fixtures/config.local.json
+```
+
+### Torznab API Notes
+The mock-indexer implements a minimal Torznab API. Key requirements for Radarr/Sonarr compatibility:
+- **RFC 2822 Date Format**: `pubDate` must have correct day-of-week (e.g., "Mon, 08 Dec 2025"). 
+  Radarr's `DateTime.Parse` with `DateTimeFormatInfo.InvariantInfo` validates the day-of-week matches the actual date.
+- **Categories**: Movie categories start at 2000 (2040=HD), TV categories start at 5000 (5030=SD)
+- **Capabilities XML**: Must include `<search>`, `<movie-search>`, `<tv-search>` with `supportedParams="q"`
+
+### Service Startup Flow
+The test environment uses Docker Compose profiles and dependencies:
+
+1. **Base services** start first: tracker, sftp-server, deluge-source, deluge-target
+2. **fix-permissions** runs to create `/downloads/movies` and `/downloads/tv` directories with correct ownership
+3. **Media managers** (radarr, sonarr) start after base services are healthy
+4. **service-registrar** runs after media managers, registering:
+   - Root folders (`/downloads/movies`, `/downloads/tv`)
+   - Download client (source-deluge)
+   - Mock indexer (if torrents exist)
+   - Generates `config.json` for transferarr
+5. **transferarr** starts after registration completes
+
+### Running Integration Tests (Phase 5)
+
+Integration tests are in `tests/integration/` and use pytest. Use the `run_tests.sh` script for easy execution:
+
+```bash
+# Prerequisites: Start test services
+docker compose -f docker/docker-compose.test.yml up -d
+
+# Run all integration tests (Docker by default, includes cleanup)
+./run_tests.sh
+
+# Run without automatic cleanup
+./run_tests.sh --no-cleanup
+
+# Run specific tests
+./run_tests.sh tests/integration/test_torrent_lifecycle.py -v -s
+
+# Run with pytest filters
+./run_tests.sh -k "lifecycle" -v
+
+# Run locally instead of Docker (includes cleanup)
+./run_tests.sh --local tests/integration/ -v
+
+# Run movie catalog validation (slow)
+./run_tests.sh tests/test_movie_catalog.py -v -s
+```
+
+#### Manual Docker Commands (Alternative)
+
+```bash
+# Run all integration tests via Docker
+# (test code is mounted, dependencies are cached - no rebuild needed!)
+docker compose -f docker/docker-compose.test.yml --profile test run --rm test-runner
+
+# Run specific test
+docker compose -f docker/docker-compose.test.yml --profile test run --rm test-runner \
+  tests/integration/test_torrent_lifecycle.py -v -s
+
+# Run with custom pytest args
+docker compose -f docker/docker-compose.test.yml --profile test run --rm test-runner \
+  tests/integration/ -v -s
+```
+
+**Note**: The test runner mounts source code and caches pip dependencies. You only need to rebuild if you modify the Dockerfile itself or system dependencies.
+
+#### Option 2: Local Python venv
+
+```bash
+# Prerequisites: Start test services
+docker compose -f docker/docker-compose.test.yml up -d
+
+# Run all integration tests locally (includes cleanup)
+source venv-dev/bin/activate
+./run_tests.sh --local tests/integration/ -v
+
+# Run specific test
+./run_tests.sh --local tests/integration/test_torrent_lifecycle.py -v -s
+```
+
+**Test Files**:
+- `tests/conftest.py` - Fixtures for Docker, API clients, cleanup
+- `tests/utils.py` - Helper functions (wait_for_*, clear_*, movie_catalog)
+- `tests/integration/helpers.py` - Unified `LifecycleRunner` and `MediaManagerAdapter`
+- `tests/integration/*.py` - Integration test files (see `docs/integration-tests.md` for complete test names and descriptions)
+- `tests/catalog_tests/test_movie_catalog.py` - Validation test for all movies in the catalog (marked slow, excluded by default)
+- `tests/catalog_tests/test_show_catalog.py` - Validation test for all shows in the catalog (marked slow, excluded by default)
+- `docker/services/test-runner/Dockerfile` - Docker image for test execution
+- `pytest.ini` - Pytest configuration with warning filters and slow test exclusion
+
+**Key Fixtures** (in `tests/conftest.py`):
+
+The conftest uses internal helper functions (prefixed with `_`) to reduce duplication:
+- `_extract_api_key()` - Generic API key extraction from *arr config.xml
+- `_register_mock_indexer()` - Generic mock indexer registration for Radarr/Sonarr
+
+*Session-scoped fixtures*:
+- `docker_services` - Ensures all containers are healthy
+- `radarr_client` - REST API client for Radarr
+- `sonarr_client` - REST API client for Sonarr
+- `radarr_api_key` / `sonarr_api_key` - API keys extracted from config.xml
+- `ensure_indexer_registered` / `ensure_sonarr_indexer_registered` - Registers mock indexer
+
+*Function-scoped fixtures*:
+- `deluge_source`, `deluge_target` - RPC clients for Deluge instances
+- `deluge_target_2` - RPC client for second target Deluge (skip if not running)
+- `create_torrent` - Factory to create test torrents via torrent-creator container (supports `size_mb` and `multi_file` params)
+- `transferarr` - Manager to start/stop/restart transferarr container (supports `config_type` param for multi-target)
+- `clean_test_environment` - Standard setup/teardown fixture for all integration tests
+- `lifecycle_runner` - Unified runner for standardized migration tests (Radarr/Sonarr)
+
+**Key Test Utilities** (in `tests/utils.py`):
+
+The test utilities use internal helper functions (prefixed with `_`) to reduce duplication. Public functions are thin wrappers around these helpers.
+
+*Queue Utilities* (use generic `_wait_for_queue_item_by_hash()` and `_find_queue_item_by_name()` internally):
+- `wait_for_queue_item_by_hash()` - Wait for torrent in Radarr queue by hash (preferred). Has `check_for_errors=True` param that raises `QueueItemError` on download failures.
+- `wait_for_sonarr_queue_item_by_hash()` - Wait for torrent in Sonarr queue by hash. Same error detection as Radarr version.
+- `find_queue_item_by_name()` / `find_sonarr_queue_item_by_name()` - Find queue item by name substring
+- `remove_from_queue_by_name()` / `remove_from_sonarr_queue_by_name()` - Find and remove queue item by name
+- `check_queue_item_for_errors()` - Check if queue item has error status (returns tuple of `(has_error, error_message)`)
+- `QueueItemError` - Exception raised when queue item has error status (has `queue_item`, `status`, `tracked_status`, `error_message` attributes)
+
+*Wait Utilities*:
+- `wait_for_condition()` - Generic wait helper used by other wait functions
+- `wait_for_torrent_in_deluge()` - Wait for torrent in Deluge with expected state
+- `wait_for_torrent_removed()` - Wait for torrent to be removed from Deluge
+- `wait_for_transferarr_state()` - Wait for torrent to reach state in transferarr
+
+*Cleanup Utilities*:
+- `clear_radarr_state()` - Clear all movies and queue items
+- `clear_sonarr_state()` - Clear all series and queue items
+- `clear_deluge_torrents()` - Remove all torrents from Deluge instance
+
+*Catalogs & Naming*:
+- `movie_catalog` - Singleton that provides unique test movies to avoid collisions
+- `show_catalog` - Singleton that provides unique test shows to avoid collisions
+- `sanitize_title_for_torrent()` - Sanitize titles for torrent names (removes colons, en dashes, etc.)
+- `make_torrent_name()` - Create standard movie torrent name from title and year
+- `make_episode_name()` - Create standard episode torrent name (Show.Title.S01E01...)
+
+*Other*:
+- `decode_bytes()` - Recursively decode bytes from Deluge RPC responses
+- `corrupt_state_file()` - Corrupt transferarr's state.json for testing recovery
+- `delete_state_file()` - Delete transferarr's state.json for testing recovery
+
+**Integration Test Pattern**:
+Standardized migration tests should use the `lifecycle_runner` fixture to avoid boilerplate.
+
+```python
+class TestSomething:
+    @pytest.fixture(autouse=True)
+    def setup(self, clean_test_environment):
+        """Use shared test environment setup."""
+        pass
+    
+    @pytest.mark.timeout(TIMEOUTS['torrent_transfer'])
+    def test_radarr_migration(self, lifecycle_runner):
+        # Runs the full 7-step migration for a movie
+        lifecycle_runner.run_migration_test('radarr', item_type='movie')
+
+    @pytest.mark.timeout(TIMEOUTS['torrent_transfer'])
+    def test_sonarr_season_pack(self, lifecycle_runner):
+        # Runs the full 7-step migration for a season pack
+        lifecycle_runner.run_migration_test(
+            'sonarr', 
+            item_type='season-pack', 
+            show_key='the_flash', 
+            season_number=1
+        )
+```
+
+**Manual Pattern** (for edge cases/error handling):
+If the standard runner is too restrictive, use the manual pattern:
+```python
+    def test_manual_example(self, create_torrent, radarr_client, deluge_source, 
+                            deluge_target, transferarr, docker_services):
+        # 1. Get unique movie from catalog
+        movie = movie_catalog.get_movie()
+        torrent_name = make_torrent_name(movie['title'], movie['year'])
+        
+        # 2. Create torrent and add to Radarr
+        torrent_info = create_torrent(torrent_name, size_mb=10)
+        radarr_client.add_movie(title=movie['title'], tmdb_id=movie['tmdb_id'], ...)
+        
+        # 3. Wait for queue item BY HASH
+        wait_for_queue_item_by_hash(radarr_client, torrent_info['hash'], ...)
+        
+        # 4. Start transferarr and wait for state transitions
+        transferarr.start(wait_healthy=True)
+        wait_for_transferarr_state(transferarr, torrent_name, 'TARGET_SEEDING')
+```
+
+**Warning Handling**:
+- `pytest.ini` filters paramiko's TripleDES deprecation warning (library-level, can't fix)
+- `decode_utf8=True` is set on all `DelugeRPCClient` instances to avoid deluge-client deprecation
+- **Small test files**: Radarr/Sonarr show "Unable to determine if file is a sample" for files under ~50MB. This prevents auto-import but doesn't block the transfer flow.
+- **Indexer registration**: Mock indexer registration fails if no torrents exist yet. Create torrents first, then re-run `service-registrar` or manually trigger a search after creating torrents.
+- **Capabilities XML**: Must include `<search>`, `<movie-search>`, `<tv-search>` with `supportedParams="q"`
+
+### Critical Testing Notes
+
+**Always use hash-based queue matching**: Radarr/Sonarr's `downloadId` field contains the torrent hash (uppercase). Use `wait_for_queue_item_by_hash()` or `wait_for_sonarr_queue_item_by_hash()` instead of name-based matching because:
+- Mock indexer may have pre-existing torrents with similar names but different hashes
+- Name matching can fail when the media manager grabs a different torrent than the one created for the test
+
+**Clean mock indexer between test runs**: The cleanup script (`./docker/scripts/cleanup.sh all`) clears mock indexer torrents to prevent hash collisions. Always run cleanup before tests.
+
+**Use catalogs for unique items**: Use `movie_catalog` or `show_catalog` in `tests/utils.py` to avoid collisions and "already exists" errors in Radarr/Sonarr.
+
+**Torrent Name Sanitization**: Always use `make_torrent_name()` or `make_episode_name()` to generate torrent names. Media managers are sensitive to:
+- **Colons**: Must be removed (e.g., "Avengers: Endgame" -> "Avengers.Endgame")
+- **En Dashes**: Must be replaced with spaces/dots
+- **Years in Titles**: Avoid movies with years in their actual titles (e.g., "Blade Runner 2049") as the parser gets confused when combined with the release year.
+- **Episode/Part Numbers**: Avoid movies with "Episode X" or "Part X" in their full titles (e.g., "Star Wars: Episode VII – The Force Awakens"). Radarr's clean title strips these, causing matching failures. Use shorter titles (e.g., "Star Wars: The Force Awakens").
+- **Articles**: Radarr's parser removes articles like "and the" from titles when matching. If a movie title contains these, the torrent name may not match. Test with Radarr's `/api/v3/parse` endpoint.
+- **Aliases**: For Sonarr, use the title returned by the API (`added_series['title']`) for torrent naming to handle aliases (e.g., "The Flash" vs "The Flash (2014)").
+
+**Sonarr Specifics**:
+- **Daily/Yearly Shows**: Some shows use years as seasons (e.g., "Washington Week" -> `S1967E01`). The mock indexer supports multi-digit seasons.
+- **TVDB ID**: The mock indexer must return `tvdbid` in Torznab XML attributes for Sonarr to match correctly.
+- **Sizing**: Sonarr has strict "Minimum/Maximum Size" constraints. The mock indexer uses dynamic sizing (150MB-500MB) to satisfy these.
+
+**TIMEOUTS constant**: Standard timeouts are defined in `tests/conftest.py`:
+```python
+TIMEOUTS = {
+    'service_startup': 120,      # 2 minutes for all services to be healthy
+    'torrent_transfer': 300,     # 5 minutes for file transfer
+    'state_transition': 120,     # 2 minutes for state machine transitions
+    'api_response': 30,          # 30 seconds for API calls
+    'torrent_seeding': 60,       # 1 minute for torrent to start seeding
+}
+```
