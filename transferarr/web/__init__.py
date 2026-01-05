@@ -1,4 +1,5 @@
 from flask import Flask
+from flasgger import Swagger
 
 def create_app(config, torrent_manager):
     app = Flask(__name__, 
@@ -7,6 +8,16 @@ def create_app(config, torrent_manager):
     
     # Store torrent_manager in app configuration
     app.config['TORRENT_MANAGER'] = torrent_manager
+    
+    # Configure Swagger/OpenAPI documentation
+    app.config['SWAGGER'] = {
+        'title': 'Transferarr API',
+        'description': 'API for managing torrent transfers between download clients',
+        'version': '1.0.0',
+        'uiversion': 3,
+        'specs_route': '/apidocs/'
+    }
+    Swagger(app)
     
     # Configure logging for Flask
     if config.get("web_log_file"):

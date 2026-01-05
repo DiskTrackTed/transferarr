@@ -10,7 +10,28 @@ api_bp = Blueprint('api', __name__, url_prefix='/api')
 
 @api_bp.route("/health")
 def health_check():
-    """Health check endpoint for Docker/monitoring."""
+    """Health check endpoint for Docker/monitoring.
+    ---
+    tags:
+      - System
+    responses:
+      200:
+        description: Service is healthy
+        schema:
+          type: object
+          properties:
+            status:
+              type: string
+              example: healthy
+            torrent_manager:
+              type: boolean
+              example: true
+            version:
+              type: string
+              example: "1.0.0"
+      500:
+        description: Service is unhealthy
+    """
     try:
         torrent_manager = current_app.config.get('TORRENT_MANAGER')
         return jsonify({
@@ -27,7 +48,20 @@ def health_check():
 
 @api_bp.route("/config")
 def get_config():
-    """API endpoint to get the current configuration."""
+    """Get the current configuration (sanitized).
+    ---
+    tags:
+      - System
+    responses:
+      200:
+        description: Current configuration
+        schema:
+          type: object
+          properties:
+            download_clients:
+              type: object
+              description: Configured download clients
+    """
     # Return a sanitized version of the config (without sensitive information if needed)
     torrent_manager = current_app.config['TORRENT_MANAGER']
     safe_config = {
@@ -37,7 +71,34 @@ def get_config():
 
 @api_bp.route("/download_clients", methods=["GET"])
 def get_download_clients():
-    """API endpoint to get the list of download clients."""
+    """Get all configured download clients.
+    ---
+    tags:
+      - Download Clients
+    responses:
+      200:
+        description: Dictionary of download clients
+        schema:
+          type: object
+          additionalProperties:
+            type: object
+            properties:
+              name:
+                type: string
+              type:
+                type: string
+                example: deluge
+              host:
+                type: string
+              port:
+                type: integer
+              username:
+                type: string
+              password:
+                type: string
+      500:
+        description: Server error
+    """
     try:
         torrent_manager = current_app.config['TORRENT_MANAGER']
         download_clients_data = {}
@@ -59,7 +120,57 @@ def get_download_clients():
 
 @api_bp.route("/download_clients", methods=["POST"])
 def add_download_client():
-    """API endpoint to add a new download client."""
+    """Add a new download client.
+    ---
+    tags:
+      - Download Clients
+    parameters:
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          required:
+            - name
+            - type
+            - host
+            - port
+            - password
+            - connection_type
+          properties:
+            name:
+              type: string
+              description: Unique name for the client
+            type:
+              type: string
+              enum: [deluge]
+              description: Client type
+            host:
+              type: string
+              description: Hostname or IP address
+            port:
+              type: integer
+              description: Port number (58846 for RPC, 8112 for Web)
+            username:
+              type: string
+              description: Username (optional, RPC only)
+            password:
+              type: string
+              description: Password
+            connection_type:
+              type: string
+              enum: [rpc, web]
+              description: Connection method
+    responses:
+      200:
+        description: Client added successfully
+      400:
+        description: Invalid client data
+      409:
+        description: Client with this name already exists
+      500:
+        description: Server error
+    """
     try:
         torrent_manager = current_app.config['TORRENT_MANAGER']
         client_data = request.json
@@ -114,7 +225,52 @@ def add_download_client():
 
 @api_bp.route("/download_clients/<name>", methods=["PUT"])
 def edit_download_client(name):
-    """API endpoint to edit an existing download client."""
+    """Update an existing download client.
+    ---
+    tags:
+      - Download Clients
+    parameters:
+      - in: path
+        name: name
+        type: string
+        required: true
+        description: Name of the client to update
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          required:
+            - type
+            - host
+            - port
+            - password
+            - connection_type
+          properties:
+            type:
+              type: string
+              enum: [deluge]
+            host:
+              type: string
+            port:
+              type: integer
+            username:
+              type: string
+            password:
+              type: string
+            connection_type:
+              type: string
+              enum: [rpc, web]
+    responses:
+      200:
+        description: Client updated successfully
+      400:
+        description: Invalid client data
+      404:
+        description: Client not found
+      500:
+        description: Server error
+    """
     try:
         torrent_manager = current_app.config['TORRENT_MANAGER']
         client_data = request.json
@@ -172,7 +328,26 @@ def edit_download_client(name):
 
 @api_bp.route("/download_clients/<name>", methods=["DELETE"])
 def delete_download_client(name):
-    """API endpoint to delete a download client."""
+    """Delete a download client.
+    ---
+    tags:
+      - Download Clients
+    parameters:
+      - in: path
+        name: name
+        type: string
+        required: true
+        description: Name of the client to delete
+    responses:
+      200:
+        description: Client deleted successfully
+      404:
+        description: Client not found
+      409:
+        description: Client is used in connections and cannot be deleted
+      500:
+        description: Server error
+    """
     try:
         torrent_manager = current_app.config['TORRENT_MANAGER']
         # Create a copy of the config to modify
@@ -209,7 +384,52 @@ def delete_download_client(name):
 
 @api_bp.route("/download_clients/test", methods=["POST"])
 def test_download_client():
-    """API endpoint to test a download client connection."""
+    """Test a download client connection.
+    ---
+    tags:
+      - Download Clients
+    parameters:
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          required:
+            - type
+            - host
+            - port
+            - password
+            - connection_type
+          properties:
+            type:
+              type: string
+              enum: [deluge]
+            host:
+              type: string
+            port:
+              type: integer
+            username:
+              type: string
+            password:
+              type: string
+            connection_type:
+              type: string
+              enum: [rpc, web]
+    responses:
+      200:
+        description: Connection test result
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+            message:
+              type: string
+      400:
+        description: Invalid client data
+      500:
+        description: Server error
+    """
     try:
         client_data = request.json
         if not client_data:
@@ -246,7 +466,45 @@ def test_download_client():
 
 @api_bp.route("/connections")
 def get_connections():
-    """API endpoint to get information about current connections."""
+    """Get all configured transfer connections.
+    ---
+    tags:
+      - Connections
+    responses:
+      200:
+        description: List of connections
+        schema:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+              from:
+                type: string
+                description: Source client name
+              to:
+                type: string
+                description: Destination client name
+              source_dot_torrent_path:
+                type: string
+              source_torrent_download_path:
+                type: string
+              destination_dot_torrent_tmp_dir:
+                type: string
+              destination_torrent_download_path:
+                type: string
+              transfer_config:
+                type: object
+              active_transfers:
+                type: integer
+              max_transfers:
+                type: integer
+              total_transfers:
+                type: integer
+              status:
+                type: string
+    """
     # TODO, put this in connection class?
     torrent_manager = current_app.config['TORRENT_MANAGER']
     connections_data = []
@@ -273,7 +531,105 @@ def get_connections():
 
 @api_bp.route("/connections", methods=["POST"])
 def add_connection():
-    """API endpoint to add a new connection."""
+    """Add a new transfer connection.
+    ---
+    tags:
+      - Connections
+    parameters:
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          required:
+            - from
+            - to
+            - transfer_config
+            - source_dot_torrent_path
+            - source_torrent_download_path
+            - destination_dot_torrent_tmp_dir
+            - destination_torrent_download_path
+          properties:
+            from:
+              type: string
+              description: Source download client name
+            to:
+              type: string
+              description: Destination download client name
+            transfer_config:
+              type: object
+              description: Transfer method configuration
+              properties:
+                from:
+                  type: object
+                  properties:
+                    type:
+                      type: string
+                      enum: [local, sftp]
+                    sftp:
+                      type: object
+                      properties:
+                        ssh_config_file:
+                          type: string
+                        ssh_config_host:
+                          type: string
+                        host:
+                          type: string
+                        port:
+                          type: integer
+                        username:
+                          type: string
+                        password:
+                          type: string
+                        private_key:
+                          type: string
+                to:
+                  type: object
+                  properties:
+                    type:
+                      type: string
+                      enum: [local, sftp]
+                    sftp:
+                      type: object
+                      properties:
+                        ssh_config_file:
+                          type: string
+                        ssh_config_host:
+                          type: string
+                        host:
+                          type: string
+                        port:
+                          type: integer
+                        username:
+                          type: string
+                        password:
+                          type: string
+                        private_key:
+                          type: string
+            source_dot_torrent_path:
+              type: string
+              description: Path to .torrent files on source
+            source_torrent_download_path:
+              type: string
+              description: Download path on source
+            destination_dot_torrent_tmp_dir:
+              type: string
+              description: Temp directory for .torrent files on destination
+            destination_torrent_download_path:
+              type: string
+              description: Download path on destination
+    responses:
+      200:
+        description: Connection added successfully
+      400:
+        description: Invalid connection data
+      404:
+        description: One or both clients not found
+      409:
+        description: Connection already exists
+      500:
+        description: Server error
+    """
     try:
         torrent_manager = current_app.config['TORRENT_MANAGER']
         connection_data = request.json
@@ -345,7 +701,47 @@ def add_connection():
 
 @api_bp.route("/connections/test", methods=["POST"])
 def test_connections():
-    """API endpoint to test a connection between two download clients."""
+    """Test a connection between two download clients.
+    ---
+    tags:
+      - Connections
+    parameters:
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          required:
+            - from
+            - to
+            - transfer_config
+          properties:
+            from:
+              type: string
+              description: Source client name
+            to:
+              type: string
+              description: Destination client name
+            transfer_config:
+              type: object
+              description: Transfer method configuration
+    responses:
+      200:
+        description: Connection test result
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+            message:
+              type: string
+      400:
+        description: Invalid connection data
+      404:
+        description: One or both clients not found
+      500:
+        description: Server error
+    """
     try:
         torrent_manager = current_app.config['TORRENT_MANAGER']
         connection_data = request.json
@@ -385,7 +781,56 @@ def test_connections():
 
 @api_bp.route("/connections/<int:connection_id>", methods=["PUT"])
 def edit_connection(connection_id):
-    """API endpoint to edit an existing connection."""
+    """Update an existing connection.
+    ---
+    tags:
+      - Connections
+    parameters:
+      - in: path
+        name: connection_id
+        type: integer
+        required: true
+        description: Connection ID
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          required:
+            - from
+            - to
+            - transfer_config
+            - source_dot_torrent_path
+            - source_torrent_download_path
+            - destination_dot_torrent_tmp_dir
+            - destination_torrent_download_path
+          properties:
+            from:
+              type: string
+            to:
+              type: string
+            transfer_config:
+              type: object
+            source_dot_torrent_path:
+              type: string
+            source_torrent_download_path:
+              type: string
+            destination_dot_torrent_tmp_dir:
+              type: string
+            destination_torrent_download_path:
+              type: string
+    responses:
+      200:
+        description: Connection updated successfully
+      400:
+        description: Invalid connection data
+      404:
+        description: Connection or client not found
+      409:
+        description: A different connection with these clients already exists
+      500:
+        description: Server error
+    """
     try:
         torrent_manager = current_app.config['TORRENT_MANAGER']
         if connection_id < 0 or connection_id >= len(torrent_manager.connections):
@@ -472,7 +917,24 @@ def edit_connection(connection_id):
     
 @api_bp.route("/connections/<int:connection_id>", methods=["DELETE"])
 def delete_connection(connection_id):
-    """API endpoint to delete an existing connection."""
+    """Delete an existing connection.
+    ---
+    tags:
+      - Connections
+    parameters:
+      - in: path
+        name: connection_id
+        type: integer
+        required: true
+        description: Connection ID
+    responses:
+      200:
+        description: Connection deleted successfully
+      404:
+        description: Connection not found
+      500:
+        description: Server error
+    """
     try:
         torrent_manager = current_app.config['TORRENT_MANAGER']
         if connection_id < 0 or connection_id >= len(torrent_manager.connections):
@@ -522,13 +984,75 @@ def delete_connection(connection_id):
 
 @api_bp.route("/torrents")
 def get_torrents():
-    """API endpoint to get the current state of torrents."""
+    """Get all tracked torrents and their states.
+    ---
+    tags:
+      - Torrents
+    responses:
+      200:
+        description: List of tracked torrents
+        schema:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              id:
+                type: string
+                description: Torrent hash (lowercase)
+              state:
+                type: string
+                description: Current torrent state (e.g., HOME_SEEDING, COPYING, TARGET_SEEDING)
+              home_client_name:
+                type: string
+                description: Name of the source download client
+              home_client_info:
+                type: object
+                description: Info from source client (progress, size, etc.)
+              target_client_name:
+                type: string
+                description: Name of the destination download client
+              target_client_info:
+                type: object
+                description: Info from destination client
+              progress:
+                type: number
+                description: Download/transfer progress (0-100)
+              size:
+                type: integer
+                description: Total size in bytes
+              transfer_speed:
+                type: number
+                description: Current transfer speed in bytes/sec
+              current_file:
+                type: string
+                description: Currently transferring file name
+              current_file_count:
+                type: integer
+                description: Number of files transferred
+              total_files:
+                type: integer
+                description: Total number of files to transfer
+    """
     torrent_manager = current_app.config['TORRENT_MANAGER']
     return jsonify([torrent.to_dict() for torrent in torrent_manager.torrents])
 
 @api_bp.route("/all_torrents")
 def get_all_torrents():
-    """API endpoint to get all torrents from all clients."""
+    """Get all torrents from all connected download clients.
+    ---
+    tags:
+      - Torrents
+    responses:
+      200:
+        description: Dictionary of torrents by client
+        schema:
+          type: object
+          additionalProperties:
+            type: object
+            description: Torrents from this client (keyed by torrent hash)
+    """
     all_torrents = {}
     
     torrent_manager = current_app.config['TORRENT_MANAGER']
@@ -562,7 +1086,66 @@ def get_all_torrents():
 
 @api_bp.route("/browse", methods=["POST"])
 def browse_directory():
-    """API endpoint to browse directories (local or remote via SFTP)."""
+    """Browse directories on local or remote (SFTP) filesystem.
+    ---
+    tags:
+      - Utilities
+    parameters:
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          required:
+            - type
+          properties:
+            type:
+              type: string
+              enum: [local, sftp]
+              description: Connection type
+            path:
+              type: string
+              description: Directory path to browse (default "/")
+            config:
+              type: object
+              description: SFTP configuration (required if type is sftp)
+              properties:
+                ssh_config_file:
+                  type: string
+                ssh_config_host:
+                  type: string
+                host:
+                  type: string
+                port:
+                  type: integer
+                username:
+                  type: string
+                password:
+                  type: string
+                private_key:
+                  type: string
+    responses:
+      200:
+        description: Directory listing
+        schema:
+          type: object
+          properties:
+            entries:
+              type: array
+              items:
+                type: object
+                properties:
+                  name:
+                    type: string
+                  path:
+                    type: string
+                  is_dir:
+                    type: boolean
+      400:
+        description: Invalid request data
+      500:
+        description: Server error
+    """
     try:
         data = request.json
         if not data:

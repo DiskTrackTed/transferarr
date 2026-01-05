@@ -271,9 +271,7 @@ services:
   # ============== APPLICATION ==============
 
   transferarr:
-    build:
-      context: ..
-      dockerfile: Dockerfile
+    image: transferarr:dev
     container_name: test-transferarr
     environment:
       - TZ=UTC
