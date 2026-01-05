@@ -5,7 +5,7 @@ set -e
 
 # Configuration
 IMAGE_NAME="${IMAGE_NAME:-transferarr}"
-IMAGE_TAG="${IMAGE_TAG:-latest}"
+IMAGE_TAG="${IMAGE_TAG:-dev}"
 DOCKERFILE="${DOCKERFILE:-Dockerfile}"
 
 # Get script directory (project root)

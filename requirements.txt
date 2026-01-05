@@ -8,6 +8,7 @@ python-abc
 deluge-client
 tqdm-loggable
 Flask
+flasgger
 requests
 
 # Testing
