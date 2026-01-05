@@ -7,6 +7,24 @@ import logging
 logger = logging.getLogger("transferarr")
 api_bp = Blueprint('api', __name__, url_prefix='/api')
 
+
+@api_bp.route("/health")
+def health_check():
+    """Health check endpoint for Docker/monitoring."""
+    try:
+        torrent_manager = current_app.config.get('TORRENT_MANAGER')
+        return jsonify({
+            "status": "healthy",
+            "torrent_manager": torrent_manager is not None,
+            "version": "1.0.0"
+        })
+    except Exception as e:
+        return jsonify({
+            "status": "unhealthy",
+            "error": str(e)
+        }), 500
+
+
 @api_bp.route("/config")
 def get_config():
     """API endpoint to get the current configuration."""

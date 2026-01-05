@@ -3,15 +3,15 @@ FROM python:3.9-slim
 # Set working directory
 WORKDIR /app
 
-# Copy application files
-# COPY ./main.py /app/
+# Copy requirements first for better caching
 COPY ./requirements.txt /app/
-# COPY ./transferarr /app/transferarr/
-# COPY ./templates /app/templates/
 
 # Install dependencies
-RUN apt-get update && apt-get install -y git procps && apt-get clean 
+RUN apt-get update && apt-get install -y git procps curl && apt-get clean 
 RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application files
+COPY ./transferarr /app/transferarr/
 
 # Set build arguments for customizable UID/GID
 ARG UID=1000
@@ -25,7 +25,9 @@ ENV GID=${GID}
 # Create a non-root user with specified UID/GID
 RUN groupadd -g ${GID} appuser && \
     useradd -u ${UID} -g ${GID} -m appuser && \
-    chown -R appuser:appuser /app
+    chown -R appuser:appuser /app && \
+    mkdir -p /tmp/torrents && \
+    chown appuser:appuser /tmp/torrents
 
 # Expose port (if needed)
 EXPOSE 10444

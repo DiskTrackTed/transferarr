@@ -1,0 +1,384 @@
+# Phase 1: Core Infrastructure Services
+# - Tracker for torrent communication
+# - SFTP for file transfers
+# - Two Deluge instances (source and target)
+
+services:
+  # ============== INFRASTRUCTURE ==============
+  
+  tracker:
+    image: lednerb/opentracker-docker
+    container_name: test-tracker
+    ports:
+      - "6969:6969/udp"
+      - "6969:6969/tcp"
+    networks:
+      - test-network
+    # Note: opentracker image is minimal alpine, check if port 6969 (0x1B39) is listening
+    healthcheck:
+      test: ["CMD-SHELL", "grep -q ':1B39' /proc/net/tcp"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+  sftp-server:
+    image: lscr.io/linuxserver/openssh-server:latest
+    container_name: test-sftp
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=UTC
+      - USER_NAME=testuser
+      - USER_PASSWORD=testpass
+      - PASSWORD_ACCESS=true
+    volumes:
+      - source-downloads:/home/testuser/downloads
+      - source-state:/home/testuser/state
+      - target-downloads:/home/testuser/target  # For SFTP destination testing
+      - target2-downloads:/home/testuser/target2  # For SFTP destination testing (target 2)
+    ports:
+      - "2222:2222"
+    networks:
+      - test-network
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "2222"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ============== DOWNLOAD CLIENTS ==============
+
+  deluge-source:
+    image: lscr.io/linuxserver/deluge:latest
+    container_name: test-deluge-source
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=UTC
+      - DELUGE_LOGLEVEL=info
+    volumes:
+      - source-config:/config
+      - source-downloads:/downloads
+      - source-state:/config/state
+      - ./services/deluge/auth:/config/auth
+      - ./services/deluge/web.conf:/config/web.conf:ro
+      - ./services/deluge/enable-remote.sh:/custom-cont-init.d/enable-remote.sh:ro
+    ports:
+      - "18112:8112"   # Web UI
+      - "18846:58846"  # RPC
+    networks:
+      - test-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8112"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  deluge-target:
+    image: lscr.io/linuxserver/deluge:latest
+    container_name: test-deluge-target
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=UTC
+      - DELUGE_LOGLEVEL=info
+    volumes:
+      - target-config:/config
+      - target-downloads:/downloads
+      - ./services/deluge/auth:/config/auth
+      - ./services/deluge/web.conf:/config/web.conf:ro
+      - ./services/deluge/enable-remote.sh:/custom-cont-init.d/enable-remote.sh:ro
+    ports:
+      - "18113:8112"   # Web UI (mapped to different host port)
+      - "18847:58846"  # RPC (mapped to different host port)
+    networks:
+      - test-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8112"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  deluge-target-2:
+    image: lscr.io/linuxserver/deluge:latest
+    container_name: test-deluge-target-2
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=UTC
+      - DELUGE_LOGLEVEL=info
+    volumes:
+      - target2-config:/config
+      - target2-downloads:/downloads
+      - ./services/deluge/auth:/config/auth
+      - ./services/deluge/web.conf:/config/web.conf:ro
+      - ./services/deluge/enable-remote.sh:/custom-cont-init.d/enable-remote.sh:ro
+    ports:
+      - "18114:8112"   # Web UI (mapped to different host port)
+      - "18848:58846"  # RPC (mapped to different host port)
+    networks:
+      - test-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8112"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  # ============== MEDIA MANAGERS ==============
+
+  radarr:
+    image: lscr.io/linuxserver/radarr:latest
+    container_name: test-radarr
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=UTC
+    volumes:
+      - radarr-config:/config
+      - source-downloads:/downloads
+    ports:
+      - "17878:7878"
+    networks:
+      - test-network
+    depends_on:
+      deluge-source:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7878/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+
+  sonarr:
+    image: lscr.io/linuxserver/sonarr:latest
+    container_name: test-sonarr
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=UTC
+    volumes:
+      - sonarr-config:/config
+      - source-downloads:/downloads
+    ports:
+      - "18989:8989"
+    networks:
+      - test-network
+    depends_on:
+      deluge-source:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8989/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+
+  # ============== MOCK SERVICES ==============
+
+  mock-indexer:
+    build:
+      context: ./services/mock-indexer
+      dockerfile: Dockerfile
+    container_name: test-mock-indexer
+    environment:
+      - TORRENT_DIR=/torrents
+      - TRACKER_URL=http://tracker:6969/announce
+    volumes:
+      - test-torrents:/torrents
+      - ./services/mock-indexer/app.py:/app/app.py:ro
+    ports:
+      - "9696:9696"
+    networks:
+      - test-network
+    depends_on:
+      tracker:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9696/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ============== UTILITY CONTAINERS ==============
+
+  # Run: docker compose -f docker/docker-compose.test.yml run --rm torrent-creator --name "Test.Movie.2024" --size 10
+  torrent-creator:
+    build:
+      context: ./scripts
+      dockerfile: Dockerfile.torrent-creator
+    container_name: test-torrent-creator
+    environment:
+      - TRACKER_URL=http://tracker:6969/announce
+      - CONTENT_DIR=/downloads
+      - TORRENT_DIR=/torrents
+    volumes:
+      - source-downloads:/downloads
+      - test-torrents:/torrents
+    networks:
+      - test-network
+    profiles:
+      - tools  # Only run when explicitly requested
+
+  # ============== SETUP CONTAINERS ==============
+
+  fix-permissions:
+    image: alpine
+    container_name: test-fix-permissions
+    volumes:
+      - source-downloads:/source
+      - source-state:/state
+      - target-downloads:/target
+      - target2-downloads:/target2
+      - shared-config:/shared
+      - transferarr-state:/transferarr-state
+    command: >
+      sh -c "
+        mkdir -p /source/movies /source/tv /source/.torrents &&
+        mkdir -p /target/movies /target/tv /target/.torrents &&
+        mkdir -p /target2/movies /target2/tv /target2/.torrents &&
+        chown -R 1000:1000 /source /state /target /target2 /shared /transferarr-state &&
+        chmod -R 755 /source /state /target /target2 /shared /transferarr-state
+      "
+    networks:
+      - test-network
+
+  service-registrar:
+    build:
+      context: .
+      dockerfile: ./scripts/Dockerfile.registrar
+    container_name: test-registrar
+    volumes:
+      - radarr-config:/radarr-config:ro
+      - sonarr-config:/sonarr-config:ro
+      - shared-config:/shared
+      - ./scripts:/scripts:ro
+    networks:
+      - test-network
+    depends_on:
+      radarr:
+        condition: service_healthy
+      sonarr:
+        condition: service_healthy
+      fix-permissions:
+        condition: service_completed_successfully
+
+  # ============== APPLICATION ==============
+
+  transferarr:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: test-transferarr
+    environment:
+      - TZ=UTC
+    volumes:
+      - shared-config:/app/config:ro
+      - transferarr-state:/app/state
+      - source-downloads:/source-downloads:ro  # For local source access
+      - source-state:/source-state:ro          # For local .torrent file access
+      - target-downloads:/target-downloads      # For local destination access (target 1)
+      - target2-downloads:/target2-downloads    # For local destination access (target 2)
+    ports:
+      - "10445:10444"  # Web UI (different host port to avoid conflicts)
+    networks:
+      - test-network
+    depends_on:
+      service-registrar:
+        condition: service_completed_successfully
+      deluge-source:
+        condition: service_healthy
+      deluge-target:
+        condition: service_healthy
+      sftp-server:
+        condition: service_healthy
+    command: ["python", "-m", "transferarr.main", "--config", "/app/config/config.json"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:10444/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ============== TEST RUNNER ==============
+
+  # Run: docker compose -f docker/docker-compose.test.yml --profile test run --rm test-runner
+  # Or with specific tests: docker compose -f docker/docker-compose.test.yml --profile test run --rm test-runner tests/integration/test_torrent_lifecycle.py -v
+  test-runner:
+    build:
+      context: ..
+      dockerfile: docker/services/test-runner/Dockerfile
+    container_name: test-runner
+    environment:
+      - PYTHONUNBUFFERED=1
+      - TEST_ENVIRONMENT=docker
+      # Service URLs for Docker network
+      - RADARR_HOST=radarr
+      - RADARR_PORT=7878
+      - SONARR_HOST=sonarr
+      - SONARR_PORT=8989
+      - DELUGE_SOURCE_HOST=deluge-source
+      - DELUGE_SOURCE_RPC_PORT=58846
+      - DELUGE_SOURCE_WEB_PORT=8112
+      - DELUGE_TARGET_HOST=deluge-target
+      - DELUGE_TARGET_RPC_PORT=58846
+      - DELUGE_TARGET_WEB_PORT=8112
+      - DELUGE_TARGET_2_HOST=deluge-target-2
+      - DELUGE_TARGET_2_RPC_PORT=58846
+      - DELUGE_TARGET_2_WEB_PORT=8112
+      - TRANSFERARR_HOST=transferarr
+      - TRANSFERARR_PORT=10444
+      - MOCK_INDEXER_HOST=mock-indexer
+      - MOCK_INDEXER_PORT=9696
+    volumes:
+      - radarr-config:/radarr-config:ro
+      - sonarr-config:/sonarr-config:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Mount test code for live updates without rebuild
+      - ../tests:/app/tests:ro
+      - ../pytest.ini:/app/pytest.ini:ro
+      - ../transferarr:/app/transferarr:ro
+      - ../requirements.txt:/app/requirements.txt:ro
+      # Mount fixtures directory for transfer type configs
+      - ./fixtures:/app/docker/fixtures:ro
+      # Cache pip dependencies - only reinstalls when requirements.txt changes
+      - test-runner-pip-cache:/pip-cache
+    networks:
+      - test-network
+    depends_on:
+      radarr:
+        condition: service_healthy
+      sonarr:
+        condition: service_healthy
+      deluge-source:
+        condition: service_healthy
+      deluge-target:
+        condition: service_healthy
+      mock-indexer:
+        condition: service_healthy
+    profiles:
+      - test  # Only run when explicitly requested with --profile test
+
+networks:
+  test-network:
+    driver: bridge
+
+volumes:
+  source-config:
+  source-downloads:
+  source-state:
+  target-config:
+  target-downloads:
+  target2-config:
+  target2-downloads:
+  radarr-config:
+  sonarr-config:
+  shared-config:
+  test-torrents:
+  transferarr-state:
+  test-runner-pip-cache:  # Caches pip dependencies between test runs

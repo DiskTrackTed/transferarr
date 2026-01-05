@@ -2,10 +2,15 @@ git+https://github.com/devopsarr/radarr-py.git
 git+https://github.com/devopsarr/sonarr-py.git
 bencode.py
 tqdm
-paramiko
+paramiko<3.0.0
 pysftp
 python-abc
 deluge-client
 tqdm-loggable
 Flask
 requests
+
+# Testing
+pytest>=7.0.0
+pytest-timeout>=2.0.0
+docker>=6.0.0

@@ -1,0 +1,60 @@
+{
+    "log_level": "DEBUG",
+    "state_file": "/app/state/state.json",
+    "media_managers": [
+        {
+            "type": "radarr",
+            "host": "http://radarr",
+            "port": 7878,
+            "api_key": "PLACEHOLDER_RADARR_API_KEY"
+        },
+        {
+            "type": "sonarr",
+            "host": "http://sonarr",
+            "port": 8989,
+            "api_key": "PLACEHOLDER_SONARR_API_KEY"
+        }
+    ],
+    "download_clients": {
+        "source-deluge": {
+            "type": "deluge",
+            "connection_type": "rpc",
+            "host": "deluge-source",
+            "port": 58846,
+            "username": "localclient",
+            "password": "testpassword"
+        },
+        "target-deluge": {
+            "type": "deluge",
+            "connection_type": "rpc",
+            "host": "deluge-target",
+            "port": 58846,
+            "username": "localclient",
+            "password": "testpassword"
+        }
+    },
+    "connections": [
+        {
+            "from": "source-deluge",
+            "to": "target-deluge",
+            "transfer_config": {
+                "from": {
+                    "type": "local"
+                },
+                "to": {
+                    "type": "sftp",
+                    "sftp": {
+                        "host": "sftp-server",
+                        "port": 2222,
+                        "username": "testuser",
+                        "password": "testpass"
+                    }
+                }
+            },
+            "source_dot_torrent_path": "/source-state/",
+            "source_torrent_download_path": "/source-downloads/",
+            "destination_dot_torrent_tmp_dir": "/home/testuser/target/.torrents/",
+            "destination_torrent_download_path": "/home/testuser/target/"
+        }
+    ]
+}
