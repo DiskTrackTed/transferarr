@@ -17,9 +17,6 @@ docker compose -f docker/docker-compose.test.yml up -d
 
 # Run specific file
 ./run_tests.sh tests/integration/test_torrent_lifecycle.py -v
-
-# Run locally instead of Docker
-./run_tests.sh --local tests/integration/ -v
 ```
 
 ## Test Files

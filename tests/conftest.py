@@ -1,10 +1,8 @@
 """
 Pytest configuration and fixtures for Transferarr integration tests.
 
-These tests can run in two modes:
-1. Local (venv): docker compose -f docker/docker-compose.test.yml up -d
-                 pytest tests/integration/ -v
-2. Docker:       docker compose -f docker/docker-compose.test.yml --profile test run --rm test-runner
+Run tests using the test runner:
+    ./run_tests.sh tests/integration/ -v
 """
 import os
 import pytest
@@ -19,9 +17,6 @@ from deluge_client import DelugeRPCClient
 # ==============================================================================
 # Constants
 # ==============================================================================
-
-# Detect if running inside Docker test container
-IS_DOCKER = os.environ.get('TEST_ENVIRONMENT') == 'docker'
 
 # Paths
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -47,61 +42,49 @@ TIMEOUTS = {
     'torrent_seeding': 60,       # 1 minute for torrent to start seeding
 }
 
-# Service URLs - read from environment if in Docker, otherwise use localhost with host ports
-if IS_DOCKER:
-    SERVICES = {
-        'radarr': {
-            'host': os.environ.get('RADARR_HOST', 'radarr'),
-            'port': int(os.environ.get('RADARR_PORT', '7878')),
-        },
-        'sonarr': {
-            'host': os.environ.get('SONARR_HOST', 'sonarr'),
-            'port': int(os.environ.get('SONARR_PORT', '8989')),
-        },
-        'mock_indexer': {
-            'host': os.environ.get('MOCK_INDEXER_HOST', 'mock-indexer'),
-            'port': int(os.environ.get('MOCK_INDEXER_PORT', '9696')),
-        },
-        'deluge_source': {
-            'host': os.environ.get('DELUGE_SOURCE_HOST', 'deluge-source'),
-            'rpc_port': int(os.environ.get('DELUGE_SOURCE_RPC_PORT', '58846')),
-            'web_port': int(os.environ.get('DELUGE_SOURCE_WEB_PORT', '8112')),
-        },
-        'deluge_target': {
-            'host': os.environ.get('DELUGE_TARGET_HOST', 'deluge-target'),
-            'rpc_port': int(os.environ.get('DELUGE_TARGET_RPC_PORT', '58846')),
-            'web_port': int(os.environ.get('DELUGE_TARGET_WEB_PORT', '8112')),
-        },
-        'deluge_target_2': {
-            'host': os.environ.get('DELUGE_TARGET_2_HOST', 'deluge-target-2'),
-            'rpc_port': int(os.environ.get('DELUGE_TARGET_2_RPC_PORT', '58846')),
-            'web_port': int(os.environ.get('DELUGE_TARGET_2_WEB_PORT', '8112')),
-        },
-        'transferarr': {
-            'host': os.environ.get('TRANSFERARR_HOST', 'transferarr'),
-            'port': int(os.environ.get('TRANSFERARR_PORT', '10444')),
-        },
-    }
-    # In Docker, config files are mounted directly
-    RADARR_CONFIG_PATH = Path('/radarr-config/config.xml')
-    SONARR_CONFIG_PATH = Path('/sonarr-config/config.xml')
-else:
-    # Local execution - use localhost with mapped host ports
-    SERVICES = {
-        'radarr': {'host': 'localhost', 'port': 17878},
-        'sonarr': {'host': 'localhost', 'port': 18989},
-        'mock_indexer': {'host': 'localhost', 'port': 9696},
-        'deluge_source': {'host': 'localhost', 'rpc_port': 18846, 'web_port': 18112},
-        'deluge_target': {'host': 'localhost', 'rpc_port': 18847, 'web_port': 18113},
-        'deluge_target_2': {'host': 'localhost', 'rpc_port': 18848, 'web_port': 18114},
-        'transferarr': {'host': 'localhost', 'port': 10445},
-    }
-    RADARR_CONFIG_PATH = None  # Will use docker exec
-    SONARR_CONFIG_PATH = None
+# Service URLs - Docker container hostnames (tests run inside Docker network)
+SERVICES = {
+    'radarr': {
+        'host': os.environ.get('RADARR_HOST', 'radarr'),
+        'port': int(os.environ.get('RADARR_PORT', '7878')),
+    },
+    'sonarr': {
+        'host': os.environ.get('SONARR_HOST', 'sonarr'),
+        'port': int(os.environ.get('SONARR_PORT', '8989')),
+    },
+    'mock_indexer': {
+        'host': os.environ.get('MOCK_INDEXER_HOST', 'mock-indexer'),
+        'port': int(os.environ.get('MOCK_INDEXER_PORT', '9696')),
+    },
+    'deluge_source': {
+        'host': os.environ.get('DELUGE_SOURCE_HOST', 'deluge-source'),
+        'rpc_port': int(os.environ.get('DELUGE_SOURCE_RPC_PORT', '58846')),
+        'web_port': int(os.environ.get('DELUGE_SOURCE_WEB_PORT', '8112')),
+    },
+    'deluge_target': {
+        'host': os.environ.get('DELUGE_TARGET_HOST', 'deluge-target'),
+        'rpc_port': int(os.environ.get('DELUGE_TARGET_RPC_PORT', '58846')),
+        'web_port': int(os.environ.get('DELUGE_TARGET_WEB_PORT', '8112')),
+    },
+    'deluge_target_2': {
+        'host': os.environ.get('DELUGE_TARGET_2_HOST', 'deluge-target-2'),
+        'rpc_port': int(os.environ.get('DELUGE_TARGET_2_RPC_PORT', '58846')),
+        'web_port': int(os.environ.get('DELUGE_TARGET_2_WEB_PORT', '8112')),
+    },
+    'transferarr': {
+        'host': os.environ.get('TRANSFERARR_HOST', 'transferarr'),
+        'port': int(os.environ.get('TRANSFERARR_PORT', '10444')),
+    },
+}
+
+# Config files are mounted directly in the Docker test container
+RADARR_CONFIG_PATH = Path('/radarr-config/config.xml')
+SONARR_CONFIG_PATH = Path('/sonarr-config/config.xml')
 
 # Credentials
 DELUGE_PASSWORD = "testpassword"
 DELUGE_USERNAME = "localclient"
+DELUGE_RPC_USERNAME = "transferarr"  # Separate RPC user (used by UI tests)
 
 
 # ==============================================================================
@@ -115,7 +98,7 @@ def _extract_api_key(docker_client, container_name: str, config_path: Path | Non
     Args:
         docker_client: Docker client instance
         container_name: Name of the container (e.g., 'test-radarr')
-        config_path: Path to config.xml if running in Docker, None otherwise
+        config_path: Path to config.xml when running in Docker
         service_name: Human-readable service name for error messages
     
     Returns:
@@ -124,11 +107,11 @@ def _extract_api_key(docker_client, container_name: str, config_path: Path | Non
     Raises:
         pytest.fail: If config cannot be read or API key not found
     """
-    if IS_DOCKER and config_path and config_path.exists():
-        # Running in Docker - read from mounted volume
+    if config_path and config_path.exists():
+        # Read from mounted volume
         config_content = config_path.read_text()
     else:
-        # Running locally - exec into container
+        # Fall back to docker exec if path not mounted
         container = docker_client.containers.get(container_name)
         result = container.exec_run("cat /config/config.xml")
         if result.exit_code != 0:
@@ -685,32 +668,11 @@ def create_torrent(docker_client, docker_services):
             )
             output = output.decode() if isinstance(output, bytes) else str(output)
         except docker.errors.ImageNotFound:
-            # Fallback to docker compose if image not built
-            compose_cmd = [
-                "docker", "compose", "-f", str(COMPOSE_FILE),
-                "--profile", "tools",
-                "run", "--rm", "torrent-creator",
-                "--name", name,
-                "--size", str(size_mb),
-                "--force"
-            ]
-            if multi_file:
-                compose_cmd.extend(["--files", "5"])
-            
-            if IS_DOCKER:
-                pytest.fail(
-                    "Torrent creator image not found. Build with: "
-                    "docker compose -f docker/docker-compose.test.yml --profile tools build torrent-creator"
-                )
-            result = subprocess.run(
-                compose_cmd,
-                capture_output=True,
-                text=True,
-                cwd=str(DOCKER_DIR),
+            # Image not built - fail with instructions
+            pytest.fail(
+                "Torrent creator image not found. Build with: "
+                "docker compose -f docker/docker-compose.test.yml --profile tools build torrent-creator"
             )
-            if result.returncode != 0:
-                pytest.fail(f"Failed to create torrent: {result.stderr}")
-            output = result.stdout
         
         # Parse output to get hash
         info_hash = None
@@ -789,21 +751,10 @@ def transferarr(docker_client, docker_services, radarr_api_key, sonarr_api_key):
                 if container.status != "running":
                     container.start()
             except docker.errors.NotFound:
-                # Container doesn't exist - need to create it via compose
-                # This only works from local execution, not inside Docker
-                if IS_DOCKER:
-                    pytest.fail(
-                        "Transferarr container not found. "
-                        "Start it with: docker compose --profile app up -d transferarr"
-                    )
-                subprocess.run(
-                    [
-                        "docker", "compose", "-f", str(COMPOSE_FILE),
-                        "--profile", "app",
-                        "up", "-d", "transferarr"
-                    ],
-                    cwd=str(DOCKER_DIR),
-                    capture_output=True,
+                # Container doesn't exist
+                pytest.fail(
+                    "Transferarr container not found. "
+                    "Start it with: docker compose --profile app up -d transferarr"
                 )
             
             if wait_healthy:
@@ -905,11 +856,15 @@ def transferarr(docker_client, docker_services, radarr_api_key, sonarr_api_key):
             config_content = json.dumps(config, indent=4)
             
             # Create a tar archive with the config file
+            # Set uid/gid to 1000 (appuser) and mode to 666 for CRUD test compatibility
             tar_buffer = io.BytesIO()
             with tarfile.open(fileobj=tar_buffer, mode='w') as tar:
                 config_bytes = config_content.encode('utf-8')
                 tarinfo = tarfile.TarInfo(name='config.json')
                 tarinfo.size = len(config_bytes)
+                tarinfo.uid = 1000  # appuser
+                tarinfo.gid = 1000  # appuser
+                tarinfo.mode = 0o666  # World-writable for CRUD tests
                 tar.addfile(tarinfo, io.BytesIO(config_bytes))
             tar_buffer.seek(0)
             

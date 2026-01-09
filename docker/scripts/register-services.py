@@ -303,6 +303,8 @@ def main():
     
     config_path = output_dir / "config.json"
     config_path.write_text(json.dumps(config, indent=2))
+    # Make config writable by anyone so transferarr can update it (for CRUD tests)
+    config_path.chmod(0o666)
     print(f"  Config written to {config_path}")
     
     print("\n" + "=" * 60)
