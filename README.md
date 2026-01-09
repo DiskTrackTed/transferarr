@@ -62,142 +62,9 @@ Visit `http://localhost:10444` to access the web dashboard.
 
 ## Configuration
 
-Transferarr uses a JSON configuration file. Create `config.json` with the following structure:
+All configuration can be setup via the UI, but is saved as a json so can be manually edited.
 
-```json
-{
-  "media_managers": [
-    {
-      "type": "radarr",
-      "host": "localhost",
-      "port": 7878,
-      "api_key": "your-radarr-api-key"
-    },
-    {
-      "type": "sonarr",
-      "host": "localhost",
-      "port": 8989,
-      "api_key": "your-sonarr-api-key"
-    }
-  ],
-  "download_clients": {
-    "homelab-deluge": {
-      "type": "deluge",
-      "connection_type": "rpc",
-      "host": "192.168.1.50",
-      "port": 58846,
-      "username": "localclient",
-      "password": "deluge-password"
-    },
-    "seedbox-deluge": {
-      "type": "deluge",
-      "connection_type": "web",
-      "host": "seedbox.example.com",
-      "port": 8112,
-      "password": "deluge-password"
-    }
-  },
-  "connections": [
-    {
-      "from": "homelab-deluge",
-      "to": "seedbox-deluge",
-      "transfer_config": {
-        "from": {
-          "type": "local"
-        },
-        "to": {
-          "type": "sftp",
-          "sftp": {
-            "ssh_config_file": "~/.ssh/config",
-            "ssh_config_host": "seedbox"
-          }
-        }
-      },
-      "source_dot_torrent_path": "/path/to/deluge/state/",
-      "source_torrent_download_path": "/path/to/downloads/",
-      "destination_dot_torrent_tmp_dir": "/home/user/tmp/",
-      "destination_torrent_download_path": "/home/user/downloads/"
-    }
-  ]
-}
-```
-
-### Configuration Options
-
-#### Media Managers
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `type` | string | ✓ | `radarr` or `sonarr` |
-| `host` | string | ✓ | Hostname or IP address (can include port, e.g., `localhost:7878`) |
-| `port` | number | | API port, only needed if not included in `host` |
-| `api_key` | string | ✓ | API key from Settings → General |
-
-#### Download Clients
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `type` | string | ✓ | `deluge` (more clients planned) |
-| `connection_type` | string | | `rpc` (daemon) or `web` (Web UI). Defaults to `rpc` |
-| `host` | string | ✓ | Hostname or IP address |
-| `port` | number | ✓ | RPC port (58846) or Web port (8112) |
-| `username` | string | | Username (RPC only, optional) |
-| `password` | string | ✓ | Password |
-
-#### Connections
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `from` | string | Name of source download client |
-| `to` | string | Name of destination download client |
-| `transfer_config` | object | Transfer method configuration (see below) |
-| `source_dot_torrent_path` | string | Path to `.torrent` files on source (Deluge state dir) |
-| `source_torrent_download_path` | string | Download path on source client |
-| `destination_dot_torrent_tmp_dir` | string | Temp directory for `.torrent` files on destination |
-| `destination_torrent_download_path` | string | Download path on destination client |
-
-#### Transfer Config
-
-The `transfer_config` object defines how files are transferred between source and destination:
-
-```json
-{
-  "from": {
-    "type": "local"
-  },
-  "to": {
-    "type": "sftp",
-    "sftp": {
-      "ssh_config_file": "~/.ssh/config",
-      "ssh_config_host": "seedbox"
-    }
-  }
-}
-```
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `from.type` | string | `local` or `sftp` |
-| `to.type` | string | `local` or `sftp` |
-
-**SFTP options** (nested under `sftp` key):
-
-*Option 1: Use SSH config file (recommended)*
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `ssh_config_file` | string | Path to SSH config file (default: `~/.ssh/config`) |
-| `ssh_config_host` | string | Host alias from SSH config |
-
-*Option 2: Direct credentials*
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `host` | string | Hostname or IP address |
-| `port` | number | SSH port (default: 22) |
-| `username` | string | SSH username |
-| `password` | string | SSH password (or use `private_key`) |
-| `private_key` | string | Path to SSH private key |
+See **[CONFIGURATION.md](CONFIGURATION.md)** for the complete configuration guide.
 
 ---
 
@@ -283,11 +150,11 @@ docker compose -f docker/docker-compose.test.yml up -d
 # Run integration tests
 ./run_tests.sh
 
-# Run specific tests
-./run_tests.sh tests/integration/test_torrent_lifecycle.py -v
+# Run UI tests
+./run_tests.sh tests/ui/ -v
 ```
 
-See [docs/integration-tests.md](docs/integration-tests.md) for detailed testing documentation.
+See [tests/TESTING.md](tests/TESTING.md) for the complete testing guide.
 
 ---
 

@@ -45,8 +45,35 @@ All configuration is JSON-based (`config.json`). Structure:
 
 ### Web API
 Flask blueprints in `web/routes/`:
-- `api.py` - REST API (`/api/*`) for clients, connections, torrents
+- `api.py` - REST API (`/api/*`) for clients, connections, torrents. All endpoints have YAML docstrings for flasgger/Swagger.
 - `ui.py` - HTML routes serving templates
+
+**API Documentation**: Interactive Swagger UI available at `http://localhost:10444/apidocs`. Powered by `flasgger`.
+
+When adding new API endpoints, include YAML docstrings in the function docstring for automatic Swagger documentation:
+```python
+@api_bp.route("/example", methods=["POST"])
+def example_endpoint():
+    """Short description of endpoint.
+    ---
+    tags:
+      - Category
+    parameters:
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          properties:
+            field_name:
+              type: string
+    responses:
+      200:
+        description: Success response
+      400:
+        description: Bad request
+    """
+```
 
 ## Development Commands
 
@@ -163,12 +190,14 @@ To add a new download client type (e.g., qBittorrent, Transmission):
 3. **Map client states** to `TorrentState` enum (HOME_* for source, TARGET_* for destination)
 
 ## Important Files
+- `README.md` - Project documentation (quick start, configuration, architecture)
 - `config.json` - Runtime configuration (gitignored, use `config copy.json` as template)
 - `state.json` - Persistent torrent state
 - `build.sh` - Docker image build script
 - `run_tests.sh` - Simplified test runner script (Docker or local)
 - `testing.ipynb` - Development/debugging notebook
-- `docs/integration-tests.md` - **Consolidated testing documentation** (test coverage, test names, patterns, troubleshooting)
+- `docs/integration-tests.md` - Integration test documentation (test coverage, test names, patterns)
+- `docs/ui-tests.md` - UI test documentation (Playwright, page objects, fixtures)
 - `docs/plans/testing-infrastructure.md` - Original testing infrastructure plan (historical)
 
 ## Testing Infrastructure
@@ -271,7 +300,7 @@ Integration tests are in `tests/integration/` and use pytest. Use the `run_tests
 # Prerequisites: Start test services
 docker compose -f docker/docker-compose.test.yml up -d
 
-# Run all integration tests (Docker by default, includes cleanup)
+# Run all integration tests (includes cleanup)
 ./run_tests.sh
 
 # Run without automatic cleanup
@@ -282,9 +311,6 @@ docker compose -f docker/docker-compose.test.yml up -d
 
 # Run with pytest filters
 ./run_tests.sh -k "lifecycle" -v
-
-# Run locally instead of Docker (includes cleanup)
-./run_tests.sh --local tests/integration/ -v
 
 # Run movie catalog validation (slow)
 ./run_tests.sh tests/test_movie_catalog.py -v -s
@@ -308,28 +334,15 @@ docker compose -f docker/docker-compose.test.yml --profile test run --rm test-ru
 
 **Note**: The test runner mounts source code and caches pip dependencies. You only need to rebuild if you modify the Dockerfile itself or system dependencies.
 
-#### Option 2: Local Python venv
-
-```bash
-# Prerequisites: Start test services
-docker compose -f docker/docker-compose.test.yml up -d
-
-# Run all integration tests locally (includes cleanup)
-source venv-dev/bin/activate
-./run_tests.sh --local tests/integration/ -v
-
-# Run specific test
-./run_tests.sh --local tests/integration/test_torrent_lifecycle.py -v -s
-```
-
 **Test Files**:
 - `tests/conftest.py` - Fixtures for Docker, API clients, cleanup
 - `tests/utils.py` - Helper functions (wait_for_*, clear_*, movie_catalog)
 - `tests/integration/helpers.py` - Unified `LifecycleRunner` and `MediaManagerAdapter`
 - `tests/integration/*.py` - Integration test files (see `docs/integration-tests.md` for complete test names and descriptions)
+- `tests/ui/` - UI tests using Playwright (see UI Testing section below)
 - `tests/catalog_tests/test_movie_catalog.py` - Validation test for all movies in the catalog (marked slow, excluded by default)
 - `tests/catalog_tests/test_show_catalog.py` - Validation test for all shows in the catalog (marked slow, excluded by default)
-- `docker/services/test-runner/Dockerfile` - Docker image for test execution
+- `docker/services/test-runner/Dockerfile` - Docker image for test execution (includes Chromium dependencies)
 - `pytest.ini` - Pytest configuration with warning filters and slow test exclusion
 
 **Key Fixtures** (in `tests/conftest.py`):
@@ -475,3 +488,45 @@ TIMEOUTS = {
     'torrent_seeding': 60,       # 1 minute for torrent to start seeding
 }
 ```
+
+### UI Testing
+
+**📖 Full documentation: [docs/ui-tests.md](../docs/ui-tests.md)**
+
+UI tests use Playwright for browser automation and follow the Page Object Model pattern.
+
+**Running UI Tests**:
+```bash
+# Run all UI tests in Docker (headless, screenshots on failure)
+./run_tests.sh tests/ui/ -v
+
+# Run specific test
+./run_tests.sh tests/ui/test_navigation.py -v -s
+```
+
+**Key Points**:
+- Page objects in `tests/ui/pages/` (BasePage, DashboardPage, TorrentsPage, SettingsPage)
+- Timeouts defined in `tests/ui/helpers.py` (`UI_TIMEOUTS` dict)
+- CRUD tests auto-cleanup created clients via API in fixture teardown
+- Screenshots saved to `test-results/` on failure
+
+**Playwright API Notes**:
+- **No `wait_for_response()`**: Use `expect_response()` as a context manager instead:
+  ```python
+  # WRONG - will raise AttributeError
+  response = page.wait_for_response(lambda r: "/api/torrents" in r.url)
+  
+  # CORRECT - use context manager
+  with page.expect_response(lambda r: "/api/torrents" in r.url, timeout=5000) as response_info:
+      pass  # Wait for the response
+  assert response_info.value.status == 200
+  ```
+- **Assertions**: Use `expect()` from `playwright.sync_api` for auto-retry assertions
+- **Regex in assertions**: Use `re.compile(r"pattern")` not JavaScript `/pattern/` syntax
+- **Locators**: Prefer `page.locator()` over `page.query_selector()` for auto-waiting
+
+**Docker Caching**:
+- Pip packages cached in `test-runner-pip-cache` volume
+- Playwright browsers cached in same volume (`/pip-cache/ms-playwright`)
+- pytest cache stored in `test-results/.pytest_cache` (writable mount)
+- Only reinstalls when `requirements.txt` hash changes or Playwright version changes

@@ -258,6 +258,35 @@ clean_all() {
     log_info "Full cleanup complete"
 }
 
+# Regenerate transferarr config by re-running service-registrar
+regenerate_config() {
+    log_info "Regenerating transferarr config..."
+    
+    # Stop transferarr first
+    docker compose -f "$COMPOSE_FILE" stop transferarr 2>/dev/null || true
+    
+    # Re-run the service registrar to regenerate config
+    docker compose -f "$COMPOSE_FILE" run --rm -T service-registrar
+    
+    # Restart transferarr with fresh config
+    docker compose -f "$COMPOSE_FILE" start transferarr
+    
+    # Wait for transferarr to be healthy
+    log_info "Waiting for transferarr to be healthy..."
+    local max_attempts=30
+    local attempt=0
+    while [[ $attempt -lt $max_attempts ]]; do
+        if curl -s -f "http://localhost:10445/api/health" > /dev/null 2>&1; then
+            log_info "Transferarr is healthy"
+            return 0
+        fi
+        ((attempt++))
+        sleep 1
+    done
+    
+    log_warn "Transferarr may not be healthy yet"
+}
+
 # Reset volumes - complete reset requiring service restart
 reset_volumes() {
     log_warn "Resetting Docker volumes - this will require restarting services"
@@ -294,6 +323,9 @@ case "${1:-all}" in
     state)
         clean_transferarr_state
         ;;
+    config)
+        regenerate_config
+        ;;
     volumes)
         reset_volumes
         ;;
@@ -310,12 +342,13 @@ case "${1:-all}" in
         clean_mock_indexer
         ;;
     *)
-        echo "Usage: $0 [all|torrents|state|volumes|downloads|radarr|sonarr|indexer]"
+        echo "Usage: $0 [all|torrents|state|config|volumes|downloads|radarr|sonarr|indexer]"
         echo ""
         echo "Commands:"
         echo "  all       - Clean all state (default)"
         echo "  torrents  - Clean only Deluge torrents"
         echo "  state     - Clean only transferarr state"
+        echo "  config    - Regenerate transferarr config (resets CRUD changes)"
         echo "  volumes   - Reset Docker volumes (requires restart)"
         echo "  downloads - Clean downloaded files only"
         echo "  radarr    - Clean Radarr queue and movies"
