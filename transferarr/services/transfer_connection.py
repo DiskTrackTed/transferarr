@@ -13,7 +13,8 @@ logger = logging.getLogger(__name__)
 class TransferConnection:
     max_transfers = 3
     
-    def __init__(self, config, from_client, to_client):
+    def __init__(self, name, config, from_client, to_client):
+        self.name = name
         self.config = config
         self.transfer_config = config.get("transfer_config")
         self.source_dot_torrent_path = config.get("source_dot_torrent_path")

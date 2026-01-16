@@ -254,6 +254,7 @@ clean_all() {
     clean_mock_indexer
     clean_transferarr_state
     clean_downloads
+    regenerate_config  # Restore config after CRUD tests may have modified it
     
     log_info "Full cleanup complete"
 }
@@ -262,29 +263,47 @@ clean_all() {
 regenerate_config() {
     log_info "Regenerating transferarr config..."
     
-    # Stop transferarr first
-    docker compose -f "$COMPOSE_FILE" stop transferarr 2>/dev/null || true
+    local output_file=$(mktemp)
+    local failed=false
     
-    # Re-run the service registrar to regenerate config
-    docker compose -f "$COMPOSE_FILE" run --rm -T service-registrar
+    # Stop transferarr first (quiet)
+    docker compose -f "$COMPOSE_FILE" stop transferarr >/dev/null 2>&1 || true
     
-    # Restart transferarr with fresh config
-    docker compose -f "$COMPOSE_FILE" start transferarr
+    # Re-run the service registrar to regenerate config (capture output)
+    if ! docker compose -f "$COMPOSE_FILE" run --rm -T service-registrar >"$output_file" 2>&1; then
+        failed=true
+    fi
+    
+    # Restart transferarr with fresh config (quiet)
+    if ! docker compose -f "$COMPOSE_FILE" start transferarr >/dev/null 2>&1; then
+        failed=true
+    fi
     
     # Wait for transferarr to be healthy
-    log_info "Waiting for transferarr to be healthy..."
     local max_attempts=30
     local attempt=0
+    local healthy=false
     while [[ $attempt -lt $max_attempts ]]; do
-        if curl -s -f "http://localhost:10445/api/health" > /dev/null 2>&1; then
-            log_info "Transferarr is healthy"
-            return 0
+        if curl -s -f "http://localhost:10445/api/v1/health" > /dev/null 2>&1; then
+            healthy=true
+            break
         fi
-        ((attempt++))
+        attempt=$((attempt + 1))
         sleep 1
     done
     
-    log_warn "Transferarr may not be healthy yet"
+    if [[ "$healthy" != "true" ]]; then
+        failed=true
+    fi
+    
+    # Only show output if something failed
+    if [[ "$failed" == "true" ]]; then
+        log_warn "Config regeneration may have failed. Output:"
+        cat "$output_file"
+        log_warn "Transferarr may not be healthy"
+    fi
+    
+    rm -f "$output_file"
 }
 
 # Reset volumes - complete reset requiring service restart

@@ -8,8 +8,10 @@ const API = {
      */
     fetchTorrents: async function() {
         try {
-            const response = await fetch('/api/torrents');
-            return await response.json();
+            const response = await fetch('/api/v1/torrents');
+            const json = await response.json();
+            // Unwrap data envelope (supports both old and new format)
+            return json.data || json;
         } catch (error) {
             console.error('Error fetching torrents:', error);
             return [];
@@ -22,8 +24,10 @@ const API = {
      */
     fetchAllTorrents: async function() {
         try {
-            const response = await fetch('/api/all_torrents');
-            return await response.json();
+            const response = await fetch('/api/v1/all_torrents');
+            const json = await response.json();
+            // Unwrap data envelope (supports both old and new format)
+            return json.data || json;
         } catch (error) {
             console.error('Error fetching all torrents:', error);
             return {};

@@ -99,7 +99,7 @@ See **[CONFIGURATION.md](CONFIGURATION.md)** for the complete configuration guid
 
 ## Web API
 
-Transferarr exposes a REST API with interactive documentation available at:
+Transferarr exposes a REST API at `/api/v1/` with interactive documentation available at:
 
 **`http://localhost:10444/apidocs`**
 

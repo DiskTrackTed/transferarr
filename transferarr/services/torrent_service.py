@@ -19,11 +19,13 @@ class TorrentManager:
         self.config_file = config_file
         self.media_managers = []
         self.download_clients = {}
-        self.connections = []
+        self.connections = {}  # Dict keyed by connection name
         self.state_file = config.get("state_file")
         self.running = False
         self.setup_media_managers(config)
         self.load_download_clients(config)
+        # Migrate connections config if needed (array to dict)
+        self._migrate_connections_config()
         self.load_connections(config)
 
     def setup_media_managers(self, config):
@@ -49,13 +51,57 @@ class TorrentManager:
 
     def load_connections(self, config):
         """Load the connections from the configuration."""
-        for connection in config["connections"]:
-            from_client = self.download_clients[connection["from"]]
-            to_client = self.download_clients[connection["to"]]
-            new_connection = TransferConnection(connection, from_client, to_client)
-            from_client.add_connection(new_connection)
-            to_client.add_connection(new_connection)
-            self.connections.append(new_connection)
+        connections_config = config.get("connections", {})
+        if not isinstance(connections_config, dict):
+            logger.warning("Connections config is not a dict - migration may have failed")
+            return
+        
+        for name, connection in connections_config.items():
+            try:
+                from_client = self.download_clients[connection["from"]]
+                to_client = self.download_clients[connection["to"]]
+                new_connection = TransferConnection(name, connection, from_client, to_client)
+                from_client.add_connection(new_connection)
+                to_client.add_connection(new_connection)
+                self.connections[name] = new_connection
+            except KeyError as e:
+                logger.error(f"Failed to load connection '{name}': missing client {e}")
+    
+    def _migrate_connections_config(self):
+        """Migrate connections from array format to dict format if needed.
+        
+        Auto-generates names as "{from} -> {to}".
+        Handles duplicates by appending numbers: "source -> target 2", etc.
+        """
+        connections = self.config.get("connections")
+        if not isinstance(connections, list):
+            return  # Already migrated or no connections
+        
+        logger.info("Migrating connections from array to dict format...")
+        migrated = {}
+        name_counts = {}  # Track how many times each base name has been used
+        
+        for conn in connections:
+            base_name = f"{conn['from']} -> {conn['to']}"
+            
+            # Check if this base name was already used
+            if base_name in name_counts:
+                name_counts[base_name] += 1
+                name = f"{base_name} {name_counts[base_name]}"
+            else:
+                name_counts[base_name] = 1
+                name = base_name
+            
+            migrated[name] = conn
+            logger.debug(f"Migrated connection: {name}")
+        
+        self.config["connections"] = migrated
+        
+        # Save the migrated config
+        if self.save_config(self.config):
+            logger.info(f"Successfully migrated {len(migrated)} connections")
+        else:
+            logger.error("Failed to save migrated connections config")
 
     def load_torrents_state(self):
         """Load the torrents state from a JSON file."""
@@ -103,7 +149,7 @@ class TorrentManager:
             self.thread.join(timeout=2)
         self.save_torrents_state()
 
-        for connection in self.connections:
+        for connection in self.connections.values():
             connection.shutdown()
     
     def _run_loop(self):
@@ -154,7 +200,7 @@ class TorrentManager:
                     continue
                 else:
                     ### Time to find it's target using our connections
-                    for connection in self.connections:
+                    for connection in self.connections.values():
                         found_connection = False
                         if connection.from_client.name == torrent.home_client.name:
                             torrent.set_target_client(connection.to_client)
@@ -183,7 +229,7 @@ class TorrentManager:
                     logger.debug(f"Torrent {torrent.name} is seeding on home client: {torrent.home_client.name}, checking connection")
                     ### Does the torrent have a to_client
                     if torrent.target_client is not None:
-                        for connection in self.connections:
+                        for connection in self.connections.values():
                             if connection.from_client.name == torrent.home_client.name and connection.to_client.name == torrent.target_client.name:
                                 if torrent.target_client.has_torrent(torrent):
                                     torrent.state = torrent.target_client.get_torrent_state(torrent)
@@ -196,7 +242,7 @@ class TorrentManager:
             elif torrent.state == TorrentState.COPYING:
                 # Check if the torrent is in any connection's active transfers
                 already_in_queue = False
-                for connection in self.connections: 
+                for connection in self.connections.values(): 
                     if any(t.name == torrent.name for t in connection.get_active_transfers()):
                         already_in_queue = True
                         logger.debug(f"Torrent {torrent.name} is already in the transfer queue")
@@ -204,7 +250,7 @@ class TorrentManager:
                 # If not in the queue, find the appropriate connection and enqueue it
                 if not already_in_queue and torrent.home_client and torrent.target_client:
                     connection_found = False
-                    for connection in self.connections:
+                    for connection in self.connections.values():
                         if (connection.from_client.name == torrent.home_client.name and 
                             connection.to_client.name == torrent.target_client.name):
                             logger.debug(f"Re-enqueueing torrent {torrent.name} for copying with connection from {connection.from_client.name} to {connection.to_client.name}")

@@ -12,6 +12,13 @@
                 <form id="connectionForm">
                     <input type="hidden" id="connectionId" value="">
                     
+                    <!-- Connection Name -->
+                    <div class="form-group mb-3">
+                        <label for="connectionName" class="form-label">Connection Name</label>
+                        <input type="text" class="form-control" id="connectionName" placeholder="e.g., Main Transfer" required>
+                        <small class="form-text text-muted">A unique name for this connection (cannot contain '/')</small>
+                    </div>
+                    
                     <div class="connection-layout-container">
                         <!-- Source (From) Client Section -->
                         <div class="connection-section">

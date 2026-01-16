@@ -78,13 +78,13 @@ class TestDashboardPolling:
     def test_dashboard_polls_api(self, dashboard_page, page: Page):
         """Test that dashboard polls the API for updates.
         
-        Dashboard.js polls /api/torrents every 2 seconds.
+        Dashboard.js polls /api/v1/torrents every 2 seconds.
         """
         dashboard_page.goto()
         
         # Wait for at least one API call (should happen within 3 seconds)
         with page.expect_response(
-            lambda r: "/api/torrents" in r.url,
+            lambda r: "/api/v1/torrents" in r.url,
             timeout=UI_TIMEOUTS['api_response']
         ) as response_info:
             pass  # Wait for poll to complete
@@ -96,15 +96,17 @@ class TestDashboardPolling:
         dashboard_page.goto()
         
         with page.expect_response(
-            lambda r: "/api/torrents" in r.url,
+            lambda r: "/api/v1/torrents" in r.url,
             timeout=UI_TIMEOUTS['api_response']
         ) as response_info:
             pass  # Wait for poll to complete
         
         data = response_info.value.json()
         
-        # Response should have torrents list
-        assert "torrents" in data or isinstance(data, list)
+        # Response should have data envelope with torrents list
+        # Supports both old format (direct array) and new format (data envelope)
+        torrents = data.get("data") if isinstance(data, dict) else data
+        assert isinstance(torrents, list)
 
 
 class TestDashboardTorrentList:

@@ -88,14 +88,16 @@ export function loadConnections() {
         connectionsListElement.appendChild(emptyState);
     }
     
-    fetch('/api/connections')
+    fetch('/api/v1/connections')
         .then(response => {
             if (!response.ok) {
                 throw new Error(`Server returned ${response.status}: ${response.statusText}`);
             }
             return response.json();
         })
-        .then(connections => {
+        .then(data => {
+            // Unwrap data envelope (supports both old and new format)
+            const connections = data.data || data;
             console.log('Connections data received:', connections);
             
             if (!connectionsListElement) {
@@ -159,12 +161,12 @@ export function loadConnections() {
 function createConnectionCard(connection) {
     const card = document.createElement('div');
     card.className = 'connection-card';
-    card.dataset.id = connection.id;
+    card.dataset.name = connection.name;  // Use name instead of id
     
-    // Create card header
+    // Create card header - show connection name
     const cardHeader = document.createElement('div');
     cardHeader.className = 'card-header';
-    cardHeader.textContent = `${connection.from} → ${connection.to}`;
+    cardHeader.textContent = connection.name;
     
     // Create card body
     const cardBody = document.createElement('div');
@@ -202,8 +204,8 @@ function createConnectionCard(connection) {
     deleteBtn.addEventListener('click', function() {
         console.log("Connection delete button clicked");
         // Show confirmation dialog
-        if (confirm(`Are you sure you want to delete the connection from ${connection.from} to ${connection.to}?`)) {
-            deleteConnection(connection.id);
+        if (confirm(`Are you sure you want to delete the connection '${connection.name}'?`)) {
+            deleteConnection(connection.name);
         }
     });
     
@@ -223,27 +225,30 @@ function createConnectionCard(connection) {
 }
 
 // Delete connection function
-function deleteConnection(connectionId) {
+function deleteConnection(connectionName) {
+    // URL-encode the connection name for the API path
+    const encodedName = encodeURIComponent(connectionName);
+    
     // Call API to delete the connection
-    fetch(`/api/connections/${connectionId}`, {
+    fetch(`/api/v1/connections/${encodedName}`, {
         method: 'DELETE'
     })
     .then(response => {
         if (!response.ok) {
-            return response.json().then(error => {
-                throw new Error(error.error || 'Unknown error occurred');
+            return response.json().then(err => {
+                throw new Error(err.error?.message || err.error || 'Unknown error occurred');
             });
         }
         return response.json();
     })
-    .then(data => {
+    .then(response => {
         // Reload connections list
         loadConnections();
         
         // Show success notification
         TransferarrNotifications.success(
             'Connection Deleted',
-            data.message || `Connection has been deleted successfully.`
+            response.message || `Connection has been deleted successfully.`
         );
     })
     .catch(error => {
@@ -258,11 +263,14 @@ function deleteConnection(connectionId) {
 function editConnection(connection) {
     resetConnectionForm();
     
-    // Populate the basic form with connection data
-    document.getElementById('connectionId').value = connection.id;
+    // Store the connection name for API calls (used in test and save)
+    document.getElementById('connectionId').value = connection.name;
     
     // Load clients for the dropdowns
     populateClientDropdowns().then(() => {
+        // Populate the connection name field
+        document.getElementById('connectionName').value = connection.name;
+        
         // Set selected values after clients are loaded
         document.getElementById('fromClient').value = connection.from;
         document.getElementById('toClient').value = connection.to;
@@ -299,7 +307,9 @@ function editConnection(connection) {
                 document.getElementById('fromSftpHost').value = fromSftp.host || '';
                 document.getElementById('fromSftpPort').value = fromSftp.port || 22;
                 document.getElementById('fromSftpUsername').value = fromSftp.username || '';
-                document.getElementById('fromSftpPassword').value = fromSftp.password || '';
+                // Leave password blank - API returns masked "***" value
+                document.getElementById('fromSftpPassword').value = '';
+                document.getElementById('fromSftpPassword').placeholder = 'Leave blank to keep current';
             }
         }
         
@@ -324,7 +334,9 @@ function editConnection(connection) {
                 document.getElementById('toSftpHost').value = toSftp.host || '';
                 document.getElementById('toSftpPort').value = toSftp.port || 22;
                 document.getElementById('toSftpUsername').value = toSftp.username || '';
-                document.getElementById('toSftpPassword').value = toSftp.password || '';
+                // Leave password blank - API returns masked "***" value
+                document.getElementById('toSftpPassword').value = '';
+                document.getElementById('toSftpPassword').placeholder = 'Leave blank to keep current';
             }
         }
 
@@ -349,7 +361,7 @@ function editConnection(connection) {
 // Populate client dropdown options
 function populateClientDropdowns() {
     return new Promise((resolve, reject) => {
-        fetch('/api/download_clients')
+        fetch('/api/v1/download_clients')
             .then(response => {
                 if (!response.ok) {
                     throw new Error(`Server returned ${response.status}: ${response.statusText}`);
@@ -357,7 +369,8 @@ function populateClientDropdowns() {
                 return response.json();
             })
             .then(data => {
-                const clients = data
+                // Unwrap data envelope (supports both old and new format)
+                const clients = data.data || data;
                 const fromClientDropdown = document.getElementById('fromClient');
                 const toClientDropdown = document.getElementById('toClient');
                 
@@ -391,8 +404,13 @@ function populateClientDropdowns() {
 function resetConnectionForm() {
     document.getElementById('connectionForm').reset();
     document.getElementById('connectionId').value = '';
+    document.getElementById('connectionName').value = '';
     document.getElementById('saveConnectionBtn').disabled = true;
     resetTestConnectionBtn();
+    
+    // Reset SFTP password placeholders for add mode
+    document.getElementById('fromSftpPassword').placeholder = '';
+    document.getElementById('toSftpPassword').placeholder = '';
     
     // Disable path configuration section
     disablePathConfiguration();
@@ -507,6 +525,12 @@ function testConnection() {
         }
     };
     
+    // If editing an existing connection, include the name for stored password lookup
+    const connectionId = document.getElementById('connectionId').value;
+    if (connectionId) {
+        connectionData.connection_name = connectionId;
+    }
+    
     // Add SFTP configuration if selected
     if (fromType === 'sftp') {
         const useFromSshConfig = document.getElementById('fromUseSshConfig').checked;
@@ -545,7 +569,7 @@ function testConnection() {
     }
     
     // Test connection
-    fetch('/api/connections/test', {
+    fetch('/api/v1/connections/test', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json'
@@ -554,16 +578,18 @@ function testConnection() {
     })
     .then(response => {
         if (!response.ok) {
-            return response.json().then(error => {
-                throw new Error(error.error || 'Unknown error occurred');
+            return response.json().then(err => {
+                throw new Error(err.error?.message || err.error || 'Unknown error occurred');
             });
         }
         return response.json();
     })
-    .then(data => {
+    .then(response => {
         // Re-enable button
         testBtn.disabled = false;
         
+        // Unwrap data envelope (supports both old and new format)
+        const data = response.data || response;
         if (data.success) {
             // Success state
             testBtn.innerHTML = '<i class="fas fa-check"></i> Connection Successful';
@@ -640,11 +666,29 @@ function saveConnection() {
         return;
     }
     
-    const connectionId = document.getElementById('connectionId').value;
+    const connectionId = document.getElementById('connectionId').value;  // Original name if editing
+    const connectionName = document.getElementById('connectionName').value.trim();
     const fromClient = document.getElementById('fromClient').value;
     const toClient = document.getElementById('toClient').value;
     const fromType = document.getElementById('fromType').value;
     const toType = document.getElementById('toType').value;
+    
+    // Validate connection name
+    if (!connectionName) {
+        TransferarrNotifications.error(
+            'Error Saving Connection',
+            'Connection name is required'
+        );
+        return;
+    }
+    
+    if (connectionName.includes('/')) {
+        TransferarrNotifications.error(
+            'Error Saving Connection',
+            "Connection name cannot contain '/'"
+        );
+        return;
+    }
     
     if (fromClient === toClient) {
         TransferarrNotifications.error(
@@ -656,6 +700,7 @@ function saveConnection() {
     
     // Prepare connection data
     const connectionData = {
+        name: connectionName,
         from: fromClient,
         to: toClient,
         transfer_config: {
@@ -711,11 +756,13 @@ function saveConnection() {
     }
     
     // Determine API endpoint and method
-    let url = '/api/connections';
+    let url = '/api/v1/connections';
     let method = 'POST';
     
     if (connectionId) {
-        url = `/api/connections/${connectionId}`;
+        // Editing existing connection - URL-encode the name
+        const encodedName = encodeURIComponent(connectionId);
+        url = `/api/v1/connections/${encodedName}`;
         method = 'PUT';
     }
     
@@ -729,19 +776,19 @@ function saveConnection() {
     })
     .then(response => {
         if (!response.ok) {
-            return response.json().then(error => {
-                throw new Error(error.error || 'Unknown error occurred');
+            return response.json().then(err => {
+                throw new Error(err.error?.message || err.error || 'Unknown error occurred');
             });
         }
         return response.json();
     })
-    .then(data => {
+    .then(responseData => {
         connectionModal.hide();
         loadConnections();
         
         TransferarrNotifications.success(
             connectionId ? 'Connection Updated' : 'Connection Added',
-            `The connection from ${fromClient} to ${toClient} has been ${connectionId ? 'updated' : 'added'} successfully.`
+            `The connection '${connectionName}' has been ${connectionId ? 'updated' : 'added'} successfully.`
         );
     })
     .catch(error => {
@@ -754,6 +801,18 @@ function saveConnection() {
 
 // Set up event listeners for the connection form inputs
 function setupConnectionFormListeners() {
+    // Connection name field
+    const connectionNameField = document.getElementById('connectionName');
+    if (connectionNameField) {
+        ['change', 'input'].forEach(eventType => {
+            connectionNameField.addEventListener(eventType, () => {
+                document.getElementById('saveConnectionBtn').disabled = true;
+                resetTestConnectionBtn();
+                disablePathConfiguration();
+            });
+        });
+    }
+    
     // Main dropdowns
     const connectionDropdowns = ['fromClient', 'toClient', 'fromType', 'toType'];
     connectionDropdowns.forEach(fieldId => {
@@ -986,7 +1045,7 @@ function loadDirectoryContents(path) {
     }
     
     // Call API to get directory contents
-    fetch('/api/browse', {
+    fetch('/api/v1/browse', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json'

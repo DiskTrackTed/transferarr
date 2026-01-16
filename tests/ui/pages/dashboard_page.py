@@ -111,7 +111,7 @@ class DashboardPage(BasePage):
     def wait_for_stats_update(self, timeout: int = 5000) -> None:
         """Wait for stats to update via API call.
         
-        Dashboard polls /api/torrents every 2 seconds, so this waits
+        Dashboard polls /api/v1/torrents every 2 seconds, so this waits
         for that poll to complete.
         
         Args:
@@ -121,7 +121,7 @@ class DashboardPage(BasePage):
             playwright.sync_api.TimeoutError: If no API response within timeout
         """
         with self.page.expect_response(
-            lambda r: "/api/torrents" in r.url,
+            lambda r: "/api/v1/torrents" in r.url,
             timeout=timeout
         ):
             pass  # Wait for next poll cycle

@@ -62,7 +62,7 @@ def delete_client_via_api(client_name: str) -> bool:
     """
     try:
         response = requests.delete(
-            f"{TRANSFERARR_BASE_URL}/api/download_clients/{client_name}",
+            f"{TRANSFERARR_BASE_URL}/api/v1/download_clients/{client_name}",
             timeout=10
         )
         success = response.status_code in [200, 404]
@@ -79,6 +79,23 @@ def delete_client_via_api(client_name: str) -> bool:
 # =============================================================================
 # API Response Helpers  
 # =============================================================================
+
+def unwrap_api_response(response_json: dict) -> dict:
+    """Unwrap data from the API response envelope.
+    
+    Phase 3 API responses use the format: {"data": {...}, "message": "..."}
+    This helper extracts the data or returns the response as-is for compatibility.
+    
+    Args:
+        response_json: The JSON response from the API
+        
+    Returns:
+        The unwrapped data dict, or original response if no envelope
+    """
+    if "data" in response_json:
+        return response_json["data"]
+    return response_json
+
 
 # Note: Playwright's expect_response() is used directly in tests as it provides
 # better context manager syntax. These helpers were removed as unused.

@@ -33,8 +33,8 @@
             "password": "testpassword"
         }
     },
-    "connections": [
-        {
+    "connections": {
+        "source-deluge -> target-deluge": {
             "from": "source-deluge",
             "to": "target-deluge",
             "transfer_config": {
@@ -56,5 +56,5 @@
             "destination_dot_torrent_tmp_dir": "/tmp/transferarr-test/",
             "destination_torrent_download_path": "/tmp/transferarr-test/downloads/"
         }
-    ]
+    }
 }

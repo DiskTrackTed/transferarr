@@ -184,14 +184,14 @@ class TestTorrentsPolling:
     def test_torrents_page_polls_api(self, torrents_page, page: Page):
         """Test that torrents page polls the API for updates.
         
-        Torrents.js polls /api/all_torrents every 3 seconds.
+        Torrents.js polls /api/v1/all_torrents every 3 seconds.
         """
         torrents_page.goto()
         torrents_page.wait_for_torrents_loaded()
         
         # Wait for API call (should happen within 5 seconds)
         with page.expect_response(
-            lambda r: "/api/all_torrents" in r.url,
+            lambda r: "/api/v1/all_torrents" in r.url,
             timeout=UI_TIMEOUTS['api_response']
         ) as response_info:
             pass  # Wait for next poll cycle

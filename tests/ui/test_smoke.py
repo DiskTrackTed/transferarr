@@ -72,25 +72,31 @@ class TestE2EFullSmokeTest:
         
         log_test_step("Cleanup: Delete all existing connections")
         # Get all connections
-        response = requests.get(f"{TRANSFERARR_BASE_URL}/api/connections", timeout=10)
+        response = requests.get(f"{TRANSFERARR_BASE_URL}/api/v1/connections", timeout=10)
         if response.status_code == 200:
-            connections = response.json()
-            # Delete in reverse order (by id) to avoid index shifting
-            for conn in sorted(connections, key=lambda c: c['id'], reverse=True):
+            connections_response = response.json()
+            # Unwrap data envelope (supports both old and new format)
+            connections = connections_response.get('data', connections_response) if isinstance(connections_response, dict) and 'data' in connections_response else connections_response
+            # Delete connections by name (URL-encoded)
+            from urllib.parse import quote
+            for conn in connections:
+                encoded_name = quote(conn['name'], safe='')
                 delete_resp = requests.delete(
-                    f"{TRANSFERARR_BASE_URL}/api/connections/{conn['id']}", 
+                    f"{TRANSFERARR_BASE_URL}/api/v1/connections/{encoded_name}", 
                     timeout=10
                 )
-                print(f"  Deleted connection {conn['from']} -> {conn['to']}: {delete_resp.status_code}")
+                print(f"  Deleted connection '{conn['name']}': {delete_resp.status_code}")
         
         log_test_step("Cleanup: Delete all existing clients")
         # Get all clients
-        response = requests.get(f"{TRANSFERARR_BASE_URL}/api/download_clients", timeout=10)
+        response = requests.get(f"{TRANSFERARR_BASE_URL}/api/v1/download_clients", timeout=10)
         if response.status_code == 200:
-            clients = response.json()
+            clients_response = response.json()
+            # Unwrap data envelope (supports both old and new format)
+            clients = clients_response.get('data', clients_response) if isinstance(clients_response, dict) and 'data' in clients_response else clients_response
             for client_name in clients.keys():
                 delete_resp = requests.delete(
-                    f"{TRANSFERARR_BASE_URL}/api/download_clients/{client_name}",
+                    f"{TRANSFERARR_BASE_URL}/api/v1/download_clients/{client_name}",
                     timeout=10
                 )
                 print(f"  Deleted client {client_name}: {delete_resp.status_code}")
@@ -119,20 +125,22 @@ class TestE2EFullSmokeTest:
         
         # Test connection
         with page.expect_response(
-            lambda r: "/api/download_clients/test" in r.url,
+            lambda r: "/api/v1/download_clients/test" in r.url,
             timeout=UI_TIMEOUTS['api_response']
         ) as response_info:
             settings_page.test_client_connection()
         
-        test_result = response_info.value.json()
-        assert test_result.get("success"), f"Connection test failed for {name}: {test_result}"
+        test_response = response_info.value.json()
+        # Unwrap data envelope (supports both old and new format)
+        test_result = test_response.get('data', test_response) if isinstance(test_response, dict) and 'data' in test_response else test_response
+        assert test_result.get("success"), f"Connection test failed for {name}: {test_response}"
         
         # Save
         save_btn = settings_page.page.locator(settings_page.SAVE_CLIENT_BTN)
         expect(save_btn).to_be_enabled(timeout=UI_TIMEOUTS['element_visible'])
         
         with page.expect_response(
-            lambda r: "/api/download_clients" in r.url and r.request.method == "POST",
+            lambda r: "/api/v1/download_clients" in r.url and r.request.method == "POST",
             timeout=UI_TIMEOUTS['api_response']
         ):
             settings_page.save_client()
@@ -145,6 +153,7 @@ class TestE2EFullSmokeTest:
         self,
         settings_page,
         page: Page,
+        connection_name: str,
         from_client: str,
         to_client: str,
         from_type: str,
@@ -159,6 +168,10 @@ class TestE2EFullSmokeTest:
         
         # Wait for client dropdowns to populate
         page.wait_for_timeout(UI_TIMEOUTS['dropdown_load'])
+        
+        # Fill connection name (required in Phase 4)
+        page.fill(settings_page.CONNECTION_NAME, connection_name)
+
         
         # Select clients
         page.select_option(settings_page.CONNECTION_FROM_SELECT, from_client)
@@ -177,13 +190,15 @@ class TestE2EFullSmokeTest:
         
         # Test connection
         with page.expect_response(
-            lambda r: "/api/connections/test" in r.url,
+            lambda r: "/api/v1/connections/test" in r.url,
             timeout=UI_TIMEOUTS['api_response_slow']
         ) as response_info:
             settings_page.test_connection()
         
-        test_result = response_info.value.json()
-        assert test_result.get("success"), f"Connection test failed: {test_result}"
+        test_response = response_info.value.json()
+        # Unwrap data envelope (supports both old and new format)
+        test_result = test_response.get('data', test_response) if isinstance(test_response, dict) and 'data' in test_response else test_response
+        assert test_result.get("success"), f"Connection test failed: {test_response}"
         print("  Connection test passed")
         
         # After successful test, path fields should be enabled
@@ -208,7 +223,7 @@ class TestE2EFullSmokeTest:
         
         # Save connection
         with page.expect_response(
-            lambda r: "/api/connections" in r.url and r.request.method == "POST",
+            lambda r: "/api/v1/connections" in r.url and r.request.method == "POST",
             timeout=UI_TIMEOUTS['api_response']
         ):
             settings_page.save_connection()
@@ -244,7 +259,8 @@ class TestE2EFullSmokeTest:
         config = self._load_reference_config()
         source_config = config['download_clients']['source-deluge']
         target_config = config['download_clients']['target-deluge']
-        connection_config = config['connections'][0]
+        # Connections is a dict keyed by name, get first connection config
+        connection_config = list(config['connections'].values())[0]
         
         # ========== Phase 1: Clean slate ==========
         log_test_step("Phase 1: Clean slate - delete all existing config")
@@ -298,6 +314,7 @@ class TestE2EFullSmokeTest:
         from_sftp = connection_config['transfer_config']['from'].get('sftp', {})
         self._add_connection_via_ui(
             settings_page, page,
+            connection_name="source-deluge -> target-deluge",
             from_client="source-deluge",
             to_client="target-deluge",
             from_type=connection_config['transfer_config']['from']['type'],
@@ -406,12 +423,14 @@ class TestE2EFullSmokeTest:
         
         # Verify via API that torrent is on target
         with page.expect_response(
-            lambda r: "/api/all_torrents" in r.url,
+            lambda r: "/api/v1/all_torrents" in r.url,
             timeout=UI_TIMEOUTS['api_response']
         ) as response_info:
             page.reload()
         
-        all_torrents = response_info.value.json()
+        all_torrents_response = response_info.value.json()
+        # Unwrap data envelope (supports both old and new format)
+        all_torrents = all_torrents_response.get('data', all_torrents_response) if isinstance(all_torrents_response, dict) and 'data' in all_torrents_response else all_torrents_response
         
         # Find torrent on target client
         found_on_target = False

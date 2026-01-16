@@ -258,6 +258,7 @@ services:
       - sonarr-config:/sonarr-config:ro
       - shared-config:/shared
       - ./scripts:/scripts:ro
+      - ./fixtures:/fixtures:ro
     networks:
       - test-network
     depends_on:
@@ -297,7 +298,7 @@ services:
         condition: service_healthy
     command: ["python", "-m", "transferarr.main", "--config", "/app/config/config.json"]
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:10444/api/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:10444/api/v1/health"]
       interval: 10s
       timeout: 5s
       retries: 5

@@ -123,12 +123,14 @@ class TestE2ETorrentWorkflow:
         
         # Verify via API that torrent is tracked (UI may not show all fields)
         with page.expect_response(
-            lambda r: "/api/torrents" in r.url and r.request.method == "GET",
+            lambda r: "/api/v1/torrents" in r.url and r.request.method == "GET",
             timeout=UI_TIMEOUTS['api_response']
         ) as response_info:
             page.reload()
         
-        torrents = response_info.value.json()
+        torrents_response = response_info.value.json()
+        # Unwrap data envelope (supports both old and new format)
+        torrents = torrents_response.get('data', torrents_response) if isinstance(torrents_response, dict) and 'data' in torrents_response else torrents_response
         tracked_names = [t['name'] for t in torrents]
         assert torrent_name in tracked_names, f"Torrent {torrent_name} not in tracked list: {tracked_names}"
         
@@ -198,12 +200,14 @@ class TestE2ETorrentWorkflow:
             
             # Check for torrent in the list (via API response)
             with page.expect_response(
-                lambda r: "/api/all_torrents" in r.url,
+                lambda r: "/api/v1/all_torrents" in r.url,
                 timeout=UI_TIMEOUTS['api_response']
             ) as response_info:
                 page.reload()
             
-            all_torrents = response_info.value.json()
+            all_torrents_response = response_info.value.json()
+            # Unwrap data envelope (supports both old and new format)
+            all_torrents = all_torrents_response.get('data', all_torrents_response) if isinstance(all_torrents_response, dict) and 'data' in all_torrents_response else all_torrents_response
             print(f"  All torrents response: {list(all_torrents.keys())}")
         
         log_test_step("Step 5: Wait for transfer to complete")
@@ -273,7 +277,7 @@ class TestE2ESettingsPersistence:
         
         # Test connection first
         with page.expect_response(
-            lambda r: "/api/download_clients/test" in r.url,
+            lambda r: "/api/v1/download_clients/test" in r.url,
             timeout=UI_TIMEOUTS['api_response']
         ):
             settings_page.test_client_connection()
@@ -283,7 +287,7 @@ class TestE2ESettingsPersistence:
         expect(save_btn).to_be_enabled(timeout=UI_TIMEOUTS['element_visible'])
         
         with page.expect_response(
-            lambda r: "/api/download_clients" in r.url and r.request.method == "POST",
+            lambda r: "/api/v1/download_clients" in r.url and r.request.method == "POST",
             timeout=UI_TIMEOUTS['element_visible']
         ):
             settings_page.save_client()
@@ -344,14 +348,14 @@ class TestE2ESettingsPersistence:
             connection_type="rpc"
         )
         
-        with page.expect_response(lambda r: "/api/download_clients/test" in r.url):
+        with page.expect_response(lambda r: "/api/v1/download_clients/test" in r.url):
             settings_page.test_client_connection()
         
         save_btn = settings_page.page.locator(settings_page.SAVE_CLIENT_BTN)
         expect(save_btn).to_be_enabled(timeout=UI_TIMEOUTS['element_visible'])
         
         with page.expect_response(
-            lambda r: "/api/download_clients" in r.url and r.request.method == "POST"
+            lambda r: "/api/v1/download_clients" in r.url and r.request.method == "POST"
         ):
             settings_page.save_client()
         
@@ -372,15 +376,16 @@ class TestE2ESettingsPersistence:
         host_input.fill(new_host)
         print(f"  Changed host from {original_host} to {new_host}")
         
-        # Re-test connection with new settings
-        with page.expect_response(lambda r: "/api/download_clients/test" in r.url):
+        # Re-test connection with new settings (no need to re-enter password in edit mode -
+        # backend uses stored password when client name is provided)
+        with page.expect_response(lambda r: "/api/v1/download_clients/test" in r.url):
             settings_page.test_client_connection()
         
         # Wait for save button and save
         expect(save_btn).to_be_enabled(timeout=UI_TIMEOUTS['api_response_slow'])
         
         with page.expect_response(
-            lambda r: f"/api/download_clients/{unique_name}" in r.url and r.request.method == "PUT",
+            lambda r: f"/api/v1/download_clients/{unique_name}" in r.url and r.request.method == "PUT",
             timeout=UI_TIMEOUTS['element_visible']
         ):
             settings_page.save_client()
@@ -468,12 +473,14 @@ class TestE2ECrossPageWorkflows:
         
         # Check via API that torrent is in the response
         with page.expect_response(
-            lambda r: "/api/all_torrents" in r.url,
+            lambda r: "/api/v1/all_torrents" in r.url,
             timeout=UI_TIMEOUTS['api_response']
         ) as response_info:
             page.reload()
         
-        all_torrents = response_info.value.json()
+        all_torrents_response = response_info.value.json()
+        # Unwrap data envelope (supports both old and new format)
+        all_torrents = all_torrents_response.get('data', all_torrents_response) if isinstance(all_torrents_response, dict) and 'data' in all_torrents_response else all_torrents_response
         # all_torrents is dict of client_name -> dict of torrent_hash -> torrent_info
         found = False
         for client_name, client_torrents in all_torrents.items():

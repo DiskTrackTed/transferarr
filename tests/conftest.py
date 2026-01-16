@@ -783,7 +783,7 @@ def transferarr(docker_client, docker_services, radarr_api_key, sonarr_api_key):
         def wait_healthy(self, timeout=60):
             """Wait for transferarr to be healthy."""
             deadline = time.time() + timeout
-            url = f"http://{SERVICES['transferarr']['host']}:{SERVICES['transferarr']['port']}/api/health"
+            url = f"http://{SERVICES['transferarr']['host']}:{SERVICES['transferarr']['port']}/api/v1/health"
             
             while time.time() < deadline:
                 try:
@@ -813,10 +813,12 @@ def transferarr(docker_client, docker_services, radarr_api_key, sonarr_api_key):
             Raises:
                 requests.exceptions.RequestException: If API call fails
             """
-            url = f"http://{SERVICES['transferarr']['host']}:{SERVICES['transferarr']['port']}/api/torrents"
+            url = f"http://{SERVICES['transferarr']['host']}:{SERVICES['transferarr']['port']}/api/v1/torrents"
             resp = requests.get(url, timeout=TIMEOUTS['api_response'])
             resp.raise_for_status()
-            return resp.json()
+            data = resp.json()
+            # Unwrap data envelope (supports both old and new format)
+            return data.get('data', data) if isinstance(data, dict) else data
         
         def clear_state(self):
             """Clear the state file in the container."""
