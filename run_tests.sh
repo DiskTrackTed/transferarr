@@ -16,6 +16,9 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 COMPOSE_FILE="$SCRIPT_DIR/docker/docker-compose.test.yml"
 
+# Project name must match hardcoded values in tests/conftest.py
+export COMPOSE_PROJECT_NAME="transferarr_test"
+
 # Colors
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'

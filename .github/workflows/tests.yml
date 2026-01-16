@@ -37,6 +37,8 @@ concurrency:
 
 env:
   COMPOSE_FILE: docker/docker-compose.test.yml
+  # Project name must match hardcoded values in tests/conftest.py
+  COMPOSE_PROJECT_NAME: transferarr_test
 
 jobs:
   test:
@@ -65,7 +67,7 @@ jobs:
 
       - name: Build test infrastructure images
         run: |
-          # Build images that docker-compose needs
+          # Build images that docker-compose needs (including torrent-creator for tests)
           docker compose -f $COMPOSE_FILE build mock-indexer torrent-creator test-runner service-registrar
 
       - name: Start test services
