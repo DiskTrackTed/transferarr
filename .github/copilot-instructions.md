@@ -117,6 +117,32 @@ pip install -r requirements.txt
 - `./build.sh --release` builds versioned image (requires clean git state and version tag)
 - Version accessible via `transferarr.__version__` and `/api/v1/health`
 
+## CI/CD
+
+GitHub Actions workflow in `.github/workflows/tests.yml` runs the full test suite.
+
+**Triggers**:
+- Push to `main` branch
+- Pull requests to `main`
+- Manual dispatch (with test type selection)
+
+**What it does**:
+1. Builds `transferarr:dev` image
+2. Starts full Docker Compose test infrastructure
+3. Runs service-registrar to configure Radarr/Sonarr
+4. Runs integration tests (`tests/integration/`)
+5. Runs UI tests (`tests/ui/`)
+6. Uploads test artifacts on failure (screenshots, logs)
+
+**Manual trigger options** (workflow_dispatch):
+- `all` - Run both integration and UI tests (default)
+- `integration` - Run only integration tests
+- `ui` - Run only UI tests
+
+**Artifacts on failure**:
+- `test-results/` - Screenshots, traces from Playwright
+- `service-logs` - Docker Compose logs from all services
+
 ## Code Conventions
 
 ### Docker
@@ -225,6 +251,29 @@ To add a new download client type (e.g., qBittorrent, Transmission):
 
 3. **Map client states** to `TorrentState` enum (HOME_* for source, TARGET_* for destination)
 
+## Feature Tracking
+
+Features and bugs are tracked via **GitHub Issues** with milestones for version planning.
+
+- **Issues:** https://github.com/DiskTrackTed/transferarr/issues
+- **Milestones:** https://github.com/DiskTrackTed/transferarr/milestones
+
+### GitHub CLI
+The `gh` CLI is available for interacting with issues:
+```bash
+# List open issues
+gh issue list
+
+# Create an issue
+gh issue create --title "Feature: X" --label "feature" --milestone "v0.X.0"
+
+# View issue details
+gh issue view 1
+
+# Close an issue
+gh issue close 1
+```
+
 ## Important Files
 - `README.md` - Project documentation (quick start, configuration, architecture)
 - `config.json` - Runtime configuration (gitignored, use `config copy.json` as template)
@@ -234,7 +283,6 @@ To add a new download client type (e.g., qBittorrent, Transmission):
 - `testing.ipynb` - Development/debugging notebook
 - `docs/integration-tests.md` - Integration test documentation (test coverage, test names, patterns)
 - `docs/ui-tests.md` - UI test documentation (Playwright, page objects, fixtures)
-- `docs/plans/testing-infrastructure.md` - Original testing infrastructure plan (historical)
 
 ## Testing Infrastructure
 
