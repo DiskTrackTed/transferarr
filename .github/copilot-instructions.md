@@ -45,10 +45,33 @@ All configuration is JSON-based (`config.json`). Structure:
 
 ### Web API
 Flask blueprints in `web/routes/`:
-- `api.py` - REST API (`/api/*`) for clients, connections, torrents. All endpoints have YAML docstrings for flasgger/Swagger.
+- `api/` - REST API package (`/api/v1/*`) organized by domain:
+  - `__init__.py` - Blueprint registration
+  - `system.py` - `/health`, `/config` endpoints
+  - `download_clients.py` - Download client CRUD operations
+  - `connections.py` - Transfer connection CRUD operations
+  - `torrents.py` - `/torrents`, `/all_torrents` endpoints
+  - `utilities.py` - `/browse` file browser endpoint
+  - `validation.py` - `@validate_json` decorator for request validation
+  - `responses.py` - Standardized response helpers (`success_response`, `error_response`, etc.)
+- `schemas/` - Marshmallow validation schemas (`DownloadClientSchema`, `ConnectionSchema`, etc.)
 - `ui.py` - HTML routes serving templates
 
 **API Documentation**: Interactive Swagger UI available at `http://localhost:10444/apidocs`. Powered by `flasgger`.
+
+**Input Validation**: POST/PUT endpoints use `@validate_json(SchemaClass)` decorator from `validation.py`. Validated data is available via `request.validated_data`. Schemas are in `web/schemas/__init__.py`.
+
+**Service Layer**: Business logic is extracted into service classes in `web/services/`:
+- `DownloadClientService` - CRUD operations for download clients (list, add, update, delete, test connection)
+- `ConnectionService` - CRUD operations for transfer connections (list, add, update, delete, test connection)
+- `TorrentService` - Read-only torrent listing (tracked torrents, all client torrents)
+- Custom exceptions (`NotFoundError`, `ConflictError`, `ValidationError`, `ConfigSaveError`) map to HTTP responses
+
+**Security Features**:
+- All passwords are masked as `"***"` in GET responses (download clients, connections, config)
+- PUT endpoints preserve existing passwords if not provided in the request
+- Test connection endpoint for download clients accepts optional `name` field to use stored password when editing existing clients
+- Frontend edit modals show "Leave blank to keep current password" placeholder
 
 When adding new API endpoints, include YAML docstrings in the function docstring for automatic Swagger documentation:
 ```python
@@ -94,6 +117,11 @@ pip install -r requirements.txt
 
 ### Error Handling
 - Custom exceptions in `exceptions.py` (note: typo `TrasnferClientException` is intentional/existing)
+- Service layer exceptions in `web/services/__init__.py` map to HTTP responses:
+  - `NotFoundError` → 404
+  - `ConflictError` → 409
+  - `ValidationError` → 400
+  - `ConfigSaveError` → 500
 - Download clients use `handle_exception` parameter to control error propagation vs logging
 
 ### Utility Functions

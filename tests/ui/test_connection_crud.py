@@ -231,14 +231,15 @@ class TestTestConnection:
         
         # Test connection - this may take a while for SFTP connection tests
         with page.expect_response(
-            lambda r: "/api/connections/test" in r.url,
+            lambda r: "/api/v1/connections/test" in r.url,
             timeout=UI_TIMEOUTS['api_response_slow']  # 60s timeout
         ) as response_info:
             settings_page.test_connection()
         
-        # Should get a response (success or failure)
+        # Should get a response (success or failure) - Phase 3 format wraps in data envelope
         response = response_info.value.json()
-        assert "success" in response or "error" in response
+        # Check for data.success (new format) or error (old format)
+        assert ("data" in response and "success" in response.get("data", {})) or "error" in response
 
 
 class TestEditConnection:

@@ -21,6 +21,7 @@ from tests.conftest import SERVICES, DELUGE_PASSWORD, DELUGE_RPC_USERNAME
 from tests.ui.helpers import (
     delete_client_via_api,
     generate_unique_name,
+    unwrap_api_response,
     UI_TIMEOUTS,
 )
 
@@ -74,14 +75,15 @@ class TestAddClient:
         
         # Test connection first (required to enable save)
         with page.expect_response(
-            lambda r: "/api/download_clients/test" in r.url,
+            lambda r: "/api/v1/download_clients/test" in r.url,
             timeout=UI_TIMEOUTS['api_response']
         ) as response_info:
             settings_page.test_client_connection()
         
         # Wait for test to complete and check response
         test_response = response_info.value.json()
-        assert test_response.get("success") is True, f"Connection test failed: {test_response}"
+        test_data = unwrap_api_response(test_response)
+        assert test_data.get("success") is True, f"Connection test failed: {test_response}"
         
         # Save button should be enabled after successful test
         save_btn = settings_page.page.locator(settings_page.SAVE_CLIENT_BTN)
@@ -89,14 +91,14 @@ class TestAddClient:
         
         # Save the client
         with page.expect_response(
-            lambda r: "/api/download_clients" in r.url and r.request.method == "POST",
+            lambda r: "/api/v1/download_clients" in r.url and r.request.method == "POST",
             timeout=UI_TIMEOUTS['element_visible']
         ) as save_response_info:
             settings_page.save_client()
         
-        # Verify API response
+        # Verify API response (201 Created for new client)
         save_response = save_response_info.value
-        if save_response.status != 200:
+        if save_response.status not in [200, 201]:
             error_body = save_response.json()
             pytest.fail(f"API returned {save_response.status}: {error_body}")
         
@@ -136,7 +138,7 @@ class TestAddClient:
         
         # Test and save the first client
         with page.expect_response(
-            lambda r: "/api/download_clients/test" in r.url,
+            lambda r: "/api/v1/download_clients/test" in r.url,
             timeout=UI_TIMEOUTS['api_response']
         ):
             settings_page.test_client_connection()
@@ -145,7 +147,7 @@ class TestAddClient:
         expect(save_btn).to_be_enabled(timeout=UI_TIMEOUTS['element_visible'])
         
         with page.expect_response(
-            lambda r: "/api/download_clients" in r.url and r.request.method == "POST",
+            lambda r: "/api/v1/download_clients" in r.url and r.request.method == "POST",
             timeout=UI_TIMEOUTS['element_visible']
         ):
             settings_page.save_client()
@@ -167,7 +169,7 @@ class TestAddClient:
         
         # Test connection
         with page.expect_response(
-            lambda r: "/api/download_clients/test" in r.url,
+            lambda r: "/api/v1/download_clients/test" in r.url,
             timeout=UI_TIMEOUTS['api_response']
         ):
             settings_page.test_client_connection()
@@ -177,7 +179,7 @@ class TestAddClient:
         
         # Try to save - should return 409 Conflict
         with page.expect_response(
-            lambda r: "/api/download_clients" in r.url and r.request.method == "POST",
+            lambda r: "/api/v1/download_clients" in r.url and r.request.method == "POST",
             timeout=UI_TIMEOUTS['element_visible']
         ) as response_info:
             settings_page.save_client()
@@ -212,13 +214,14 @@ class TestTestConnection:
         
         # Test connection
         with page.expect_response(
-            lambda r: "/api/download_clients/test" in r.url,
+            lambda r: "/api/v1/download_clients/test" in r.url,
             timeout=UI_TIMEOUTS['api_response']
         ) as response_info:
             settings_page.test_client_connection()
         
         response = response_info.value.json()
-        assert response.get("success") is True
+        response_data = unwrap_api_response(response)
+        assert response_data.get("success") is True
     
     def test_connection_failure_with_wrong_port(self, settings_page, page: Page):
         """Test that wrong port shows connection failure."""
@@ -238,13 +241,14 @@ class TestTestConnection:
         
         # Test connection - connection refused should be fast
         with page.expect_response(
-            lambda r: "/api/download_clients/test" in r.url,
+            lambda r: "/api/v1/download_clients/test" in r.url,
             timeout=UI_TIMEOUTS['api_response']
         ) as response_info:
             settings_page.test_client_connection()
         
         response = response_info.value.json()
-        assert response.get("success") is False
+        response_data = unwrap_api_response(response)
+        assert response_data.get("success") is False
     
     def test_connection_failure_with_wrong_password(self, settings_page, page: Page):
         """Test that wrong password shows failure."""
@@ -264,13 +268,14 @@ class TestTestConnection:
         
         # Test connection
         with page.expect_response(
-            lambda r: "/api/download_clients/test" in r.url,
+            lambda r: "/api/v1/download_clients/test" in r.url,
             timeout=UI_TIMEOUTS['api_response']
         ) as response_info:
             settings_page.test_client_connection()
         
         response = response_info.value.json()
-        assert response.get("success") is False
+        response_data = unwrap_api_response(response)
+        assert response_data.get("success") is False
 
 
 class TestEditClient:
@@ -453,7 +458,7 @@ class TestClientFormInteractions:
         )
         
         # Test connection
-        with page.expect_response(lambda r: "/api/download_clients/test" in r.url):
+        with page.expect_response(lambda r: "/api/v1/download_clients/test" in r.url):
             settings_page.test_client_connection()
         
         # Save button should be enabled after successful test

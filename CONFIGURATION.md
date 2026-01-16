@@ -37,8 +37,8 @@ Transferarr uses a JSON configuration file. Create `config.json` with the follow
       "password": "deluge-password"
     }
   },
-  "connections": [
-    {
+  "connections": {
+    "homelab-to-seedbox": {
       "from": "homelab-deluge",
       "to": "seedbox-deluge",
       "transfer_config": {
@@ -58,7 +58,7 @@ Transferarr uses a JSON configuration file. Create `config.json` with the follow
       "destination_dot_torrent_tmp_dir": "/home/user/tmp/",
       "destination_torrent_download_path": "/home/user/downloads/"
     }
-  ]
+  }
 }
 ```
 
@@ -88,8 +88,21 @@ Transferarr uses a JSON configuration file. Create `config.json` with the follow
 
 ### Connections
 
+Connections are defined as an object where each key is a unique connection name:
+
+```json
+"connections": {
+  "my-connection-name": {
+    "from": "source-client",
+    "to": "destination-client",
+    ...
+  }
+}
+```
+
 | Field | Type | Description |
 |-------|------|-------------|
+| *(key)* | string | Unique connection name (e.g., `"homelab-to-seedbox"`) |
 | `from` | string | Name of source download client |
 | `to` | string | Name of destination download client |
 | `transfer_config` | object | Transfer method configuration (see below) |

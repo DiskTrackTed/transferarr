@@ -84,7 +84,7 @@ class BasePage:
             playwright.sync_api.TimeoutError: If no matching response within timeout
             
         Example:
-            with page_object.wait_for_api_response("/api/torrents") as response_info:
+            with page_object.wait_for_api_response("/api/v1/torrents") as response_info:
                 page_object.page.click("#refresh")
             assert response_info.value.status == 200
         """

@@ -1,5 +1,5 @@
-git+https://github.com/devopsarr/radarr-py.git
-git+https://github.com/devopsarr/sonarr-py.git
+git+https://github.com/devopsarr/radarr-py.git@v1.2.1
+git+https://github.com/devopsarr/sonarr-py.git@v1.1.1
 bencode.py
 tqdm
 paramiko<3.0.0
@@ -10,6 +10,7 @@ tqdm-loggable
 Flask
 flasgger
 requests
+marshmallow>=3.0.0
 
 # Testing
 pytest>=7.0.0

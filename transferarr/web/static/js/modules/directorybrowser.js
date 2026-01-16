@@ -194,7 +194,7 @@ function loadDirectoryContents(path) {
     }
     
     // Call API to get directory contents
-    fetch('/api/browse', {
+    fetch('/api/v1/browse', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json'
@@ -202,14 +202,19 @@ function loadDirectoryContents(path) {
         body: JSON.stringify(requestData)
     })
     .then(response => response.json())
-    .then(data => {
+    .then(responseData => {
         // Hide loading spinner
         document.getElementById('directoryLoadingSpinner').style.display = 'none';
         
-        if (data.error) {
+        // Unwrap data envelope (supports both old and new format)
+        const data = responseData.data || responseData;
+        
+        // Check for error in data or in error envelope
+        const errorMsg = data.error || responseData.error?.message;
+        if (errorMsg) {
             // Show error message
             const errorElement = document.getElementById('directoryBrowserError');
-            errorElement.textContent = data.error;
+            errorElement.textContent = errorMsg;
             errorElement.style.display = 'block';
             return;
         }

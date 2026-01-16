@@ -13,8 +13,6 @@ import sys
 
 # Constants - must match docker-compose and pre-seeded files
 DELUGE_PASSWORD = "testpassword"
-SFTP_USER = "testuser"
-SFTP_PASS = "testpass"
 
 
 def wait_for_service(url, timeout=120):
@@ -98,65 +96,18 @@ def register_deluge_client(arr_url, api_key, client_config, arr_type):
 
 
 def generate_transferarr_config(radarr_key, sonarr_key):
-    """Generate transferarr config.json with extracted credentials"""
-    config = {
-        "log_level": "DEBUG",
-        "state_file": "/app/state/state.json",
-        "media_managers": [
-            {
-                "type": "radarr",
-                "host": "http://radarr",
-                "port": 7878,
-                "api_key": radarr_key
-            },
-            {
-                "type": "sonarr",
-                "host": "http://sonarr",
-                "port": 8989,
-                "api_key": sonarr_key
-            }
-        ],
-        "download_clients": {
-            "source-deluge": {
-                "type": "deluge",
-                "connection_type": "rpc",
-                "host": "deluge-source",
-                "port": 58846,
-                "username": "localclient",
-                "password": DELUGE_PASSWORD
-            },
-            "target-deluge": {
-                "type": "deluge",
-                "connection_type": "rpc",
-                "host": "deluge-target",
-                "port": 58846,
-                "username": "localclient",
-                "password": DELUGE_PASSWORD
-            }
-        },
-        "connections": [
-            {
-                "from": "source-deluge",
-                "to": "target-deluge",
-                "transfer_config": {
-                    "from": {
-                        "type": "sftp",
-                        "sftp": {
-                            "host": "sftp-server",
-                            "port": 2222,
-                            "username": SFTP_USER,
-                            "password": SFTP_PASS
-                        }
-                    },
-                    "to": {"type": "local"}
-                },
-                "source_dot_torrent_path": "/home/testuser/state/",
-                "source_torrent_download_path": "/home/testuser/downloads/",
-                "destination_dot_torrent_tmp_dir": "/tmp/torrents/",
-                "destination_torrent_download_path": "/target-downloads/"
-            }
-        ]
-    }
+    """Load base config from fixture and inject API keys."""
+    # Load the default fixture (sftp-to-local is the standard test config)
+    base_config_path = Path("/fixtures/config.sftp-to-local.json")
+    config = json.loads(base_config_path.read_text())
+    
+    # Inject the extracted API keys
+    for mm in config["media_managers"]:
+        if mm["type"] == "radarr":
+            mm["api_key"] = radarr_key
+        elif mm["type"] == "sonarr":
+            mm["api_key"] = sonarr_key
+    
     return config
 
 

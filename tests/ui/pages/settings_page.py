@@ -47,6 +47,7 @@ class SettingsPage(BasePage):
     # Connection modal selectors (from partials/modals/connection_modal.html)
     CONNECTION_MODAL = "#connectionModal"
     CONNECTION_FORM = "#connectionForm"
+    CONNECTION_NAME = "#connectionName"
     CONNECTION_FROM_SELECT = "#fromClient"
     CONNECTION_TO_SELECT = "#toClient"
     CONNECTION_FROM_TYPE = "#fromType"

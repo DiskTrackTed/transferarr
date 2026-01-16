@@ -120,7 +120,7 @@ class TorrentsPage(BasePage):
     def wait_for_api_refresh(self, timeout: int = 5000) -> None:
         """Wait for next API poll.
         
-        Torrents page polls /api/all_torrents every 3 seconds.
+        Torrents page polls /api/v1/all_torrents every 3 seconds.
         
         Args:
             timeout: Maximum time to wait in milliseconds
@@ -129,7 +129,7 @@ class TorrentsPage(BasePage):
             playwright.sync_api.TimeoutError: If no API response within timeout
         """
         with self.page.expect_response(
-            lambda r: "/api/all_torrents" in r.url,
+            lambda r: "/api/v1/all_torrents" in r.url,
             timeout=timeout
         ):
             pass  # Wait for next poll cycle

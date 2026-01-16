@@ -81,12 +81,14 @@ export function loadClients() {
         clientsListElement.innerHTML = '';
     }
     
-    console.log('Fetching clients from /api/config...');
-    fetch('/api/config')
+    console.log('Fetching clients from /api/v1/download_clients...');
+    fetch('/api/v1/download_clients')
         .then(response => {
             console.log('Response received:', response.status);
             if (!response.ok) {
-                throw new Error(`Server returned ${response.status}: ${response.statusText}`);
+                return response.json().then(err => {
+                    throw new Error(err.error?.message || `Server returned ${response.status}`);
+                });
             }
             return response.json();
         })
@@ -98,7 +100,8 @@ export function loadClients() {
                 return;
             }
             
-            const clients = data.download_clients || {};
+            // Phase 3: Unwrap from data envelope, with fallback for compatibility
+            const clients = data.data || data;
             console.log(`Found ${Object.keys(clients).length} clients`);
             
             if (Object.keys(clients).length === 0) {
@@ -215,7 +218,10 @@ function editClient(name, client) {
     document.getElementById('clientHost').value = client.host;
     document.getElementById('clientPort').value = client.port;
     document.getElementById('clientUsername').value = client.username || '';
-    document.getElementById('clientPassword').value = client.password;
+    // Leave password blank - API returns masked "***" value
+    // User can leave blank to keep existing, or enter new password
+    document.getElementById('clientPassword').value = '';
+    document.getElementById('clientPassword').placeholder = 'Leave blank to keep current password';
     
     // Update username field visibility based on connection type
     toggleUsernameField();
@@ -247,6 +253,8 @@ function resetClientForm() {
     document.getElementById('editMode').value = 'false';
     document.getElementById('originalName').value = '';
     document.getElementById('saveClientBtn').disabled = true;
+    // Reset password placeholder for add mode
+    document.getElementById('clientPassword').placeholder = '';
     toggleUsernameField();
 }
 
@@ -281,11 +289,11 @@ function saveClient() {
         clientData.username = document.getElementById('clientUsername').value;
     }
     
-    let url = '/api/download_clients';
+    let url = '/api/v1/download_clients';
     let method = 'POST';
     
     if (isEditMode) {
-        url = `/api/download_clients/${originalName}`;
+        url = `/api/v1/download_clients/${originalName}`;
         method = 'PUT';
         delete clientData.name; // Don't need name in PUT request
     }
@@ -299,8 +307,9 @@ function saveClient() {
     })
     .then(response => {
         if (!response.ok) {
-            return response.json().then(error => {
-                throw new Error(error.error || 'Unknown error occurred');
+            return response.json().then(err => {
+                // Phase 3: Extract error message from error envelope
+                throw new Error(err.error?.message || err.error || 'Unknown error occurred');
             });
         }
         return response.json();
@@ -309,10 +318,11 @@ function saveClient() {
         clientModal.hide();
         loadClients();
         
-        // Show success notification
+        // Phase 3: Use message from response if available
+        const message = data.message || `The download client "${name}" has been ${isEditMode ? 'updated' : 'added'} successfully.`;
         TransferarrNotifications.success(
             isEditMode ? 'Client Updated' : 'Client Added',
-            `The download client "${name}" has been ${isEditMode ? 'updated' : 'added'} successfully.`
+            message
         );
     })
     .catch(error => {
@@ -326,13 +336,14 @@ function saveClient() {
 
 // Delete a client
 function deleteClient(name) {
-    fetch(`/api/download_clients/${name}`, {
+    fetch(`/api/v1/download_clients/${name}`, {
         method: 'DELETE'
     })
     .then(response => {
         if (!response.ok) {
-            return response.json().then(error => {
-                throw new Error(error.error || 'Unknown error occurred');
+            return response.json().then(err => {
+                // Phase 3: Extract error message from error envelope
+                throw new Error(err.error?.message || err.error || 'Unknown error occurred');
             });
         }
         return response.json();
@@ -341,10 +352,11 @@ function deleteClient(name) {
         deleteModal.hide();
         loadClients();
         
-        // Show success notification
+        // Phase 3: Use message from response if available
+        const message = data.message || `The download client "${name}" has been deleted successfully.`;
         TransferarrNotifications.success(
             'Client Deleted',
-            `The download client "${name}" has been deleted successfully.`
+            message
         );
     })
     .catch(error => {
@@ -367,6 +379,8 @@ function testConnection() {
     testBtn.disabled = true;
     
     const connectionType = document.getElementById('clientConnectionType').value;
+    const isEditMode = document.getElementById('editMode').value === 'true';
+    const originalName = document.getElementById('originalName').value;
     
     // Collect client data from the form
     const clientData = {
@@ -382,8 +396,16 @@ function testConnection() {
         clientData.username = document.getElementById('clientUsername').value;
     }
     
+    // In edit mode, include client name so backend can use stored password if password is empty
+    if (isEditMode && originalName) {
+        clientData.name = originalName;
+    }
+    
     // Validate fields before test
-    if (!clientData.host || !clientData.port || !clientData.password || 
+    // In edit mode, password is optional (backend will use stored password)
+    const passwordRequired = !isEditMode || !originalName;
+    if (!clientData.host || !clientData.port || 
+        (passwordRequired && !clientData.password) ||
         (connectionType === 'rpc' && !clientData.username)) {
         // Reset button
         testBtn.innerHTML = originalText;
@@ -393,7 +415,7 @@ function testConnection() {
     }
     
     // Test connection
-    fetch('/api/download_clients/test', {
+    fetch('/api/v1/download_clients/test', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json'
@@ -402,8 +424,9 @@ function testConnection() {
     })
     .then(response => {
         if (!response.ok) {
-            return response.json().then(error => {
-                throw new Error(error.error || 'Unknown error occurred');
+            return response.json().then(err => {
+                // Phase 3: Extract error message from error envelope
+                throw new Error(err.error?.message || err.error || 'Unknown error occurred');
             });
         }
         return response.json();
@@ -412,7 +435,11 @@ function testConnection() {
         // Re-enable button
         testBtn.disabled = false;
         
-        if (data.success) {
+        // Phase 3: Unwrap from data envelope
+        const result = data.data || data;
+        const message = data.message || (result.success ? 'Connection successful' : 'Connection failed');
+        
+        if (result.success) {
             // Success state
             testBtn.innerHTML = '<i class="fas fa-check"></i> Connection Successful';
             testBtn.classList.remove('btn-info');
@@ -425,7 +452,7 @@ function testConnection() {
             // Show success notification
             TransferarrNotifications.success(
                 'Connection Successful',
-                `Successfully connected to ${clientData.host}:${clientData.port}.`
+                message
             );
         } else {
             // Error state
@@ -440,7 +467,7 @@ function testConnection() {
             // Show error notification
             TransferarrNotifications.error(
                 'Connection Failed',
-                data.message
+                message
             );
         }
     })
