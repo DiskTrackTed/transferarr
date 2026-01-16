@@ -119,6 +119,18 @@ body {
     display: block;
 }
 
+/* Sidebar footer with version */
+.sidebar-footer {
+    margin-top: auto;
+    padding: 15px 20px;
+    border-top: 1px solid rgba(255,255,255,0.1);
+}
+
+.sidebar-footer .version {
+    font-size: 12px;
+    color: rgba(255,255,255,0.5);
+}
+
 /* Responsive design */
 @media (max-width: 768px) {
     body {

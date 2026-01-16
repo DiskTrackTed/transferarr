@@ -109,6 +109,14 @@ python -m transferarr.main --config config.json
 pip install -r requirements.txt
 ```
 
+## Versioning
+
+- Version stored in `VERSION` file at repo root
+- Use `bump2version patch/minor/major` to release (auto-commits and tags)
+- `./build.sh` builds dev image (`:dev` tag)
+- `./build.sh --release` builds versioned image (requires clean git state and version tag)
+- Version accessible via `transferarr.__version__` and `/api/v1/health`
+
 ## Code Conventions
 
 ### Docker

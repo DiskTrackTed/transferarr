@@ -20,6 +20,18 @@ Transferarr monitors your Radarr/Sonarr queues and automatically transfers compl
 
 ---
 
+## Version
+
+Current version: See [VERSION](VERSION) file.
+
+### Release Process
+
+1. Bump version: `bump2version patch` (or `minor`/`major`)
+2. Push with tags: `git push && git push --tags`
+3. Build release: `./build.sh --release`
+
+---
+
 ## Quick Start
 
 ### Docker (Recommended)

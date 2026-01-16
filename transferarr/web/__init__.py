@@ -1,5 +1,6 @@
 from flask import Flask
 from flasgger import Swagger
+from transferarr import __version__
 
 def create_app(config, torrent_manager):
     app = Flask(__name__, 
@@ -13,11 +14,16 @@ def create_app(config, torrent_manager):
     app.config['SWAGGER'] = {
         'title': 'Transferarr API',
         'description': 'API for managing torrent transfers between download clients',
-        'version': '1.0.0',
+        'version': __version__,
         'uiversion': 3,
         'specs_route': '/apidocs/'
     }
     Swagger(app)
+    
+    # Inject version into all templates
+    @app.context_processor
+    def inject_version():
+        return {'version': __version__}
     
     # Configure logging for Flask
     if config.get("web_log_file"):

@@ -3,6 +3,7 @@ System routes for health checks and configuration.
 """
 from flask import current_app
 from .responses import success_response, error_response
+from transferarr import __version__
 import logging
 
 logger = logging.getLogger("transferarr")
@@ -34,7 +35,7 @@ def register_routes(bp):
                       example: true
                     version:
                       type: string
-                      example: "1.0.0"
+                      example: "0.1.0"
           500:
             description: Service is unhealthy
         """
@@ -43,7 +44,7 @@ def register_routes(bp):
             return success_response({
                 "status": "healthy",
                 "torrent_manager": torrent_manager is not None,
-                "version": "1.0.0"
+                "version": __version__
             })
         except Exception as e:
             return error_response("UNHEALTHY", str(e), status_code=500)
