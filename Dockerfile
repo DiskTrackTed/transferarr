@@ -1,5 +1,13 @@
 FROM python:3.9-slim
 
+# Build arguments
+ARG VERSION=dev
+ARG UID=1000
+ARG GID=1000
+
+# Labels
+LABEL org.opencontainers.image.version=$VERSION
+
 # Set working directory
 WORKDIR /app
 
@@ -12,10 +20,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application files
 COPY ./transferarr /app/transferarr/
-
-# Set build arguments for customizable UID/GID
-ARG UID=1000
-ARG GID=1000
+COPY ./VERSION /app/
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
