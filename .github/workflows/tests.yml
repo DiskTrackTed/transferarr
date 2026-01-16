@@ -1,0 +1,115 @@
+# GitHub Actions workflow for running Transferarr tests
+#
+# This workflow runs the full test suite including:
+# - Integration tests (torrent lifecycle, transfers, error handling)
+# - UI tests (Playwright-based browser tests)
+#
+# The test infrastructure uses Docker Compose to spin up:
+# - Deluge instances (source, target, target-2)
+# - Radarr and Sonarr
+# - Mock indexer and tracker
+# - SFTP server
+# - Transferarr application
+
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      test_type:
+        description: 'Type of tests to run'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - integration
+          - ui
+
+# Cancel in-progress runs when a new run is triggered
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  COMPOSE_FILE: docker/docker-compose.test.yml
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Cache Docker layers for faster builds
+      - name: Cache Docker layers
+        uses: actions/cache@v4
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-buildx-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-
+
+      - name: Build Transferarr image
+        run: |
+          ./build.sh
+
+      - name: Build test infrastructure images
+        run: |
+          # Build images that docker-compose needs
+          docker compose -f $COMPOSE_FILE build mock-indexer torrent-creator test-runner service-registrar
+
+      - name: Start test services
+        run: |
+          # Start all services and wait for healthchecks
+          # Services with profiles (test-runner, torrent-creator) won't start
+          # Docker Compose handles dependency ordering automatically
+          docker compose -f $COMPOSE_FILE up -d --wait
+
+      - name: Run integration tests
+        if: ${{ github.event.inputs.test_type == 'all' || github.event.inputs.test_type == 'integration' || github.event.inputs.test_type == '' }}
+        run: |
+          ./run_tests.sh tests/integration/ -v --tb=short
+
+      - name: Run UI tests
+        if: ${{ github.event.inputs.test_type == 'all' || github.event.inputs.test_type == 'ui' || github.event.inputs.test_type == '' }}
+        run: |
+          ./run_tests.sh --no-cleanup tests/ui/ -v --tb=short
+
+      - name: Upload test artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: |
+            test-results/
+          retention-days: 7
+
+      - name: Upload service logs on failure
+        if: failure()
+        run: |
+          mkdir -p logs
+          docker compose -f $COMPOSE_FILE logs > logs/docker-compose.log 2>&1
+        continue-on-error: true
+
+      - name: Upload logs artifact on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: service-logs
+          path: logs/
+          retention-days: 7
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker compose -f $COMPOSE_FILE down -v --remove-orphans
