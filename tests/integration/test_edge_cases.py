@@ -4,6 +4,7 @@ Integration tests for edge cases.
 These tests verify that Transferarr correctly handles edge cases like
 special characters in filenames and other unusual scenarios.
 """
+import os
 import pytest
 import time
 
@@ -265,6 +266,10 @@ class TestLargeTorrentTransfer:
         pass
     
     @pytest.mark.timeout(900)  # 15 minutes for 5GB transfer
+    @pytest.mark.skipif(
+        os.environ.get("GITHUB_ACTIONS") == "true",
+        reason="Skipped in CI: 5GB test uses too much disk space on GitHub runners"
+    )
     def test_5gb_torrent_transfer(
         self,
         create_torrent,
