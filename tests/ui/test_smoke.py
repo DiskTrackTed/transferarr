@@ -230,6 +230,9 @@ class TestE2EFullSmokeTest:
         
         expect(page.locator(settings_page.CONNECTION_MODAL)).not_to_be_visible()
         settings_page.wait_for_connections_loaded()
+        
+        # Wait for at least one connection card to appear (handles async reload)
+        page.wait_for_selector(settings_page.CONNECTION_CARD, timeout=UI_TIMEOUTS['element_visible'])
         print(f"  Added connection: {from_client} -> {to_client}")
     
     @pytest.mark.timeout(600)  # 10 minutes for this comprehensive test
