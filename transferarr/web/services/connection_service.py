@@ -9,9 +9,9 @@ import copy
 def _mask_sftp_passwords(transfer_config: dict) -> dict:
     """Deep copy transfer_config and mask any SFTP passwords."""
     safe_config = copy.deepcopy(transfer_config)
-    if safe_config.get("from", {}).get("sftp", {}).get("password"):
+    if (safe_config.get("from", {}).get("sftp") or {}).get("password"):
         safe_config["from"]["sftp"]["password"] = "***"
-    if safe_config.get("to", {}).get("sftp", {}).get("password"):
+    if (safe_config.get("to", {}).get("sftp") or {}).get("password"):
         safe_config["to"]["sftp"]["password"] = "***"
     return safe_config
 
@@ -261,7 +261,7 @@ class ConnectionService:
             if transfer_config.get(side, {}).get("sftp"):
                 new_password = transfer_config[side]["sftp"].get("password", "")
                 if not new_password or new_password == "***":
-                    existing_password = existing_transfer.get(side, {}).get("sftp", {}).get("password", "")
+                    existing_password = (existing_transfer.get(side, {}).get("sftp") or {}).get("password", "")
                     if existing_password:
                         transfer_config[side]["sftp"]["password"] = existing_password
         
