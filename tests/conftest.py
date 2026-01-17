@@ -39,6 +39,7 @@ TIMEOUTS = {
     'torrent_transfer': 300,     # 5 minutes for file transfer
     'state_transition': 120,     # 2 minutes for state machine transitions
     'api_response': 30,          # 30 seconds for API calls
+    'api_response_slow': 90,     # 90 seconds for slow API calls (adding series/movies fetches metadata)
     'torrent_seeding': 60,       # 1 minute for torrent to start seeding
 }
 
@@ -431,7 +432,13 @@ def radarr_client(radarr_api_key, ensure_indexer_registered):
                 "monitored": True,
                 "addOptions": {"searchForMovie": search}
             }
-            resp = self.post("movie", json=payload)
+            # Use slow timeout - adding movies fetches metadata from TMDB
+            resp = requests.post(
+                f"{self.base_url}/movie",
+                headers=self.headers,
+                json=payload,
+                timeout=TIMEOUTS['api_response_slow']
+            )
             resp.raise_for_status()
             return resp.json()
         
@@ -525,7 +532,13 @@ def sonarr_client(sonarr_api_key, ensure_sonarr_indexer_registered):
                 "monitored": True,
                 "addOptions": {"searchForMissingEpisodes": search}
             }
-            resp = self.post("series", json=payload)
+            # Use slow timeout - adding series fetches metadata from TVDB
+            resp = requests.post(
+                f"{self.base_url}/series",
+                headers=self.headers,
+                json=payload,
+                timeout=TIMEOUTS['api_response_slow']
+            )
             resp.raise_for_status()
             return resp.json()
         
