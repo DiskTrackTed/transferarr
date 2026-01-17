@@ -221,18 +221,25 @@ class TestE2EFullSmokeTest:
         save_btn = page.locator(settings_page.SAVE_CONNECTION_BTN)
         expect(save_btn).to_be_enabled(timeout=UI_TIMEOUTS['element_visible'])
         
-        # Save connection
+        # Save connection and verify success
         with page.expect_response(
             lambda r: "/api/v1/connections" in r.url and r.request.method == "POST",
             timeout=UI_TIMEOUTS['api_response']
-        ):
+        ) as response_info:
             settings_page.save_connection()
+        
+        save_response = response_info.value
+        if save_response.status != 200 and save_response.status != 201:
+            print(f"  ERROR: Save connection failed with status {save_response.status}")
+            print(f"  Response: {save_response.text()}")
+        assert save_response.status in (200, 201), f"Save connection failed: {save_response.status}"
         
         expect(page.locator(settings_page.CONNECTION_MODAL)).not_to_be_visible()
         settings_page.wait_for_connections_loaded()
         
         # Wait for at least one connection card to appear (handles async reload)
-        page.wait_for_selector(settings_page.CONNECTION_CARD, timeout=UI_TIMEOUTS['element_visible'])
+        # Use longer timeout since the list may need to refresh from the API
+        page.wait_for_selector(settings_page.CONNECTION_CARD, timeout=UI_TIMEOUTS['api_response'])
         print(f"  Added connection: {from_client} -> {to_client}")
     
     @pytest.mark.timeout(600)  # 10 minutes for this comprehensive test
