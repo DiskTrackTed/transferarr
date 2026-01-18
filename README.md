@@ -197,10 +197,22 @@ transferarr/
 Contributions are welcome! Please:
 
 1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+2. Create a feature branch from `main`:
+   ```bash
+   git checkout main
+   git pull origin main
+   git checkout -b feature/amazing-feature
+   ```
+3. Make your changes and commit (`git commit -m 'Add amazing feature'`)
+4. Push to your branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request to `main`
+
+### Branch Rules
+
+- **`main`** is the protected default branch
+- All changes must go through Pull Requests
+- CI tests must pass before merging (skipped for docs-only changes)
+- Branch naming: `feature/*`, `fix/*`, `docs/*`
 
 ---
 
