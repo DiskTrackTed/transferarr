@@ -11,8 +11,16 @@ name: Tests
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.github/copilot-instructions.md'
   pull_request:
     branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.github/copilot-instructions.md'
   workflow_dispatch:
     inputs:
       test_type:
