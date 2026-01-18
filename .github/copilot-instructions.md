@@ -109,6 +109,39 @@ python -m transferarr.main --config config.json
 pip install -r requirements.txt
 ```
 
+## Git Workflow
+
+- **`main`** is the protected default branch
+- All changes must go through Pull Requests to `main`
+- CI tests must pass before merging (required status check: `test`)
+- No force pushes or deletions allowed on `main`
+- **Docs-only changes** (`*.md`, `docs/**`) skip CI tests
+
+### Creating a Feature Branch
+
+```bash
+# Always start from an up-to-date main
+git checkout main
+git pull origin main
+
+# Create feature branch
+git checkout -b feature/my-feature
+
+# ... make changes ...
+
+# Push and create PR
+git push -u origin feature/my-feature
+gh pr create --base main --fill
+```
+
+### Branch Naming Conventions
+
+- `feature/*` - New features
+- `fix/*` - Bug fixes
+- `docs/*` - Documentation updates
+- `refactor/*` - Code refactoring
+- `test/*` - Test additions/changes
+
 ## Versioning
 
 - Version stored in `VERSION` file at repo root
