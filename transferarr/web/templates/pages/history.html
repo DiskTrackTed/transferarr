@@ -1,0 +1,200 @@
+{% extends "base.html" %}
+
+{% block title %}Transferarr - History{% endblock %}
+
+{% block styles %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/history.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="card-header">
+    <h2 class="card-title">Transfer History</h2>
+    <button id="btn-clear-history" class="btn btn-danger">
+        <i class="fas fa-trash"></i> Clear History
+    </button>
+</div>
+
+<!-- Stats Banner -->
+<div class="stats-container" id="history-stats">
+    <div class="stat-card">
+        <i class="fas fa-exchange-alt fa-2x"></i>
+        <div id="stat-total" class="stat-value">0</div>
+        <div class="stat-label">Total Transfers</div>
+    </div>
+    
+    <div class="stat-card">
+        <i class="fas fa-check-circle fa-2x"></i>
+        <div id="stat-completed" class="stat-value">0</div>
+        <div class="stat-label">Completed</div>
+    </div>
+    
+    <div class="stat-card">
+        <i class="fas fa-times-circle fa-2x"></i>
+        <div id="stat-failed" class="stat-value">0</div>
+        <div class="stat-label">Failed</div>
+    </div>
+    
+    <div class="stat-card">
+        <i class="fas fa-percentage fa-2x"></i>
+        <div id="stat-success-rate" class="stat-value">0%</div>
+        <div class="stat-label">Success Rate</div>
+    </div>
+    
+    <div class="stat-card">
+        <i class="fas fa-database fa-2x"></i>
+        <div id="stat-total-bytes" class="stat-value">0 B</div>
+        <div class="stat-label">Data Transferred</div>
+    </div>
+</div>
+
+<!-- Filters -->
+<div class="card filters-card">
+    <div class="filters-row">
+        <div class="filter-group">
+            <label for="filter-status">Status</label>
+            <select id="filter-status" class="filter-select">
+                <option value="">All</option>
+                <option value="completed">Completed</option>
+                <option value="failed">Failed</option>
+                <option value="transferring">Transferring</option>
+                <option value="pending">Pending</option>
+                <option value="cancelled">Cancelled</option>
+            </select>
+        </div>
+        
+        <div class="filter-group">
+            <label for="filter-source">Source</label>
+            <select id="filter-source" class="filter-select">
+                <option value="">All Sources</option>
+                <!-- Populated by JavaScript -->
+            </select>
+        </div>
+        
+        <div class="filter-group">
+            <label for="filter-target">Target</label>
+            <select id="filter-target" class="filter-select">
+                <option value="">All Targets</option>
+                <!-- Populated by JavaScript -->
+            </select>
+        </div>
+        
+        <div class="filter-group">
+            <label for="filter-search">Search</label>
+            <input type="text" id="filter-search" class="filter-input" placeholder="Search torrent name...">
+        </div>
+        
+        <div class="filter-group">
+            <label for="filter-from-date">From Date</label>
+            <input type="date" id="filter-from-date" class="filter-input filter-date">
+        </div>
+        
+        <div class="filter-group">
+            <label for="filter-to-date">To Date</label>
+            <input type="date" id="filter-to-date" class="filter-input filter-date">
+        </div>
+        
+        <div class="filter-group filter-actions">
+            <button id="btn-clear-filters" class="btn btn-secondary">
+                <i class="fas fa-times"></i> Clear
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- History Table -->
+<div class="card">
+    <div class="table-container">
+        <table class="history-table" id="history-table">
+            <thead>
+                <tr>
+                    <th class="sortable" data-sort="torrent_name">Name <i class="fas fa-sort"></i></th>
+                    <th>From → To</th>
+                    <th class="sortable" data-sort="size_bytes">Size <i class="fas fa-sort"></i></th>
+                    <th>Duration</th>
+                    <th>Status</th>
+                    <th class="sortable" data-sort="created_at">Date <i class="fas fa-sort"></i></th>
+                    <th class="actions-col">Actions</th>
+                </tr>
+            </thead>
+            <tbody id="history-tbody">
+                <!-- Populated by JavaScript -->
+            </tbody>
+        </table>
+    </div>
+    
+    <!-- Loading indicator -->
+    <div id="loading-indicator" class="loading-indicator" style="display: none;">
+        <i class="fas fa-spinner fa-spin"></i> Loading...
+    </div>
+    
+    <!-- Empty state -->
+    <div id="empty-state" class="empty-state" style="display: none;">
+        <i class="fas fa-history fa-3x"></i>
+        <p>No transfer history found</p>
+    </div>
+    
+    <!-- Pagination -->
+    <div class="pagination-container" id="pagination">
+        <div class="pagination-info">
+            Showing <span id="showing-start">0</span>-<span id="showing-end">0</span> of <span id="total-count">0</span>
+        </div>
+        <div class="pagination-controls">
+            <button id="btn-prev" class="btn btn-pagination" disabled>
+                <i class="fas fa-chevron-left"></i> Previous
+            </button>
+            <span class="page-info">Page <span id="current-page">1</span> of <span id="total-pages">1</span></span>
+            <button id="btn-next" class="btn btn-pagination" disabled>
+                Next <i class="fas fa-chevron-right"></i>
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Clear History Confirmation Modal -->
+<div class="modal-overlay" id="clear-history-modal" style="display: none;">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Clear Transfer History</h5>
+                <button type="button" class="btn-close" id="clear-modal-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p>Are you sure you want to clear the transfer history?</p>
+                <p class="text-muted">This will delete all completed, failed, and cancelled transfer records. Active transfers will not be affected.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" id="clear-modal-cancel">Cancel</button>
+                <button type="button" class="btn btn-danger" id="clear-modal-confirm">
+                    <i class="fas fa-trash"></i> Clear History
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Delete Single Transfer Confirmation Modal -->
+<div class="modal-overlay" id="delete-transfer-modal" style="display: none;">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Delete Transfer Record</h5>
+                <button type="button" class="btn-close" id="delete-modal-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p>Are you sure you want to delete this transfer record?</p>
+                <p class="torrent-name-preview" id="delete-torrent-name"></p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" id="delete-modal-cancel">Cancel</button>
+                <button type="button" class="btn btn-danger" id="delete-modal-confirm">
+                    <i class="fas fa-trash"></i> Delete
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/pages/history.js') }}"></script>
+{% endblock %}

@@ -181,11 +181,17 @@ clean_transferarr_state() {
     # Remove state from Docker volume
     docker exec test-transferarr rm -f /app/state.json 2>/dev/null || true
     
-    # Also clean local state file if running locally
-    rm -f "$PROJECT_ROOT/docker/fixtures/state.json" 2>/dev/null || true
-    rm -f "$PROJECT_ROOT/state.json" 2>/dev/null || true
-    
     log_info "Transferarr state cleaned"
+}
+
+# Clean transfer history database
+clean_history() {
+    log_info "Cleaning transfer history database..."
+    
+    # Remove history database from Docker container
+    docker exec test-transferarr rm -f /app/transfer_history.db 2>/dev/null || true
+    
+    log_info "Transfer history cleaned"
 }
 
 # Clean mock indexer torrents
@@ -253,6 +259,7 @@ clean_all() {
     clean_sonarr "localhost" "18989"
     clean_mock_indexer
     clean_transferarr_state
+    clean_history
     clean_downloads
     regenerate_config  # Restore config after CRUD tests may have modified it
     
@@ -342,6 +349,9 @@ case "${1:-all}" in
     state)
         clean_transferarr_state
         ;;
+    history)
+        clean_history
+        ;;
     config)
         regenerate_config
         ;;
@@ -361,12 +371,13 @@ case "${1:-all}" in
         clean_mock_indexer
         ;;
     *)
-        echo "Usage: $0 [all|torrents|state|config|volumes|downloads|radarr|sonarr|indexer]"
+        echo "Usage: $0 [all|torrents|state|history|config|volumes|downloads|radarr|sonarr|indexer]"
         echo ""
         echo "Commands:"
         echo "  all       - Clean all state (default)"
         echo "  torrents  - Clean only Deluge torrents"
         echo "  state     - Clean only transferarr state"
+        echo "  history   - Clean transfer history database"
         echo "  config    - Regenerate transferarr config (resets CRUD changes)"
         echo "  volumes   - Reset Docker volumes (requires restart)"
         echo "  downloads - Clean downloaded files only"

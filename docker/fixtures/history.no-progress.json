@@ -1,0 +1,5 @@
+{
+    "enabled": true,
+    "retention_days": 90,
+    "track_progress": false
+}

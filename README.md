@@ -14,7 +14,8 @@ Transferarr monitors your Radarr/Sonarr queues and automatically transfers compl
 - 🔄 **Automatic Migration** — Monitors media manager queues and transfers torrents when seeding completes
 - 🌐 **Multi-Server Support** — Transfer between local storage, SFTP, or any combination
 - 📊 **Web Dashboard** — Real-time status and manual controls
-- 🔗 **Radarr & Sonarr Integration** — Seamless integration via API
+- � **Transfer History** — Track completed/failed transfers with stats, filtering, and retention policies
+- �🔗 **Radarr & Sonarr Integration** — Seamless integration via API
 - 🐳 **Docker Ready** — Simple deployment with Docker Compose
 - 💾 **State Persistence** — Survives restarts without losing progress
 
@@ -185,6 +186,7 @@ transferarr/
 ├── services/
 │   ├── torrent_service.py  # Central orchestrator
 │   ├── transfer_connection.py  # File transfer handling
+│   ├── history_service.py  # Transfer history (SQLite)
 │   └── media_managers.py   # Radarr/Sonarr integration
 └── web/
     └── routes/             # Flask API & UI routes

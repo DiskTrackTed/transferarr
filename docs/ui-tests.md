@@ -116,6 +116,49 @@ Settings page tabs (Clients/Connections), modal display, and list rendering.
 | `test_add_connection_button_exists` | Add Connection button exists |
 | `test_open_add_client_modal` | Can open Add Client modal |
 
+### [test_history.py](../tests/ui/test_history.py)
+Transfer History page: stats, filters, table, pagination, status badges, delete functionality.
+
+| Test | Description |
+|------|-------------|
+| `test_history_in_sidebar` | History link visible in sidebar |
+| `test_history_page_loads` | Page loads with correct title |
+| `test_navigate_to_history_via_sidebar` | Navigate to history via sidebar link |
+| `test_history_nav_item_highlighted` | History is highlighted when active |
+| `test_history_stats_banner_visible` | Stats banner shows all 5 stat cards |
+| `test_history_stats_labels` | Stats have correct labels |
+| `test_history_table_visible` | History table is visible |
+| `test_history_shows_correct_columns` | Table has Name, From→To, Size, Duration, Status, Date, Actions |
+| `test_history_pagination_controls` | Pagination controls are visible |
+| `test_filter_controls_visible` | Filter dropdowns and search visible |
+| `test_history_filter_by_status` | Status dropdown filters correctly |
+| `test_history_filter_by_client` | Source/target filters work |
+| `test_history_search_by_name` | Search input filters by name |
+| `test_history_clear_filters` | Clear button resets all filters |
+| `test_history_date_filter_from` | From date filter works |
+| `test_history_date_filter_to` | To date filter works |
+| `test_history_date_range_filter` | Both date filters work together |
+| `test_history_page_navigation` | Pagination prev button disabled on page 1 |
+| `test_pagination_info_displayed` | Shows "Showing X-Y of Z" |
+| `test_history_shows_transfer_records` | Table shows records or empty state |
+| `test_history_status_badge_colors` | Status badges have correct styling |
+| `test_history_table_sortable_columns` | 3 sortable columns (Name, Size, Date) |
+| `test_history_column_sorting` | Clicking header triggers sorting |
+| `test_empty_state_message` | Empty state shows "No transfer history" |
+| `test_empty_state_icon` | Empty state has history icon |
+| `test_loading_indicator_exists` | Loading indicator element exists |
+| `test_clear_history_button_exists` | Clear History button is visible |
+| `test_clear_history_modal_appears` | Clicking Clear History shows confirmation modal |
+| `test_clear_history_modal_cancel` | Cancel button closes the clear history modal |
+| `test_clear_history_modal_close_button` | X button closes the clear history modal |
+| `test_clear_history_modal_overlay_click` | Clicking overlay closes the modal |
+| `test_actions_column_exists` | Actions column header exists in table |
+| `test_delete_buttons_on_completed_transfers` | Delete buttons appear on completed/failed rows |
+| `test_delete_button_opens_confirmation` | Clicking delete button shows confirmation modal |
+| `test_delete_modal_shows_torrent_name` | Delete modal shows the torrent name |
+| `test_delete_modal_cancel` | Cancel button closes delete modal |
+| `test_delete_modal_close_button` | X button closes delete modal |
+
 ### [test_client_crud.py](../tests/ui/test_client_crud.py)
 Full client CRUD workflows: add, edit, delete, test connection, form validation.
 
@@ -192,6 +235,7 @@ Located in `tests/ui/pages/`:
 | `DashboardPage` | Stats cards, recent torrents list |
 | `TorrentsPage` | Client tabs, torrent listings |
 | `SettingsPage` | Client/connection CRUD modals and forms |
+| `HistoryPage` | Transfer history stats, filters, table, pagination |
 
 ## Key Fixtures
 
@@ -204,6 +248,7 @@ From `tests/ui/conftest.py`:
 | `torrents_page` | function | TorrentsPage object |
 | `settings_page` | function | SettingsPage object |
 | `crud_test_setup` | function | Cleanup for CRUD tests (tracks created clients) |
+| `transfer_history_data` | module | Runs a real transfer to create organic history data |
 
 ## Timeouts
 

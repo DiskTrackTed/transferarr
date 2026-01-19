@@ -13,7 +13,7 @@ from time import sleep
 logger = logging.getLogger("transferarr")
 
 class TorrentManager:
-    def __init__(self, config, config_file):
+    def __init__(self, config, config_file, history_service=None, history_config=None):
         self.torrents = []
         self.config = config
         self.config_file = config_file
@@ -21,6 +21,8 @@ class TorrentManager:
         self.download_clients = {}
         self.connections = {}  # Dict keyed by connection name
         self.state_file = config.get("state_file")
+        self.history_service = history_service
+        self.history_config = history_config or {}
         self.running = False
         self.setup_media_managers(config)
         self.load_download_clients(config)
@@ -60,7 +62,11 @@ class TorrentManager:
             try:
                 from_client = self.download_clients[connection["from"]]
                 to_client = self.download_clients[connection["to"]]
-                new_connection = TransferConnection(name, connection, from_client, to_client)
+                new_connection = TransferConnection(
+                    name, connection, from_client, to_client,
+                    history_service=self.history_service,
+                    history_config=self.history_config
+                )
                 from_client.add_connection(new_connection)
                 to_client.add_connection(new_connection)
                 self.connections[name] = new_connection

@@ -1,10 +1,10 @@
 # Integration Tests
 
-*Last Updated: 2026-01-02*
+*Last Updated: 2025-01-18*
 
 ## Overview
 
-Transferarr has 28 integration tests across 8 test files, covering the complete torrent migration lifecycle for both Radarr and Sonarr.
+Transferarr has 55+ integration tests across 10 test files, covering the complete torrent migration lifecycle for both Radarr and Sonarr, plus history tracking and API tests.
 
 ## Running Tests
 
@@ -98,6 +98,29 @@ Multi-target routing with two destination Deluge instances.
 | Test | Description |
 |------|-------------|
 | `test_multi_target_routing` | Route to different targets based on connection config |
+
+### [test_history_config.py](../tests/integration/test_history_config.py)
+History configuration behavior tests.
+
+| Test | Description |
+|------|-------------|
+| `test_history_disabled_no_records_created` | No history records when `history.enabled=false` |
+| `test_track_progress_false_skips_progress_updates` | No byte progress updates when `history.track_progress=false` |
+| `test_retention_prunes_old_entries_unit` | Unit test for retention pruning logic |
+| `test_retention_config_is_applied` | Verify `history.retention_days` config is respected |
+
+### [test_transfer_history_api.py](../tests/integration/test_transfer_history_api.py)
+Transfer History API endpoint tests (23 tests).
+
+| Test Class | Description |
+|------|-------------|
+| `TestTransfersListEndpoint` | GET /transfers pagination, filtering, sorting |
+| `TestActiveTransfersEndpoint` | GET /transfers/active real-time list |
+| `TestTransferStatsEndpoint` | GET /transfers/stats totals |
+| `TestSingleTransferEndpoint` | GET /transfers/<id> detail |
+| `TestTransferHistoryIntegration` | End-to-end record creation during transfer |
+| `TestDeleteTransferEndpoint` | DELETE /transfers/<id> single record deletion |
+| `TestClearTransfersEndpoint` | DELETE /transfers batch clearing by status |
 
 ---
 
