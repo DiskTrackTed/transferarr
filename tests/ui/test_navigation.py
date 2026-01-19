@@ -41,6 +41,17 @@ class TestSidebarNavigation:
         expect(page).to_have_url(f"{base_url}/torrents")
         expect(page.locator("h2")).to_contain_text("All Torrents")
     
+    def test_navigate_to_history(self, page: Page, base_url: str):
+        """Test navigation to history page via sidebar."""
+        page.goto(base_url)
+        
+        # Click history link
+        page.click(".sidebar a[href='/history']")
+        
+        # Verify navigation
+        expect(page).to_have_url(f"{base_url}/history")
+        expect(page.locator("h2")).to_contain_text("Transfer History")
+    
     def test_navigate_to_settings(self, page: Page, base_url: str):
         """Test navigation to settings page via sidebar."""
         page.goto(base_url)
@@ -73,6 +84,10 @@ class TestSidebarNavigation:
         page.goto(f"{base_url}/torrents")
         expect(page.locator(".sidebar .tab-link.active")).to_contain_text("Torrents")
         
+        # Check history
+        page.goto(f"{base_url}/history")
+        expect(page.locator(".sidebar .tab-link.active")).to_contain_text("History")
+        
         # Check settings
         page.goto(f"{base_url}/settings")
         expect(page.locator(".sidebar .tab-link.active")).to_contain_text("Settings")
@@ -94,6 +109,13 @@ class TestDirectURLAccess:
         
         expect(page).to_have_title("Transferarr - Torrents")
         expect(page.locator("h2")).to_contain_text("All Torrents")
+    
+    def test_history_direct_access(self, page: Page, base_url: str):
+        """Test that history page is accessible via direct URL."""
+        page.goto(f"{base_url}/history")
+        
+        expect(page).to_have_title("Transferarr - History")
+        expect(page.locator("h2")).to_contain_text("Transfer History")
     
     def test_settings_direct_access(self, page: Page, base_url: str):
         """Test that settings page is accessible via direct URL."""

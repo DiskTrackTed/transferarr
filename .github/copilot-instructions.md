@@ -9,6 +9,7 @@ Transferarr is a Python application that automates torrent migration between dow
 - **`transferarr/main.py`** - Entry point: loads config, starts `TorrentManager` thread, runs Flask web server on port 10444
 - **`transferarr/services/torrent_service.py`** (`TorrentManager`) - Central orchestrator managing the torrent lifecycle, connections, and state persistence
 - **`transferarr/services/transfer_connection.py`** (`TransferConnection`) - Handles file transfers between source/destination with a ThreadPoolExecutor (max 3 concurrent transfers)
+- **`transferarr/services/history_service.py`** (`HistoryService`) - SQLite-based transfer history tracking with thread-safe connection-per-thread pattern
 - **`transferarr/services/media_managers.py`** - Radarr/Sonarr API integration using devopsarr Python SDKs
 
 ### Data Flow
@@ -30,9 +31,15 @@ All configuration is JSON-based (`config.json`). Structure:
 {
   "media_managers": [{"type": "radarr|sonarr", "host", "port", "api_key"}],
   "download_clients": {"name": {"type": "deluge", "connection_type": "rpc|web", ...}},
-  "connections": [{"from": "client_name", "to": "client_name", "transfer_config": {...}}]
+  "connections": [{"from": "client_name", "to": "client_name", "transfer_config": {...}}],
+  "history": {"enabled": true, "retention_days": 90, "track_progress": true}
 }
 ```
+
+### History Configuration
+- `history.enabled` (default: `true`) - Enable/disable history tracking
+- `history.retention_days` (default: `90`) - Days to keep history records (null = forever)
+- `history.track_progress` (default: `true`) - Update byte progress during transfers
 
 ### State Persistence
 - Torrent state saved to `state.json` via `save_callback` pattern on the `Torrent` model
@@ -51,6 +58,7 @@ Flask blueprints in `web/routes/`:
   - `download_clients.py` - Download client CRUD operations
   - `connections.py` - Transfer connection CRUD operations
   - `torrents.py` - `/torrents`, `/all_torrents` endpoints
+  - `transfers.py` - `/transfers` history endpoints (list, stats, delete)
   - `utilities.py` - `/browse` file browser endpoint
   - `validation.py` - `@validate_json` decorator for request validation
   - `responses.py` - Standardized response helpers (`success_response`, `error_response`, etc.)
@@ -65,6 +73,7 @@ Flask blueprints in `web/routes/`:
 - `DownloadClientService` - CRUD operations for download clients (list, add, update, delete, test connection)
 - `ConnectionService` - CRUD operations for transfer connections (list, add, update, delete, test connection)
 - `TorrentService` - Read-only torrent listing (tracked torrents, all client torrents)
+- `HistoryService` (in `transferarr/services/history_service.py`) - Transfer history tracking with SQLite persistence
 - Custom exceptions (`NotFoundError`, `ConflictError`, `ValidationError`, `ConfigSaveError`) map to HTTP responses
 
 **Security Features**:
@@ -312,7 +321,7 @@ gh issue close 1
 - `config.json` - Runtime configuration (gitignored, use `config copy.json` as template)
 - `state.json` - Persistent torrent state
 - `build.sh` - Docker image build script
-- `run_tests.sh` - Simplified test runner script (Docker or local)
+- `run_tests.sh` - Docker-based test runner script
 - `testing.ipynb` - Development/debugging notebook
 - `docs/integration-tests.md` - Integration test documentation (test coverage, test names, patterns)
 - `docs/ui-tests.md` - UI test documentation (Playwright, page objects, fixtures)
@@ -479,7 +488,7 @@ The conftest uses internal helper functions (prefixed with `_`) to reduce duplic
 - `deluge_source`, `deluge_target` - RPC clients for Deluge instances
 - `deluge_target_2` - RPC client for second target Deluge (skip if not running)
 - `create_torrent` - Factory to create test torrents via torrent-creator container (supports `size_mb` and `multi_file` params)
-- `transferarr` - Manager to start/stop/restart transferarr container (supports `config_type` param for multi-target)
+- `transferarr` - Manager to start/stop/restart transferarr container (supports `config_type` and `history_config` params)
 - `clean_test_environment` - Standard setup/teardown fixture for all integration tests
 - `lifecycle_runner` - Unified runner for standardized migration tests (Radarr/Sonarr)
 
