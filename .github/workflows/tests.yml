@@ -153,29 +153,24 @@ jobs:
       - name: Build test infrastructure
         if: steps.should_run.outputs.run == 'true' && matrix.needs_docker == true
         run: |
-          docker compose -f $COMPOSE_FILE build mock-indexer torrent-creator test-runner service-registrar
+          docker compose -f $COMPOSE_FILE build
 
-      - name: Pull external images (with retry)
+      - name: Start test services (with retry)
         if: steps.should_run.outputs.run == 'true' && matrix.needs_docker == true
         run: |
           # Retry logic for transient network failures (TLS handshake timeouts, etc.)
           max_attempts=3
           attempt=1
-          until docker compose -f $COMPOSE_FILE pull --ignore-buildable; do
+          until docker compose -f $COMPOSE_FILE up -d --wait; do
             if [ $attempt -ge $max_attempts ]; then
-              echo "Failed to pull images after $max_attempts attempts"
+              echo "Failed to start services after $max_attempts attempts"
               exit 1
             fi
-            echo "Pull attempt $attempt failed, retrying in 10 seconds..."
+            echo "Attempt $attempt failed, retrying in 10 seconds..."
             attempt=$((attempt + 1))
             sleep 10
           done
-          echo "Successfully pulled all images"
-
-      - name: Start test services
-        if: steps.should_run.outputs.run == 'true' && matrix.needs_docker == true
-        run: |
-          docker compose -f $COMPOSE_FILE up -d --wait
+          echo "All services started successfully"
 
       - name: Run tests
         if: steps.should_run.outputs.run == 'true' && matrix.needs_docker == true
