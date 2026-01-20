@@ -74,12 +74,13 @@ class TestStatePersistenceDuringCopying:
         radarr_client.search_movie(movie_id)
         
         # Step 2: Wait for torrent to be seeding on source
+        # Note: 5GB file needs longer timeout on CI runners
         print(f"\n[Step 2] Waiting for torrent in source Deluge...")
-        wait_for_queue_item_by_hash(radarr_client, torrent_info['hash'], timeout=60, expected_status='completed')
+        wait_for_queue_item_by_hash(radarr_client, torrent_info['hash'], timeout=300, expected_status='completed')
         wait_for_torrent_in_deluge(
             deluge_source,
             torrent_info['hash'],
-            timeout=TIMEOUTS['torrent_seeding'],
+            timeout=300,
             expected_state='Seeding'
         )
         print("  Torrent is seeding on source")

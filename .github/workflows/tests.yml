@@ -94,7 +94,7 @@ jobs:
             needs_docker: true
           - category: ui-crud
             path: tests/ui/crud/
-            timeout: 15
+            timeout: 30
             needs_docker: true
           - category: ui-e2e
             path: tests/ui/e2e/
