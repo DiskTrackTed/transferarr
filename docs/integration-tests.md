@@ -113,7 +113,7 @@ Unusual filenames, large files, and boundary conditions.
 |------|-------------|
 | `test_special_characters_in_filename` | Parentheses, brackets, dashes |
 | `test_spaces_in_torrent_name` | Spaces instead of dots |
-| `test_5gb_torrent_transfer` | Large file with speed tracking |
+| `test_2_5gb_torrent_transfer` | Large file with speed tracking |
 | `test_multi_file_torrent_transfer` | 5 files in one torrent |
 | `test_torrent_already_on_target_skips_copy` | Duplicate detection, skips COPYING phase |
 

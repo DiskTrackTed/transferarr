@@ -30,7 +30,7 @@ class TestStatePersistenceDuringCopying:
         """Use shared test environment setup."""
         pass
     
-    @pytest.mark.timeout(900)  # 15 minutes for 5GB transfer
+    @pytest.mark.timeout(900)  # 15 minutes for 2.5GB transfer
     def test_state_survives_restart_during_copying(
         self,
         create_torrent,
@@ -44,7 +44,7 @@ class TestStatePersistenceDuringCopying:
         Test that state is preserved when transferarr restarts mid-transfer.
         
         Scenario:
-        1. Start transfer of a torrent (5GB to ensure COPYING state is observable)
+        1. Start transfer of a torrent (2.5GB to ensure COPYING state is observable)
         2. Wait for COPYING state
         3. Restart transferarr
         4. Verify torrent is re-enqueued and completes
@@ -52,8 +52,8 @@ class TestStatePersistenceDuringCopying:
         movie = movie_catalog.get_movie()
         torrent_name = make_torrent_name(movie['title'], movie['year'])
         
-        # Use 5GB file to ensure COPYING state lasts long enough to restart
-        file_size_mb = 5000
+        # Use 2.5GB file to ensure COPYING state lasts long enough to restart
+        file_size_mb = 2500
         
         # Step 1: Create test torrent and add to Radarr
         print(f"\n[Step 1] Creating {file_size_mb}MB torrent and adding to Radarr: {torrent_name}")
@@ -74,7 +74,7 @@ class TestStatePersistenceDuringCopying:
         radarr_client.search_movie(movie_id)
         
         # Step 2: Wait for torrent to be seeding on source
-        # Note: 5GB file needs longer timeout on CI runners
+        # Note: 2.5GB file needs longer timeout on CI runners
         print(f"\n[Step 2] Waiting for torrent in source Deluge...")
         wait_for_queue_item_by_hash(radarr_client, torrent_info['hash'], timeout=300, expected_status='completed')
         wait_for_torrent_in_deluge(
