@@ -24,13 +24,19 @@ DOCKER_DIR = PROJECT_ROOT / "docker"
 COMPOSE_FILE = DOCKER_DIR / "docker-compose.test.yml"
 FIXTURES_DIR = DOCKER_DIR / "fixtures"
 
-# Transfer type config files
+# Transfer type config files (base configs)
 TRANSFER_TYPE_CONFIGS = {
     'sftp-to-local': FIXTURES_DIR / "config.sftp-to-local.json",
     'local-to-sftp': FIXTURES_DIR / "config.local-to-sftp.json",
     'sftp-to-sftp': FIXTURES_DIR / "config.sftp-to-sftp.json",
     'local-to-local': FIXTURES_DIR / "config.local-to-local.json",
     'multi-target': FIXTURES_DIR / "config.multi-target.json",
+}
+
+# History config overrides (merged with base config)
+HISTORY_CONFIGS = {
+    'disabled': FIXTURES_DIR / "history.disabled.json",
+    'no-progress': FIXTURES_DIR / "history.no-progress.json",
 }
 
 # Timeouts (seconds)
@@ -738,26 +744,43 @@ def transferarr(docker_client, docker_services, radarr_api_key, sonarr_api_key):
             except docker.errors.NotFound:
                 return False
         
-        def start(self, wait_healthy=True, config_type=None):
+        def start(self, wait_healthy=True, config_type=None, history_config=None):
             """
             Start the transferarr container.
             
             Args:
                 wait_healthy: Wait for container to be healthy before returning
                 config_type: Config type to use (e.g., 'sftp-to-local', 'multi-target').
-                            If None, uses the default config.json.
+                            If None, uses the default sftp-to-sftp config.
                             If specified, copies the config file to shared-config volume.
+                history_config: History config override (e.g., 'disabled', 'no-progress').
+                            If specified, merges history settings with base config.
             """
-            # If config_type specified and different from current, update config
-            if config_type and config_type != self._current_config_type:
-                if config_type not in TRANSFER_TYPE_CONFIGS:
-                    pytest.fail(f"Unknown config type: {config_type}. Available: {list(TRANSFER_TYPE_CONFIGS.keys())}")
+            # Determine config key for caching
+            config_key = (config_type or 'default', history_config)
+            
+            # If config changed from current, update config
+            if config_key != self._current_config_type:
+                base_config = config_type or 'sftp-to-sftp'
+                if base_config not in TRANSFER_TYPE_CONFIGS:
+                    pytest.fail(f"Unknown config type: {base_config}. Available: {list(TRANSFER_TYPE_CONFIGS.keys())}")
+                
+                # Load history override if specified
+                history_override = None
+                if history_config:
+                    if history_config not in HISTORY_CONFIGS:
+                        pytest.fail(f"Unknown history config: {history_config}. Available: {list(HISTORY_CONFIGS.keys())}")
+                    import json
+                    with open(HISTORY_CONFIGS[history_config]) as f:
+                        history_override = json.load(f)
+                
                 self.set_config(
-                    TRANSFER_TYPE_CONFIGS[config_type],
+                    TRANSFER_TYPE_CONFIGS[base_config],
                     self.radarr_api_key,
-                    self.sonarr_api_key
+                    self.sonarr_api_key,
+                    history_override=history_override
                 )
-                self._current_config_type = config_type
+                self._current_config_type = config_key
             
             try:
                 container = self.docker.containers.get(self.container_name)
@@ -834,17 +857,18 @@ def transferarr(docker_client, docker_services, radarr_api_key, sonarr_api_key):
             return data.get('data', data) if isinstance(data, dict) else data
         
         def clear_state(self):
-            """Clear the state file in the container."""
+            """Clear the state file and history database in the container."""
             try:
                 container = self.docker.containers.get(self.container_name)
                 if container.status == "running":
                     container.exec_run("rm -f /app/state/state.json")
+                    container.exec_run("rm -f /app/state/history.db")
             except docker.errors.NotFound:
                 pass
             except docker.errors.APIError:
                 pass  # Container may not be running
         
-        def set_config(self, config_path: Path, radarr_api_key: str, sonarr_api_key: str):
+        def set_config(self, config_path: Path, radarr_api_key: str, sonarr_api_key: str, history_override: dict = None):
             """
             Copy a config file to the shared-config volume with API keys injected.
             
@@ -852,6 +876,7 @@ def transferarr(docker_client, docker_services, radarr_api_key, sonarr_api_key):
                 config_path: Path to the config template file
                 radarr_api_key: Radarr API key to inject
                 sonarr_api_key: Sonarr API key to inject
+                history_override: Optional dict to merge into config['history']
             """
             import json
             import tarfile
@@ -867,6 +892,12 @@ def transferarr(docker_client, docker_services, radarr_api_key, sonarr_api_key):
                     manager['api_key'] = radarr_api_key
                 elif manager.get('type') == 'sonarr':
                     manager['api_key'] = sonarr_api_key
+            
+            # Merge history override if provided
+            if history_override:
+                if 'history' not in config:
+                    config['history'] = {}
+                config['history'].update(history_override)
             
             config_content = json.dumps(config, indent=4)
             

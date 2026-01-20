@@ -161,7 +161,7 @@ class TestSourceTorrentRemoved:
         """Use shared test environment setup."""
         pass
     
-    @pytest.mark.timeout(900)  # 15 minutes for 5GB torrent
+    @pytest.mark.timeout(900)  # 15 minutes for 2.5GB torrent
     def test_source_torrent_removed_during_copying(
         self,
         create_torrent,
@@ -188,8 +188,8 @@ class TestSourceTorrentRemoved:
         torrent_name = make_torrent_name(movie['title'], movie['year'])
         
         # Step 1: Create test torrent and add to Radarr
-        # Use 5GB to ensure COPYING state lasts long enough to catch
-        file_size_mb = 5000
+        # Use 2.5GB to ensure COPYING state lasts long enough to catch
+        file_size_mb = 2500
         print(f"\n[Step 1] Creating {file_size_mb}MB torrent and adding to Radarr: {torrent_name}")
         torrent_info = create_torrent(torrent_name, size_mb=file_size_mb)
         print(f"  Created torrent with hash: {torrent_info['hash']}")
@@ -250,7 +250,7 @@ class TestSourceTorrentRemoved:
         # - Complete transfer (TARGET_SEEDING) - copy continued despite deletion
         # - Be removed from tracking - transfer failed and was cleaned up
         # - Stay in an error/unclaimed state - acceptable intermediate state
-        deadline = time.time() + 600  # 10 minutes for 5GB transfer
+        deadline = time.time() + 600  # 10 minutes for 2.5GB transfer
         final_state = None
         
         while time.time() < deadline:

@@ -40,13 +40,15 @@ while [[ $# -gt 0 ]]; do
             echo "  --no-cleanup  Skip cleaning up the test environment before running tests"
             echo ""
             echo "Examples:"
-            echo "  ./run_tests.sh                                    # All integration tests"
-            echo "  ./run_tests.sh --no-cleanup                       # Run without cleanup"
-            echo "  ./run_tests.sh tests/integration/ -v              # Integration tests with verbose"
-            echo "  ./run_tests.sh -k 'lifecycle' -v                  # Filter tests"
-            echo "  ./run_tests.sh tests/integration/test_torrent_lifecycle.py -v -s"
-            echo "  ./run_tests.sh tests/ui/ -v                       # Run UI tests"
-            echo "  ./run_tests.sh tests/ui/ -v --headed              # UI tests with visible browser"
+            echo "  ./run_tests.sh                                       # All integration tests"
+            echo "  ./run_tests.sh --no-cleanup                          # Run without cleanup"
+            echo "  ./run_tests.sh tests/integration/ -v                 # All integration tests"
+            echo "  ./run_tests.sh tests/integration/lifecycle/ -v       # Lifecycle tests"
+            echo "  ./run_tests.sh tests/integration/api/ -v             # API tests"
+            echo "  ./run_tests.sh tests/ui/ -v                          # All UI tests"
+            echo "  ./run_tests.sh tests/ui/fast/ -v                     # Fast UI tests"
+            echo "  ./run_tests.sh tests/unit/ -v                        # Unit tests"
+            echo "  ./run_tests.sh -k 'lifecycle' -v                     # Filter tests"
             exit 0
             ;;
         *)

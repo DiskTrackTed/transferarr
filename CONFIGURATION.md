@@ -156,6 +156,35 @@ The `transfer_config` object defines how files are transferred between source an
 
 ---
 
+## History Configuration
+
+The `history` section controls transfer history tracking:
+
+```json
+{
+  "history": {
+    "enabled": true,
+    "retention_days": 90,
+    "track_progress": true
+  }
+}
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | boolean | `true` | Enable/disable history tracking |
+| `retention_days` | number | `90` | Days to retain records. Set to `null` to keep forever |
+| `track_progress` | boolean | `true` | Update byte progress during transfers (disable to reduce DB writes) |
+
+**Notes:**
+- Retention policy is applied on application startup
+- Only completed/failed/cancelled transfers are pruned
+- History database is stored alongside the state file (e.g., `history.db`)
+- History API available at `/api/v1/transfers` (see Swagger docs)
+- Active transfers (pending/transferring) cannot be deleted unless using `?force=true`
+
+---
+
 ## Transfer Type Combinations
 
 Transferarr supports four transfer type combinations:

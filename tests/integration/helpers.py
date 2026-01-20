@@ -175,7 +175,7 @@ class LifecycleRunner:
             elif item_type == 'season-pack':
                 season_num = kwargs.get('season_number', 1)
                 torrent_name = make_season_pack_name(added_item['title'], season_num)
-                size_mb = 5000
+                size_mb = 2500
             
             item['id'] = item_id # Store for search step
             item['title'] = added_item['title'] # Use Sonarr's title
