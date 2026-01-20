@@ -9,6 +9,7 @@ Transferarr is a Python application that automates torrent migration between dow
 - **`transferarr/main.py`** - Entry point: loads config, starts `TorrentManager` thread, runs Flask web server on port 10444
 - **`transferarr/services/torrent_service.py`** (`TorrentManager`) - Central orchestrator managing the torrent lifecycle, connections, and state persistence
 - **`transferarr/services/transfer_connection.py`** (`TransferConnection`) - Handles file transfers between source/destination with a ThreadPoolExecutor (max 3 concurrent transfers)
+- **`transferarr/services/history_service.py`** (`HistoryService`) - SQLite-based transfer history tracking with thread-safe connection-per-thread pattern
 - **`transferarr/services/media_managers.py`** - Radarr/Sonarr API integration using devopsarr Python SDKs
 
 ### Data Flow
@@ -30,9 +31,15 @@ All configuration is JSON-based (`config.json`). Structure:
 {
   "media_managers": [{"type": "radarr|sonarr", "host", "port", "api_key"}],
   "download_clients": {"name": {"type": "deluge", "connection_type": "rpc|web", ...}},
-  "connections": [{"from": "client_name", "to": "client_name", "transfer_config": {...}}]
+  "connections": [{"from": "client_name", "to": "client_name", "transfer_config": {...}}],
+  "history": {"enabled": true, "retention_days": 90, "track_progress": true}
 }
 ```
+
+### History Configuration
+- `history.enabled` (default: `true`) - Enable/disable history tracking
+- `history.retention_days` (default: `90`) - Days to keep history records (null = forever)
+- `history.track_progress` (default: `true`) - Update byte progress during transfers
 
 ### State Persistence
 - Torrent state saved to `state.json` via `save_callback` pattern on the `Torrent` model
@@ -51,6 +58,7 @@ Flask blueprints in `web/routes/`:
   - `download_clients.py` - Download client CRUD operations
   - `connections.py` - Transfer connection CRUD operations
   - `torrents.py` - `/torrents`, `/all_torrents` endpoints
+  - `transfers.py` - `/transfers` history endpoints (list, stats, delete)
   - `utilities.py` - `/browse` file browser endpoint
   - `validation.py` - `@validate_json` decorator for request validation
   - `responses.py` - Standardized response helpers (`success_response`, `error_response`, etc.)
@@ -65,6 +73,7 @@ Flask blueprints in `web/routes/`:
 - `DownloadClientService` - CRUD operations for download clients (list, add, update, delete, test connection)
 - `ConnectionService` - CRUD operations for transfer connections (list, add, update, delete, test connection)
 - `TorrentService` - Read-only torrent listing (tracked torrents, all client torrents)
+- `HistoryService` (in `transferarr/services/history_service.py`) - Transfer history tracking with SQLite persistence
 - Custom exceptions (`NotFoundError`, `ConflictError`, `ValidationError`, `ConfigSaveError`) map to HTTP responses
 
 **Security Features**:
@@ -312,7 +321,7 @@ gh issue close 1
 - `config.json` - Runtime configuration (gitignored, use `config copy.json` as template)
 - `state.json` - Persistent torrent state
 - `build.sh` - Docker image build script
-- `run_tests.sh` - Simplified test runner script (Docker or local)
+- `run_tests.sh` - Docker-based test runner script
 - `testing.ipynb` - Development/debugging notebook
 - `docs/integration-tests.md` - Integration test documentation (test coverage, test names, patterns)
 - `docs/ui-tests.md` - UI test documentation (Playwright, page objects, fixtures)
@@ -411,26 +420,31 @@ The test environment uses Docker Compose profiles and dependencies:
 
 ### Running Integration Tests (Phase 5)
 
-Integration tests are in `tests/integration/` and use pytest. Use the `run_tests.sh` script for easy execution:
+Integration tests are in `tests/integration/` organized by category and use pytest. Use the `run_tests.sh` script for easy execution:
 
 ```bash
 # Prerequisites: Start test services
 docker compose -f docker/docker-compose.test.yml up -d
 
 # Run all integration tests (includes cleanup)
-./run_tests.sh
+./run_tests.sh tests/integration/
+
+# Run specific category
+./run_tests.sh tests/integration/lifecycle/ -v
+./run_tests.sh tests/integration/api/ -v
+./run_tests.sh tests/integration/transfers/ -v
 
 # Run without automatic cleanup
 ./run_tests.sh --no-cleanup
 
-# Run specific tests
-./run_tests.sh tests/integration/test_torrent_lifecycle.py -v -s
+# Run specific test file
+./run_tests.sh tests/integration/lifecycle/test_torrent_lifecycle.py -v -s
 
 # Run with pytest filters
 ./run_tests.sh -k "lifecycle" -v
 
-# Run movie catalog validation (slow)
-./run_tests.sh tests/test_movie_catalog.py -v -s
+# Run movie catalog validation (slow, excluded by default)
+./run_tests.sh tests/catalog_tests/test_movie_catalog.py -v -s -m ""
 ```
 
 #### Manual Docker Commands (Alternative)
@@ -440,9 +454,9 @@ docker compose -f docker/docker-compose.test.yml up -d
 # (test code is mounted, dependencies are cached - no rebuild needed!)
 docker compose -f docker/docker-compose.test.yml --profile test run --rm test-runner
 
-# Run specific test
+# Run specific category
 docker compose -f docker/docker-compose.test.yml --profile test run --rm test-runner \
-  tests/integration/test_torrent_lifecycle.py -v -s
+  tests/integration/lifecycle/ -v -s
 
 # Run with custom pytest args
 docker compose -f docker/docker-compose.test.yml --profile test run --rm test-runner \
@@ -451,11 +465,22 @@ docker compose -f docker/docker-compose.test.yml --profile test run --rm test-ru
 
 **Note**: The test runner mounts source code and caches pip dependencies. You only need to rebuild if you modify the Dockerfile itself or system dependencies.
 
+**Integration Test Directory Structure**:
+```
+tests/integration/
+    api/                    # API and CRUD tests (~5 min)
+    lifecycle/              # Torrent lifecycle tests (~15 min)
+    persistence/            # State persistence tests (~8 min)
+    transfers/              # Transfer type variations (~12 min)
+    config/                 # Client routing tests (~10 min)
+    edge/                   # Error handling, edge cases (~8 min)
+```
+
 **Test Files**:
 - `tests/conftest.py` - Fixtures for Docker, API clients, cleanup
 - `tests/utils.py` - Helper functions (wait_for_*, clear_*, movie_catalog)
 - `tests/integration/helpers.py` - Unified `LifecycleRunner` and `MediaManagerAdapter`
-- `tests/integration/*.py` - Integration test files (see `docs/integration-tests.md` for complete test names and descriptions)
+- `tests/integration/{category}/*.py` - Integration test files (see `docs/integration-tests.md` for complete test names and descriptions)
 - `tests/ui/` - UI tests using Playwright (see UI Testing section below)
 - `tests/catalog_tests/test_movie_catalog.py` - Validation test for all movies in the catalog (marked slow, excluded by default)
 - `tests/catalog_tests/test_show_catalog.py` - Validation test for all shows in the catalog (marked slow, excluded by default)
@@ -479,7 +504,7 @@ The conftest uses internal helper functions (prefixed with `_`) to reduce duplic
 - `deluge_source`, `deluge_target` - RPC clients for Deluge instances
 - `deluge_target_2` - RPC client for second target Deluge (skip if not running)
 - `create_torrent` - Factory to create test torrents via torrent-creator container (supports `size_mb` and `multi_file` params)
-- `transferarr` - Manager to start/stop/restart transferarr container (supports `config_type` param for multi-target)
+- `transferarr` - Manager to start/stop/restart transferarr container (supports `config_type` and `history_config` params)
 - `clean_test_environment` - Standard setup/teardown fixture for all integration tests
 - `lifecycle_runner` - Unified runner for standardized migration tests (Radarr/Sonarr)
 
@@ -612,18 +637,45 @@ TIMEOUTS = {
 
 UI tests use Playwright for browser automation and follow the Page Object Model pattern.
 
+**Directory Structure**:
+```
+tests/ui/
+    fast/                   # UI-only tests (~5 min)
+        test_navigation.py
+        test_dashboard.py
+        test_torrents.py
+        test_settings.py
+        test_history.py
+    crud/                   # CRUD operations (~8 min)
+        test_client_crud.py
+        test_connection_crud.py
+    e2e/                    # Real transfers (~15 min)
+        test_e2e_workflows.py
+        test_smoke.py
+        test_transfer_types.py
+    pages/                  # Page objects
+    conftest.py
+    helpers.py
+```
+
 **Running UI Tests**:
 ```bash
 # Run all UI tests in Docker (headless, screenshots on failure)
 ./run_tests.sh tests/ui/ -v
 
+# Run specific category
+./run_tests.sh tests/ui/fast/ -v
+./run_tests.sh tests/ui/crud/ -v
+./run_tests.sh tests/ui/e2e/ -v
+
 # Run specific test
-./run_tests.sh tests/ui/test_navigation.py -v -s
+./run_tests.sh tests/ui/fast/test_navigation.py -v -s
 ```
 
 **Key Points**:
 - Page objects in `tests/ui/pages/` (BasePage, DashboardPage, TorrentsPage, SettingsPage)
 - Timeouts defined in `tests/ui/helpers.py` (`UI_TIMEOUTS` dict)
+- Shared helpers in `tests/ui/helpers.py` (`add_connection_via_ui()`, `delete_connection_via_api()`, etc.)
 - CRUD tests auto-cleanup created clients via API in fixture teardown
 - Screenshots saved to `test-results/` on failure
 

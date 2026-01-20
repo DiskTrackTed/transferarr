@@ -1,10 +1,32 @@
 # UI Tests
 
-*Last Updated: 2026-01-08*
+*Last Updated: 2026-01-19*
 
 ## Overview
 
 Playwright-based UI tests using the Page Object Model pattern. Tests run in Docker with Chromium (headless by default).
+
+## Directory Structure
+
+```
+tests/ui/
+    fast/                   # UI-only tests (~5 min)
+        test_navigation.py
+        test_dashboard.py
+        test_torrents.py
+        test_settings.py
+        test_history.py
+    crud/                   # CRUD operations (~8 min)
+        test_client_crud.py
+        test_connection_crud.py
+    e2e/                    # Real transfers (~15 min)
+        test_e2e_workflows.py
+        test_smoke.py
+        test_transfer_types.py
+    pages/                  # Page objects
+    conftest.py
+    helpers.py
+```
 
 ## Running Tests
 
@@ -12,8 +34,13 @@ Playwright-based UI tests using the Page Object Model pattern. Tests run in Dock
 # Run all UI tests
 ./run_tests.sh tests/ui/ -v
 
+# Run specific category
+./run_tests.sh tests/ui/fast/ -v
+./run_tests.sh tests/ui/crud/ -v
+./run_tests.sh tests/ui/e2e/ -v
+
 # Run specific file
-./run_tests.sh tests/ui/test_dashboard.py -v
+./run_tests.sh tests/ui/fast/test_dashboard.py -v
 
 # Run with screenshots on failure (default)
 ./run_tests.sh tests/ui/ -v --screenshot=only-on-failure
@@ -23,7 +50,9 @@ Test artifacts (screenshots, traces) are saved to `test-results/` (gitignored).
 
 ## Test Files
 
-### [test_navigation.py](../tests/ui/test_navigation.py)
+### fast/
+
+#### [test_navigation.py](../tests/ui/fast/test_navigation.py)
 Page loading and navigation via sidebar/logo.
 
 | Test | Description |
@@ -64,7 +93,7 @@ Dashboard stats cards, auto-polling, and torrent list.
 | `test_navigate_to_settings_from_dashboard` | Can navigate to settings page |
 | `test_sidebar_visible_on_dashboard` | Sidebar is visible on dashboard |
 
-### [test_torrents.py](../tests/ui/test_torrents.py)
+#### [test_torrents.py](../tests/ui/fast/test_torrents.py)
 Client tabs, tab switching, torrent listings, and polling.
 
 | Test | Description |
@@ -89,7 +118,7 @@ Client tabs, tab switching, torrent listings, and polling.
 | `test_navigate_to_settings_from_torrents` | Can navigate to settings |
 | `test_sidebar_visible_on_torrents` | Sidebar is visible on torrents page |
 
-### [test_settings.py](../tests/ui/test_settings.py)
+#### [test_settings.py](../tests/ui/fast/test_settings.py)
 Settings page tabs (Clients/Connections), modal display, and list rendering.
 
 | Test | Description |
@@ -116,7 +145,52 @@ Settings page tabs (Clients/Connections), modal display, and list rendering.
 | `test_add_connection_button_exists` | Add Connection button exists |
 | `test_open_add_client_modal` | Can open Add Client modal |
 
-### [test_client_crud.py](../tests/ui/test_client_crud.py)
+#### [test_history.py](../tests/ui/fast/test_history.py)
+Transfer History page: stats, filters, table, pagination, status badges, delete functionality.
+
+| Test | Description |
+|------|-------------|
+| `test_history_in_sidebar` | History link visible in sidebar |
+| `test_history_page_loads` | Page loads with correct title |
+| `test_navigate_to_history_via_sidebar` | Navigate to history via sidebar link |
+| `test_history_nav_item_highlighted` | History is highlighted when active |
+| `test_history_stats_banner_visible` | Stats banner shows all 5 stat cards |
+| `test_history_stats_labels` | Stats have correct labels |
+| `test_history_table_visible` | History table is visible |
+| `test_history_shows_correct_columns` | Table has Name, From→To, Size, Duration, Status, Date, Actions |
+| `test_history_pagination_controls` | Pagination controls are visible |
+| `test_filter_controls_visible` | Filter dropdowns and search visible |
+| `test_history_filter_by_status` | Status dropdown filters correctly |
+| `test_history_filter_by_client` | Source/target filters work |
+| `test_history_search_by_name` | Search input filters by name |
+| `test_history_clear_filters` | Clear button resets all filters |
+| `test_history_date_filter_from` | From date filter works |
+| `test_history_date_filter_to` | To date filter works |
+| `test_history_date_range_filter` | Both date filters work together |
+| `test_history_page_navigation` | Pagination prev button disabled on page 1 |
+| `test_pagination_info_displayed` | Shows "Showing X-Y of Z" |
+| `test_history_shows_transfer_records` | Table shows records or empty state |
+| `test_history_status_badge_colors` | Status badges have correct styling |
+| `test_history_table_sortable_columns` | 3 sortable columns (Name, Size, Date) |
+| `test_history_column_sorting` | Clicking header triggers sorting |
+| `test_empty_state_message` | Empty state shows "No transfer history" |
+| `test_empty_state_icon` | Empty state has history icon |
+| `test_loading_indicator_exists` | Loading indicator element exists |
+| `test_clear_history_button_exists` | Clear History button is visible |
+| `test_clear_history_modal_appears` | Clicking Clear History shows confirmation modal |
+| `test_clear_history_modal_cancel` | Cancel button closes the clear history modal |
+| `test_clear_history_modal_close_button` | X button closes the clear history modal |
+| `test_clear_history_modal_overlay_click` | Clicking overlay closes the modal |
+| `test_actions_column_exists` | Actions column header exists in table |
+| `test_delete_buttons_on_completed_transfers` | Delete buttons appear on completed/failed rows |
+| `test_delete_button_opens_confirmation` | Clicking delete button shows confirmation modal |
+| `test_delete_modal_shows_torrent_name` | Delete modal shows the torrent name |
+| `test_delete_modal_cancel` | Cancel button closes delete modal |
+| `test_delete_modal_close_button` | X button closes delete modal |
+
+### crud/
+
+#### [test_client_crud.py](../tests/ui/crud/test_client_crud.py)
 Full client CRUD workflows: add, edit, delete, test connection, form validation.
 
 | Test | Description |
@@ -135,7 +209,7 @@ Full client CRUD workflows: add, edit, delete, test connection, form validation.
 | `test_modal_close_button_works` | Modal close button works |
 | `test_form_changes_disable_save_button` | Form changes require re-testing connection |
 
-### [test_connection_crud.py](../tests/ui/test_connection_crud.py)
+#### [test_connection_crud.py](../tests/ui/crud/test_connection_crud.py)
 Connection CRUD workflows: add, edit, delete, test connection.
 
 | Test | Description |
@@ -162,7 +236,9 @@ Connection CRUD workflows: add, edit, delete, test connection.
 | `test_connection_card_shows_status` | Card shows connection status |
 | `test_connection_card_shows_transfer_stats` | Card shows transfer statistics |
 
-### [test_e2e_workflows.py](../tests/ui/test_e2e_workflows.py)
+### e2e/
+
+#### [test_e2e_workflows.py](../tests/ui/e2e/test_e2e_workflows.py)
 End-to-end tests combining UI with actual torrent transfers.
 
 | Test | Description |
@@ -175,12 +251,53 @@ End-to-end tests combining UI with actual torrent transfers.
 | `test_navigation_flow_dashboard_to_settings_to_torrents` | Full navigation flow works |
 | `test_dashboard_shows_tv_episode_torrent` | Dashboard shows Sonarr TV episode |
 
-### [test_smoke.py](../tests/ui/test_smoke.py)
+#### [test_smoke.py](../tests/ui/e2e/test_smoke.py)
 Full smoke test: add clients/connections via UI, trigger transfer, verify in dashboard.
 
 | Test | Description |
 |------|-------------|
 | `test_full_setup_and_transfer_workflow` | Complete flow: add clients, connections, trigger transfer, verify UI |
+
+#### [test_transfer_types.py](../tests/ui/e2e/test_transfer_types.py)
+Transfer type combination tests: all 4 combinations of local/sftp source and target.
+
+**TestTransferTypeCombinations** - Test adding connections for each transfer type combination:
+
+| Test | Description |
+|------|-------------|
+| `test_local_to_local_connection` | Add local → local connection via UI |
+| `test_local_to_sftp_connection` | Add local → sftp connection via UI |
+| `test_sftp_to_local_connection` | Add sftp → local connection via UI |
+| `test_sftp_to_sftp_connection` | Add sftp → sftp connection via UI |
+
+**TestSftpFieldVisibility** - Test SFTP config field show/hide behavior:
+
+| Test | Description |
+|------|-------------|
+| `test_sftp_fields_hidden_for_local_type` | SFTP fields hidden when type is 'local' |
+| `test_from_sftp_fields_visible_for_sftp_type` | Source SFTP fields visible when from type is 'sftp' |
+| `test_to_sftp_fields_visible_for_sftp_type` | Target SFTP fields visible when to type is 'sftp' |
+| `test_both_sftp_fields_visible_for_sftp_to_sftp` | Both SFTP field sets visible for sftp → sftp |
+| `test_sftp_fields_toggle_on_type_change` | SFTP fields toggle correctly when type changes |
+
+## Helper Functions
+
+Located in `tests/ui/helpers.py`. These are shared utilities for UI tests:
+
+| Function | Purpose |
+|----------|--------|
+| `add_connection_via_ui()` | Add a transfer connection via the Settings UI modal. Handles all transfer type combinations (local/sftp). |
+| `delete_connection_via_api()` | Delete a connection by name via the REST API. Used for cleanup. |
+| `delete_client_via_api()` | Delete a download client by name via the REST API. Used for cleanup. |
+| `unwrap_api_response()` | Extract data from standardized API response wrapper. |
+| `generate_unique_name()` | Generate a unique name with timestamp for test isolation. |
+| `log_test_step()` | Log a test step with visual formatting. |
+
+**Internal Helpers** (prefixed with `_`):
+- `_fill_transfer_type_config()` - Fills type-specific config fields (SFTP host/port/user/pass) based on transfer type
+
+**Adding New Transfer Types**:
+To support a new transfer type (e.g., `rclone`, `s3`), only `_fill_transfer_type_config()` needs to be updated. Test call sites pass raw config dicts from fixtures.
 
 ## Page Objects
 
@@ -192,6 +309,7 @@ Located in `tests/ui/pages/`:
 | `DashboardPage` | Stats cards, recent torrents list |
 | `TorrentsPage` | Client tabs, torrent listings |
 | `SettingsPage` | Client/connection CRUD modals and forms |
+| `HistoryPage` | Transfer history stats, filters, table, pagination |
 
 ## Key Fixtures
 
@@ -204,6 +322,7 @@ From `tests/ui/conftest.py`:
 | `torrents_page` | function | TorrentsPage object |
 | `settings_page` | function | SettingsPage object |
 | `crud_test_setup` | function | Cleanup for CRUD tests (tracks created clients) |
+| `transfer_history_data` | module | Runs a real transfer to create organic history data |
 
 ## Timeouts
 

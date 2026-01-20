@@ -16,7 +16,29 @@ def create_app(config, torrent_manager):
         'description': 'API for managing torrent transfers between download clients',
         'version': __version__,
         'uiversion': 3,
-        'specs_route': '/apidocs/'
+        'specs_route': '/apidocs/',
+        'definitions': {
+            'Transfer': {
+                'type': 'object',
+                'properties': {
+                    'id': {'type': 'string', 'description': 'Unique transfer UUID'},
+                    'torrent_name': {'type': 'string', 'description': 'Name of the torrent'},
+                    'torrent_hash': {'type': 'string', 'description': 'Torrent info hash'},
+                    'source_client': {'type': 'string', 'description': 'Source download client name'},
+                    'target_client': {'type': 'string', 'description': 'Target download client name'},
+                    'connection_name': {'type': 'string', 'description': 'Transfer connection name'},
+                    'media_type': {'type': 'string', 'enum': ['movie', 'episode', 'unknown'], 'description': 'Type of media'},
+                    'media_manager': {'type': 'string', 'enum': ['radarr', 'sonarr'], 'description': 'Media manager that owns this torrent'},
+                    'size_bytes': {'type': 'integer', 'description': 'Total size in bytes'},
+                    'bytes_transferred': {'type': 'integer', 'description': 'Bytes transferred so far'},
+                    'status': {'type': 'string', 'enum': ['pending', 'transferring', 'completed', 'failed', 'cancelled'], 'description': 'Current transfer status'},
+                    'error_message': {'type': 'string', 'description': 'Error message if status is failed'},
+                    'created_at': {'type': 'string', 'format': 'date-time', 'description': 'When the transfer was created'},
+                    'started_at': {'type': 'string', 'format': 'date-time', 'description': 'When the transfer started'},
+                    'completed_at': {'type': 'string', 'format': 'date-time', 'description': 'When the transfer completed or failed'}
+                }
+            }
+        }
     }
     Swagger(app)
     

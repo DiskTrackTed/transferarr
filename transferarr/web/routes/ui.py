@@ -12,6 +12,12 @@ def torrents_page():
     """Render the torrents page."""
     return render_template("pages/torrents.html")
 
+@ui_bp.route("/history")
+def history_page():
+    """Render the transfer history page."""
+    return render_template("pages/history.html")
+
+
 @ui_bp.route("/settings")
 def settings_page():
     """Render the settings page."""

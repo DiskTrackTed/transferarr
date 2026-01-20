@@ -19,6 +19,7 @@ from . import download_clients
 from . import connections
 from . import torrents
 from . import utilities
+from . import transfers
 
 # Register all routes with the blueprint
 system.register_routes(api_bp)
@@ -26,3 +27,4 @@ download_clients.register_routes(api_bp)
 connections.register_routes(api_bp)
 torrents.register_routes(api_bp)
 utilities.register_routes(api_bp)
+transfers.register_routes(api_bp)

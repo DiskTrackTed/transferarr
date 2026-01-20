@@ -1,12 +1,14 @@
 # main.py
 import os
 import logging
+from pathlib import Path
 from threading import Thread
 from time import sleep
 
 from transferarr.config import load_config, parse_args
 from transferarr.web import create_app
 from transferarr.services.torrent_service import TorrentManager
+from transferarr.services.history_service import HistoryService
 
 # Parse arguments and load config
 args = parse_args()
@@ -25,8 +27,28 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 logger = logging.getLogger("transferarr")
 logger.setLevel(log_level)
 
-# Start torrent manager
-torrent_manager = TorrentManager(config, config_file)
+# Initialize history service (if enabled)
+history_config = config.get("history", {})
+history_enabled = history_config.get("enabled", True)
+
+if history_enabled:
+    # Database goes in same directory as state file (default: torrents_state.json)
+    state_file_path = Path(config.get("state_file", "torrents_state.json"))
+    history_db_path = state_file_path.parent / "history.db"
+    history_service = HistoryService(str(history_db_path))
+    logger.info(f"History database initialized at: {history_db_path}")
+    
+    # Apply retention policy on startup
+    retention_days = history_config.get("retention_days")
+    if retention_days is not None and retention_days > 0:
+        history_service.prune_old_entries(retention_days)
+        logger.info(f"History retention policy: {retention_days} days")
+else:
+    history_service = None
+    logger.info("History tracking is disabled")
+
+# Start torrent manager with history service and config
+torrent_manager = TorrentManager(config, config_file, history_service=history_service, history_config=history_config)
 torrent_manager.start()
 
 # Create and run Flask app

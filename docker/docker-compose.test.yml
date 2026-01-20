@@ -307,7 +307,7 @@ services:
   # ============== TEST RUNNER ==============
 
   # Run: docker compose -f docker/docker-compose.test.yml --profile test run --rm test-runner
-  # Or with specific tests: docker compose -f docker/docker-compose.test.yml --profile test run --rm test-runner tests/integration/test_torrent_lifecycle.py -v
+  # Or with specific tests: docker compose -f docker/docker-compose.test.yml --profile test run --rm test-runner tests/integration/lifecycle/ -v
   test-runner:
     build:
       context: ..

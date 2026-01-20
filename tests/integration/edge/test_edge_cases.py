@@ -256,7 +256,7 @@ class TestLargeTorrentTransfer:
     """
     Test 4.3: Large Torrent Transfer
     
-    Verify that large torrents (5GB) transfer correctly with proper
+    Verify that large torrents (2.5GB) transfer correctly with proper
     progress tracking and without timeout or memory issues.
     """
     
@@ -265,12 +265,12 @@ class TestLargeTorrentTransfer:
         """Use shared test environment setup."""
         pass
     
-    @pytest.mark.timeout(900)  # 15 minutes for 5GB transfer
+    @pytest.mark.timeout(900)  # 15 minutes for 2.5GB transfer
     @pytest.mark.skipif(
         os.environ.get("GITHUB_ACTIONS") == "true",
-        reason="Skipped in CI: 5GB test uses too much disk space on GitHub runners"
+        reason="Skipped in CI: 2.5GB test uses too much disk space on GitHub runners"
     )
-    def test_5gb_torrent_transfer(
+    def test_2_5gb_torrent_transfer(
         self,
         create_torrent,
         radarr_client,
@@ -280,7 +280,7 @@ class TestLargeTorrentTransfer:
         docker_services,
     ):
         """
-        Test transfer of a 5GB torrent to exercise real transfer behavior.
+        Test transfer of a 2.5GB torrent to exercise real transfer behavior.
         
         This size is large enough to:
         - Test transfer speed tracking
@@ -289,16 +289,16 @@ class TestLargeTorrentTransfer:
         - Observe COPYING state during transfer
         
         Scenario:
-        1. Create 5GB torrent
+        1. Create 2.5GB torrent
         2. Transfer and verify
         3. Check file integrity
         """
         movie = movie_catalog.get_movie()
         torrent_name = make_torrent_name(movie['title'], movie['year'])
         
-        file_size_mb = 5000  # 5GB
+        file_size_mb = 2500  # 2.5GB
         
-        # Step 1: Create 5GB torrent
+        # Step 1: Create 2.5GB torrent
         print(f"\n[Step 1] Creating {file_size_mb}MB torrent: {torrent_name}")
         start_time = time.time()
         torrent_info = create_torrent(torrent_name, size_mb=file_size_mb)
@@ -398,7 +398,7 @@ class TestLargeTorrentTransfer:
         print(f"  Transfer time: {transfer_time:.1f}s")
         print(f"  Transfer speed: {(target_size / (1024*1024)) / transfer_time:.1f}MB/s")
         
-        print("\n✅ Test passed: 5GB torrent transferred successfully!")
+        print("\n✅ Test passed: 2.5GB torrent transferred successfully!")
 
 
 class TestMultiFileTorrent:

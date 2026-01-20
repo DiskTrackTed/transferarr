@@ -40,6 +40,12 @@ def validate_config(config):
     # Set defaults for optional fields
     config.setdefault("log_level", "INFO")
     config.setdefault("state_file", "torrents_state.json")
+    
+    # History configuration defaults
+    history_config = config.setdefault("history", {})
+    history_config.setdefault("enabled", True)
+    history_config.setdefault("retention_days", 90)  # None = keep forever
+    history_config.setdefault("track_progress", True)
 
     return config
 
