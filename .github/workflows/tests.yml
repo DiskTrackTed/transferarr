@@ -153,7 +153,7 @@ jobs:
       - name: Build test infrastructure
         if: steps.should_run.outputs.run == 'true' && matrix.needs_docker == true
         run: |
-          docker compose -f $COMPOSE_FILE build
+          docker compose -f $COMPOSE_FILE --profile tools build
 
       - name: Start test services (with retry)
         if: steps.should_run.outputs.run == 'true' && matrix.needs_docker == true
