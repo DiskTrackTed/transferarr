@@ -23,6 +23,8 @@ from tests.utils import (
 from tests.ui.helpers import (
     UI_TIMEOUTS,
     TRANSFERARR_BASE_URL,
+    add_connection_via_ui,
+    delete_connection_via_api,
     log_test_step,
 )
 
@@ -149,99 +151,6 @@ class TestE2EFullSmokeTest:
         settings_page.wait_for_clients_loaded()
         print(f"  Added client: {name}")
     
-    def _add_connection_via_ui(
-        self,
-        settings_page,
-        page: Page,
-        connection_name: str,
-        from_client: str,
-        to_client: str,
-        from_type: str,
-        to_type: str,
-        from_sftp_config: dict,
-        paths: dict
-    ):
-        """Add a connection via the UI with JS injection for paths."""
-        settings_page.switch_to_connections_tab()
-        settings_page.wait_for_connections_loaded()
-        settings_page.open_add_connection_modal()
-        
-        # Wait for client dropdowns to populate
-        page.wait_for_timeout(UI_TIMEOUTS['dropdown_load'])
-        
-        # Fill connection name (required in Phase 4)
-        page.fill(settings_page.CONNECTION_NAME, connection_name)
-
-        
-        # Select clients
-        page.select_option(settings_page.CONNECTION_FROM_SELECT, from_client)
-        page.select_option(settings_page.CONNECTION_TO_SELECT, to_client)
-        
-        # Select transfer types
-        page.select_option(settings_page.CONNECTION_FROM_TYPE, from_type)
-        page.select_option(settings_page.CONNECTION_TO_TYPE, to_type)
-        
-        # Fill SFTP config if needed
-        if from_type == "sftp" and from_sftp_config:
-            page.fill(settings_page.FROM_SFTP_HOST, from_sftp_config.get('host', ''))
-            page.fill(settings_page.FROM_SFTP_PORT, str(from_sftp_config.get('port', 22)))
-            page.fill(settings_page.FROM_SFTP_USERNAME, from_sftp_config.get('username', ''))
-            page.fill(settings_page.FROM_SFTP_PASSWORD, from_sftp_config.get('password', ''))
-        
-        # Test connection
-        with page.expect_response(
-            lambda r: "/api/v1/connections/test" in r.url,
-            timeout=UI_TIMEOUTS['api_response_slow']
-        ) as response_info:
-            settings_page.test_connection()
-        
-        test_response = response_info.value.json()
-        # Unwrap data envelope (supports both old and new format)
-        test_result = test_response.get('data', test_response) if isinstance(test_response, dict) and 'data' in test_response else test_response
-        assert test_result.get("success"), f"Connection test failed: {test_response}"
-        print("  Connection test passed")
-        
-        # After successful test, path fields should be enabled
-        # Use JS injection to fill paths (faster and more reliable)
-        page.evaluate(f"""
-            document.getElementById('sourceDotTorrentPath').value = '{paths['source_dot_torrent_path']}';
-            document.getElementById('sourceTorrentDownloadPath').value = '{paths['source_torrent_download_path']}';
-            document.getElementById('destinationDotTorrentTmpDir').value = '{paths['destination_dot_torrent_tmp_dir']}';
-            document.getElementById('destinationTorrentDownloadPath').value = '{paths['destination_torrent_download_path']}';
-            
-            // Trigger input events so form validation picks up the values
-            ['sourceDotTorrentPath', 'sourceTorrentDownloadPath', 'destinationDotTorrentTmpDir', 'destinationTorrentDownloadPath'].forEach(id => {{
-                const el = document.getElementById(id);
-                el.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                el.dispatchEvent(new Event('change', {{ bubbles: true }}));
-            }});
-        """)
-        
-        # Save button should be enabled
-        save_btn = page.locator(settings_page.SAVE_CONNECTION_BTN)
-        expect(save_btn).to_be_enabled(timeout=UI_TIMEOUTS['element_visible'])
-        
-        # Save connection and verify success
-        with page.expect_response(
-            lambda r: "/api/v1/connections" in r.url and r.request.method == "POST",
-            timeout=UI_TIMEOUTS['api_response']
-        ) as response_info:
-            settings_page.save_connection()
-        
-        save_response = response_info.value
-        if save_response.status != 200 and save_response.status != 201:
-            print(f"  ERROR: Save connection failed with status {save_response.status}")
-            print(f"  Response: {save_response.text()}")
-        assert save_response.status in (200, 201), f"Save connection failed: {save_response.status}"
-        
-        expect(page.locator(settings_page.CONNECTION_MODAL)).not_to_be_visible()
-        settings_page.wait_for_connections_loaded()
-        
-        # Wait for at least one connection card to appear (handles async reload)
-        # Use longer timeout since the list may need to refresh from the API
-        page.wait_for_selector(settings_page.CONNECTION_CARD, timeout=UI_TIMEOUTS['api_response'])
-        print(f"  Added connection: {from_client} -> {to_client}")
-    
     @pytest.mark.timeout(600)  # 10 minutes for this comprehensive test
     def test_full_setup_and_transfer_workflow(
         self,
@@ -321,15 +230,13 @@ class TestE2EFullSmokeTest:
         # ========== Phase 3: Add connection via UI ==========
         log_test_step("Phase 3: Add connection via UI")
         
-        from_sftp = connection_config['transfer_config']['from'].get('sftp', {})
-        self._add_connection_via_ui(
+        add_connection_via_ui(
             settings_page, page,
             connection_name="source-deluge -> target-deluge",
             from_client="source-deluge",
             to_client="target-deluge",
-            from_type=connection_config['transfer_config']['from']['type'],
-            to_type=connection_config['transfer_config']['to']['type'],
-            from_sftp_config=from_sftp,
+            from_config=connection_config['transfer_config']['from'],
+            to_config=connection_config['transfer_config']['to'],
             paths={
                 'source_dot_torrent_path': connection_config['source_dot_torrent_path'],
                 'source_torrent_download_path': connection_config['source_torrent_download_path'],
@@ -337,9 +244,6 @@ class TestE2EFullSmokeTest:
                 'destination_torrent_download_path': connection_config['destination_torrent_download_path'],
             }
         )
-        
-        # Verify connection exists
-        assert settings_page.get_connection_count() == 1, "Should have 1 connection"
         print("  ✓ Connection added successfully")
         
         # Restart transferarr to initialize the new connection

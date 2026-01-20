@@ -1,10 +1,22 @@
 # Integration Tests
 
-*Last Updated: 2025-01-18*
+*Last Updated: 2026-01-19*
 
 ## Overview
 
-Transferarr has 55+ integration tests across 10 test files, covering the complete torrent migration lifecycle for both Radarr and Sonarr, plus history tracking and API tests.
+Transferarr has 55+ integration tests organized into 6 categories, covering the complete torrent migration lifecycle for both Radarr and Sonarr, plus history tracking and API tests.
+
+## Directory Structure
+
+```
+tests/integration/
+    api/                    # API endpoint tests (~3 min)
+    lifecycle/              # Core migration flows (~15 min)
+    persistence/            # State recovery tests (~20 min)
+    transfers/              # Concurrent & type tests (~15 min)
+    config/                 # Configuration tests (~10 min)
+    edge/                   # Edge cases & errors (~10 min)
+```
 
 ## Running Tests
 
@@ -12,16 +24,22 @@ Transferarr has 55+ integration tests across 10 test files, covering the complet
 # Start test infrastructure
 docker compose -f docker/docker-compose.test.yml up -d
 
-# Run all tests (recommended)
-./run_tests.sh
+# Run all integration tests
+./run_tests.sh tests/integration/ -v
+
+# Run specific category
+./run_tests.sh tests/integration/lifecycle/ -v
+./run_tests.sh tests/integration/api/ -v
 
 # Run specific file
-./run_tests.sh tests/integration/test_torrent_lifecycle.py -v
+./run_tests.sh tests/integration/lifecycle/test_torrent_lifecycle.py -v
 ```
 
 ## Test Files
 
-### [test_torrent_lifecycle.py](../tests/integration/test_torrent_lifecycle.py)
+### lifecycle/
+
+#### [test_torrent_lifecycle.py](../tests/integration/lifecycle/test_torrent_lifecycle.py)
 Core happy-path tests for Radarr movie migrations.
 
 | Test | Description |
@@ -29,7 +47,7 @@ Core happy-path tests for Radarr movie migrations.
 | `test_complete_transfer_lifecycle` | Full flow: Radarr queue → source seeding → copy → target seeding → cleanup |
 | `test_discovers_existing_torrent` | Transferarr discovers torrent already seeding before startup |
 
-### [test_sonarr_lifecycle.py](../tests/integration/test_sonarr_lifecycle.py)
+#### [test_sonarr_lifecycle.py](../tests/integration/lifecycle/test_sonarr_lifecycle.py)
 TV show migration tests using the unified `LifecycleRunner`.
 
 | Test | Description |
@@ -38,7 +56,9 @@ TV show migration tests using the unified `LifecycleRunner`.
 | `test_multi_episode_torrent` | Torrent with episodes 1-2 |
 | `test_season_pack_migration` | Full season pack (10GB) |
 
-### [test_state_persistence.py](../tests/integration/test_state_persistence.py)
+### persistence/
+
+#### [test_state_persistence.py](../tests/integration/persistence/test_state_persistence.py)
 Verifies state survives container restarts and file corruption.
 
 | Test | Description |
@@ -49,7 +69,9 @@ Verifies state survives container restarts and file corruption.
 | `test_state_file_delete_recovery` | Delete state.json, verify recovery |
 | `test_multiple_torrents_state_persistence` | 3 torrents at different states, verify all restored |
 
-### [test_concurrent_transfers.py](../tests/integration/test_concurrent_transfers.py)
+### transfers/
+
+#### [test_concurrent_transfers.py](../tests/integration/transfers/test_concurrent_transfers.py)
 Parallel transfer handling with `max_workers=3`.
 
 | Test | Description |
@@ -59,7 +81,20 @@ Parallel transfer handling with `max_workers=3`.
 | `test_queue_overflow` | 5 torrents (3 start, 2 wait for slots) |
 | `test_mixed_state_concurrency` | Torrents at different lifecycle stages |
 
-### [test_error_handling.py](../tests/integration/test_error_handling.py)
+#### [test_transfer_types.py](../tests/integration/transfers/test_transfer_types.py)
+Parameterized test for all 5 transfer type combinations.
+
+| Transfer Type | Source | Destination |
+|---------------|--------|-------------|
+| `sftp-to-local` | SFTP | Local |
+| `local-to-sftp` | Local | SFTP |
+| `sftp-to-sftp` | SFTP | SFTP |
+| `local-to-local` | Local | Local |
+| `multi-target` | SFTP | SFTP (multiple targets) |
+
+### edge/
+
+#### [test_error_handling.py](../tests/integration/edge/test_error_handling.py)
 Error scenarios and recovery behavior.
 
 | Test | Description |
@@ -71,7 +106,7 @@ Error scenarios and recovery behavior.
 | `test_source_client_unavailable_at_start` | Source Deluge down at startup |
 | `test_torrent_found_on_target_without_outbound_connection` | Torrent on target but no connection configured |
 
-### [test_edge_cases.py](../tests/integration/test_edge_cases.py)
+#### [test_edge_cases.py](../tests/integration/edge/test_edge_cases.py)
 Unusual filenames, large files, and boundary conditions.
 
 | Test | Description |
@@ -82,24 +117,16 @@ Unusual filenames, large files, and boundary conditions.
 | `test_multi_file_torrent_transfer` | 5 files in one torrent |
 | `test_torrent_already_on_target_skips_copy` | Duplicate detection, skips COPYING phase |
 
-### [test_transfer_types.py](../tests/integration/test_transfer_types.py)
-Parameterized test for all 4 transfer type combinations.
+### config/
 
-| Transfer Type | Source | Destination |
-|---------------|--------|-------------|
-| `sftp-to-local` | SFTP | Local |
-| `local-to-sftp` | Local | SFTP |
-| `sftp-to-sftp` | SFTP | SFTP |
-| `local-to-local` | Local | Local |
-
-### [test_client_routing.py](../tests/integration/test_client_routing.py)
+#### [test_client_routing.py](../tests/integration/config/test_client_routing.py)
 Multi-target routing with two destination Deluge instances.
 
 | Test | Description |
 |------|-------------|
 | `test_multi_target_routing` | Route to different targets based on connection config |
 
-### [test_history_config.py](../tests/integration/test_history_config.py)
+#### [test_history_config.py](../tests/integration/config/test_history_config.py)
 History configuration behavior tests.
 
 | Test | Description |
@@ -109,7 +136,9 @@ History configuration behavior tests.
 | `test_retention_prunes_old_entries_unit` | Unit test for retention pruning logic |
 | `test_retention_config_is_applied` | Verify `history.retention_days` config is respected |
 
-### [test_transfer_history_api.py](../tests/integration/test_transfer_history_api.py)
+### api/
+
+#### [test_transfer_history_api.py](../tests/integration/api/test_transfer_history_api.py)
 Transfer History API endpoint tests (23 tests).
 
 | Test Class | Description |
