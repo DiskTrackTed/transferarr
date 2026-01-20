@@ -420,26 +420,31 @@ The test environment uses Docker Compose profiles and dependencies:
 
 ### Running Integration Tests (Phase 5)
 
-Integration tests are in `tests/integration/` and use pytest. Use the `run_tests.sh` script for easy execution:
+Integration tests are in `tests/integration/` organized by category and use pytest. Use the `run_tests.sh` script for easy execution:
 
 ```bash
 # Prerequisites: Start test services
 docker compose -f docker/docker-compose.test.yml up -d
 
 # Run all integration tests (includes cleanup)
-./run_tests.sh
+./run_tests.sh tests/integration/
+
+# Run specific category
+./run_tests.sh tests/integration/lifecycle/ -v
+./run_tests.sh tests/integration/api/ -v
+./run_tests.sh tests/integration/transfers/ -v
 
 # Run without automatic cleanup
 ./run_tests.sh --no-cleanup
 
-# Run specific tests
-./run_tests.sh tests/integration/test_torrent_lifecycle.py -v -s
+# Run specific test file
+./run_tests.sh tests/integration/lifecycle/test_torrent_lifecycle.py -v -s
 
 # Run with pytest filters
 ./run_tests.sh -k "lifecycle" -v
 
-# Run movie catalog validation (slow)
-./run_tests.sh tests/test_movie_catalog.py -v -s
+# Run movie catalog validation (slow, excluded by default)
+./run_tests.sh tests/catalog_tests/test_movie_catalog.py -v -s -m ""
 ```
 
 #### Manual Docker Commands (Alternative)
@@ -449,9 +454,9 @@ docker compose -f docker/docker-compose.test.yml up -d
 # (test code is mounted, dependencies are cached - no rebuild needed!)
 docker compose -f docker/docker-compose.test.yml --profile test run --rm test-runner
 
-# Run specific test
+# Run specific category
 docker compose -f docker/docker-compose.test.yml --profile test run --rm test-runner \
-  tests/integration/test_torrent_lifecycle.py -v -s
+  tests/integration/lifecycle/ -v -s
 
 # Run with custom pytest args
 docker compose -f docker/docker-compose.test.yml --profile test run --rm test-runner \
@@ -460,11 +465,22 @@ docker compose -f docker/docker-compose.test.yml --profile test run --rm test-ru
 
 **Note**: The test runner mounts source code and caches pip dependencies. You only need to rebuild if you modify the Dockerfile itself or system dependencies.
 
+**Integration Test Directory Structure**:
+```
+tests/integration/
+    api/                    # API and CRUD tests (~5 min)
+    lifecycle/              # Torrent lifecycle tests (~15 min)
+    persistence/            # State persistence tests (~8 min)
+    transfers/              # Transfer type variations (~12 min)
+    config/                 # Client routing tests (~10 min)
+    edge/                   # Error handling, edge cases (~8 min)
+```
+
 **Test Files**:
 - `tests/conftest.py` - Fixtures for Docker, API clients, cleanup
 - `tests/utils.py` - Helper functions (wait_for_*, clear_*, movie_catalog)
 - `tests/integration/helpers.py` - Unified `LifecycleRunner` and `MediaManagerAdapter`
-- `tests/integration/*.py` - Integration test files (see `docs/integration-tests.md` for complete test names and descriptions)
+- `tests/integration/{category}/*.py` - Integration test files (see `docs/integration-tests.md` for complete test names and descriptions)
 - `tests/ui/` - UI tests using Playwright (see UI Testing section below)
 - `tests/catalog_tests/test_movie_catalog.py` - Validation test for all movies in the catalog (marked slow, excluded by default)
 - `tests/catalog_tests/test_show_catalog.py` - Validation test for all shows in the catalog (marked slow, excluded by default)
@@ -621,18 +637,45 @@ TIMEOUTS = {
 
 UI tests use Playwright for browser automation and follow the Page Object Model pattern.
 
+**Directory Structure**:
+```
+tests/ui/
+    fast/                   # UI-only tests (~5 min)
+        test_navigation.py
+        test_dashboard.py
+        test_torrents.py
+        test_settings.py
+        test_history.py
+    crud/                   # CRUD operations (~8 min)
+        test_client_crud.py
+        test_connection_crud.py
+    e2e/                    # Real transfers (~15 min)
+        test_e2e_workflows.py
+        test_smoke.py
+        test_transfer_types.py
+    pages/                  # Page objects
+    conftest.py
+    helpers.py
+```
+
 **Running UI Tests**:
 ```bash
 # Run all UI tests in Docker (headless, screenshots on failure)
 ./run_tests.sh tests/ui/ -v
 
+# Run specific category
+./run_tests.sh tests/ui/fast/ -v
+./run_tests.sh tests/ui/crud/ -v
+./run_tests.sh tests/ui/e2e/ -v
+
 # Run specific test
-./run_tests.sh tests/ui/test_navigation.py -v -s
+./run_tests.sh tests/ui/fast/test_navigation.py -v -s
 ```
 
 **Key Points**:
 - Page objects in `tests/ui/pages/` (BasePage, DashboardPage, TorrentsPage, SettingsPage)
 - Timeouts defined in `tests/ui/helpers.py` (`UI_TIMEOUTS` dict)
+- Shared helpers in `tests/ui/helpers.py` (`add_connection_via_ui()`, `delete_connection_via_api()`, etc.)
 - CRUD tests auto-cleanup created clients via API in fixture teardown
 - Screenshots saved to `test-results/` on failure
 

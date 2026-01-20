@@ -11,11 +11,35 @@ docker compose -f docker/docker-compose.test.yml up -d
 # Run all integration tests
 ./run_tests.sh
 
-# Run UI tests
-./run_tests.sh tests/ui/ -v
+# Run specific test category
+./run_tests.sh tests/integration/lifecycle/ -v
+./run_tests.sh tests/ui/fast/ -v
 
 # Run specific test file
-./run_tests.sh tests/integration/test_torrent_lifecycle.py -v
+./run_tests.sh tests/integration/lifecycle/test_torrent_lifecycle.py -v
+```
+
+## Test Structure
+
+```
+tests/
+    unit/                            # No Docker needed (<1 min)
+        test_history_service.py
+    
+    integration/
+        api/                         # API tests (~3 min)
+        lifecycle/                   # Core migration flows (~15 min)
+        persistence/                 # State recovery (~20 min)
+        transfers/                   # Concurrent/type tests (~15 min)
+        config/                      # Configuration tests (~10 min)
+        edge/                        # Edge cases & errors (~10 min)
+    
+    ui/
+        fast/                        # UI-only tests (~5 min)
+        crud/                        # CRUD operations (~8 min)
+        e2e/                         # Real transfers (~15 min)
+    
+    catalog_tests/                   # Manual only (@pytest.mark.slow)
 ```
 
 ## Test Infrastructure
@@ -68,18 +92,31 @@ Reset the test environment:
 
 ## Test Categories
 
+### Unit Tests
+
+Fast tests that don't require Docker infrastructure.
+
+**Location:** `tests/unit/`
+
+**Coverage:**
+- HistoryService SQLite operations
+- Threading and concurrency
+- Cleanup and retention
+
 ### Integration Tests
 
 End-to-end tests verifying the complete torrent migration lifecycle.
 
 **Location:** `tests/integration/`
 
-**Coverage:**
-- Torrent lifecycle (Radarr/Sonarr)
-- State persistence across restarts
-- Concurrent transfers
-- Error handling and recovery
-- Different transfer types (SFTP, local)
+| Category | Path | Description |
+|----------|------|-------------|
+| API | `api/` | Transfer history API endpoints |
+| Lifecycle | `lifecycle/` | Radarr/Sonarr migration flows |
+| Persistence | `persistence/` | State recovery across restarts |
+| Transfers | `transfers/` | Concurrent and transfer type tests |
+| Config | `config/` | History config, client routing |
+| Edge | `edge/` | Edge cases, error handling |
 
 📖 **Full documentation:** [docs/integration-tests.md](../docs/integration-tests.md)
 
@@ -89,12 +126,11 @@ Playwright-based browser automation tests using the Page Object Model pattern.
 
 **Location:** `tests/ui/`
 
-**Coverage:**
-- Navigation and page loading
-- Dashboard stats and polling
-- Client/Connection CRUD operations
-- Settings persistence
-- End-to-end workflows with actual transfers
+| Category | Path | Description |
+|----------|------|-------------|
+| Fast | `fast/` | Navigation, dashboard, settings (no transfers) |
+| CRUD | `crud/` | Client and connection CRUD via modals |
+| E2E | `e2e/` | Full workflows with real transfers |
 
 📖 **Full documentation:** [docs/ui-tests.md](../docs/ui-tests.md)
 
@@ -104,7 +140,11 @@ Validation tests for movie/show catalogs used in integration tests.
 
 **Location:** `tests/catalog_tests/`
 
-These are marked `@pytest.mark.slow` and excluded by default.
+These are marked `@pytest.mark.slow` and excluded by default. Run manually:
+
+```bash
+./run_tests.sh tests/catalog_tests/ -v -m slow
+```
 
 ## Test Fixtures
 
