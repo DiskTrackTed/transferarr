@@ -55,11 +55,6 @@ env:
 
 jobs:
   test:
-    # Filter by selected category when triggered manually
-    if: |
-      github.event_name != 'workflow_dispatch' ||
-      github.event.inputs.test_category == 'all' ||
-      github.event.inputs.test_category == matrix.category
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -110,53 +105,68 @@ jobs:
     timeout-minutes: ${{ matrix.timeout }}
 
     steps:
+      - name: Check if should run
+        id: should_run
+        run: |
+          if [[ "${{ github.event_name }}" != "workflow_dispatch" ]]; then
+            echo "run=true" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.event.inputs.test_category }}" == "all" ]]; then
+            echo "run=true" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.event.inputs.test_category }}" == "${{ matrix.category }}" ]]; then
+            echo "run=true" >> $GITHUB_OUTPUT
+          else
+            echo "run=false" >> $GITHUB_OUTPUT
+            echo "Skipping ${{ matrix.category }} - not selected"
+          fi
+
       - name: Checkout code
+        if: steps.should_run.outputs.run == 'true'
         uses: actions/checkout@v4
 
       # Unit tests - no Docker needed
       - name: Setup Python (unit tests only)
-        if: matrix.needs_docker == false
+        if: steps.should_run.outputs.run == 'true' && matrix.needs_docker == false
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
       - name: Install dependencies (unit tests only)
-        if: matrix.needs_docker == false
+        if: steps.should_run.outputs.run == 'true' && matrix.needs_docker == false
         run: pip install -r requirements.txt pytest pytest-timeout
 
       - name: Run unit tests
-        if: matrix.needs_docker == false
+        if: steps.should_run.outputs.run == 'true' && matrix.needs_docker == false
         run: pytest ${{ matrix.path }} -v --tb=short
 
       # Docker-based tests
       - name: Free up disk space
-        if: matrix.needs_docker == true
+        if: steps.should_run.outputs.run == 'true' && matrix.needs_docker == true
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
           docker system prune -af --volumes
           df -h
 
       - name: Build Transferarr image
-        if: matrix.needs_docker == true
+        if: steps.should_run.outputs.run == 'true' && matrix.needs_docker == true
         run: ./build.sh
 
       - name: Build test infrastructure
-        if: matrix.needs_docker == true
+        if: steps.should_run.outputs.run == 'true' && matrix.needs_docker == true
         run: |
           docker compose -f $COMPOSE_FILE build mock-indexer torrent-creator test-runner service-registrar
 
       - name: Start test services
-        if: matrix.needs_docker == true
+        if: steps.should_run.outputs.run == 'true' && matrix.needs_docker == true
         run: |
           docker compose -f $COMPOSE_FILE up -d --wait
 
       - name: Run tests
-        if: matrix.needs_docker == true
+        if: steps.should_run.outputs.run == 'true' && matrix.needs_docker == true
         run: |
           ./run_tests.sh ${{ matrix.path }} -v --tb=short
 
       - name: Upload test artifacts
-        if: failure()
+        if: failure() && steps.should_run.outputs.run == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.category }}-results
@@ -164,14 +174,14 @@ jobs:
           retention-days: 7
 
       - name: Collect logs on failure
-        if: failure() && matrix.needs_docker == true
+        if: failure() && steps.should_run.outputs.run == 'true' && matrix.needs_docker == true
         run: |
           mkdir -p logs
           docker compose -f $COMPOSE_FILE logs > logs/docker-compose.log 2>&1
         continue-on-error: true
 
       - name: Upload logs
-        if: failure() && matrix.needs_docker == true
+        if: failure() && steps.should_run.outputs.run == 'true' && matrix.needs_docker == true
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.category }}-logs
@@ -179,6 +189,6 @@ jobs:
           retention-days: 7
 
       - name: Cleanup
-        if: always() && matrix.needs_docker == true
+        if: always() && steps.should_run.outputs.run == 'true' && matrix.needs_docker == true
         run: |
           docker compose -f $COMPOSE_FILE down -v --remove-orphans
