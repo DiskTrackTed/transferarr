@@ -1,4 +1,9 @@
-from transferarr.clients.deluge import DelugeClient
+from transferarr.clients.registry import ClientRegistry
+from transferarr.clients.config import ClientConfig
+
+# Import deluge module to register the client
+import transferarr.clients.deluge  # noqa: F401
+
 
 def load_download_clients(config):
     """
@@ -10,16 +15,8 @@ def load_download_clients(config):
         dict: Dict of initialized download client instances.
     """
     download_clients = {}
-    for download_client in config["download_clients"].keys():
-        download_client_config = config["download_clients"][download_client]
-        if download_client_config["type"] == "deluge":
-            download_clients[download_client] = DelugeClient(
-                download_client,
-                download_client_config["host"],
-                download_client_config["port"],
-                username=download_client_config.get("username", None),
-                password=download_client_config["password"],
-                connection_type=download_client_config.get("connection_type", "rpc")
-            )
+    for name, client_config in config["download_clients"].items():
+        config_obj = ClientConfig.from_dict(name, client_config)
+        download_clients[name] = ClientRegistry.create(config_obj)
 
     return download_clients
