@@ -1,7 +1,9 @@
 """
 Service for download client CRUD operations.
 """
-from transferarr.clients.deluge import DelugeClient
+from transferarr.clients.registry import ClientRegistry
+from transferarr.clients.download_client import DownloadClientBase
+from transferarr.clients.config import ClientConfig
 from . import NotFoundError, ConflictError, ValidationError, ConfigSaveError
 
 
@@ -11,28 +13,45 @@ class DownloadClientService:
     def __init__(self, torrent_manager):
         self.torrent_manager = torrent_manager
     
-    def _serialize_client(self, client) -> dict:
+    def _serialize_client(self, client: DownloadClientBase) -> dict:
         """Serialize a client to dict with masked password."""
-        return {
+        result = {
             "name": client.name,
             "type": client.type,
             "host": client.host,
             "port": client.port,
             "username": client.username,
             "password": "***",
-            "connection_type": client.connection_type
         }
+        # Include connection_type if the client has it (Deluge-specific)
+        if hasattr(client, 'connection_type'):
+            result["connection_type"] = client.connection_type
+        return result
     
-    def _create_client_instance(self, name: str, data: dict) -> DelugeClient:
-        """Create a DelugeClient instance from config data."""
-        return DelugeClient(
-            name,
-            data["host"],
-            data["port"],
-            username=data.get("username"),
-            password=data["password"],
-            connection_type=data.get("connection_type", "rpc")
-        )
+    def _create_client_config(self, name: str, data: dict) -> ClientConfig:
+        """Create a ClientConfig from API data.
+        
+        Args:
+            name: Client name
+            data: API request data (may contain 'name' and 'type')
+            
+        Returns:
+            ClientConfig instance
+        """
+        return ClientConfig.from_dict(name, data)
+    
+    def _create_client_instance(self, name: str, data: dict) -> DownloadClientBase:
+        """Create a client instance from API data.
+        
+        Args:
+            name: Client name
+            data: API request data
+            
+        Returns:
+            DownloadClientBase instance
+        """
+        config = self._create_client_config(name, data)
+        return ClientRegistry.create(config)
     
     def list_clients(self) -> dict:
         """Get all download clients with masked passwords."""
@@ -69,8 +88,10 @@ class DownloadClientService:
         if name in self.torrent_manager.download_clients:
             raise ConflictError(f"Client with name '{name}' already exists")
         
-        if client_data.get("type") != "deluge":
-            raise ValidationError(f"Unsupported client type: {client_data.get('type')}")
+        client_type = client_data.get("type", "deluge")
+        if not ClientRegistry.is_supported(client_type):
+            supported = ", ".join(ClientRegistry.get_supported_types())
+            raise ValidationError(f"Unsupported client type: {client_type}. Supported: {supported}")
         
         # Update config
         updated_config = dict(self.torrent_manager.config)
@@ -198,8 +219,10 @@ class DownloadClientService:
         if not password:
             raise ValidationError("Password is required (provide password or existing client name)")
         
-        if client_data.get("type") != "deluge":
-            raise ValidationError(f"Unsupported client type: {client_data.get('type')}")
+        client_type = client_data.get("type", "deluge")
+        if not ClientRegistry.is_supported(client_type):
+            supported = ", ".join(ClientRegistry.get_supported_types())
+            raise ValidationError(f"Unsupported client type: {client_type}. Supported: {supported}")
         
         # Build data dict with resolved password for helper
         test_data = dict(client_data)
