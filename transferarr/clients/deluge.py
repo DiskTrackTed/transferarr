@@ -1,25 +1,43 @@
 import logging
-import threading
 import time
 import requests
 from transferarr.utils import decode_bytes
 from deluge_client import DelugeRPCClient
 from transferarr.models.torrent import TorrentState
+from transferarr.clients.download_client import DownloadClientBase
+from transferarr.clients.config import ClientConfig
+from transferarr.clients.registry import register_client
 
 logger = logging.getLogger(__name__)
 
-class DelugeClient:
-    def __init__(self, name, host, port, password, username=None, connection_type="rpc"):
+
+@register_client("deluge")
+class DelugeClient(DownloadClientBase):
+    """Deluge download client implementation.
+    
+    Supports both RPC (daemon) and Web UI connection types.
+    
+    Attributes:
+        connection_type: Connection method ("rpc" or "web")
+        rpc_client: DelugeRPCClient instance (RPC mode only)
+        base_url: Web UI base URL (Web mode only)
+        web_authenticated: Whether web authentication succeeded (Web mode only)
+        session: requests.Session for web API calls (Web mode only)
+    """
+    
+    def __init__(self, config: ClientConfig):
+        """Initialize Deluge client.
+        
+        Args:
+            config: ClientConfig instance with all configuration
+        """
+        super().__init__(config)
         self.type = "deluge"
-        self.name = name
-        self.host = host
-        self.port = port
-        self.username = username
-        self.password = password
-        self.connection_type = connection_type
+        
+        # Get connection_type from config (defaults to RPC)
+        self.connection_type = config.get_extra("connection_type", "rpc")
+        
         self.rpc_client = None
-        self.connections = []
-        self._lock = threading.RLock()
         if self.connection_type == "web":
             self.base_url = f"http://{self.host}:{self.port}"
             self.web_authenticated = False
@@ -119,12 +137,6 @@ class DelugeClient:
             except Exception as e:
                 logger.error(f"Error adding torrent file: {e}")
                 raise e
-
-    def add_connection(self, connection):
-        self.connections.append(connection)
-
-    def remove_connection(self, connection):
-        self.connections.remove(connection)
 
     def is_connected(self):
         try:
