@@ -338,7 +338,7 @@ class HistoryService:
         where_clause = " AND ".join(conditions) if conditions else "1=1"
         
         # Validate sort field
-        allowed_sorts = {'created_at', 'completed_at', 'size_bytes', 'torrent_name'}
+        allowed_sorts = {'created_at', 'completed_at', 'size_bytes', 'bytes_transferred', 'torrent_name'}
         if sort not in allowed_sorts:
             sort = 'created_at'
         

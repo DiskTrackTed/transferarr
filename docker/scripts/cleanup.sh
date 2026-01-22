@@ -179,7 +179,7 @@ clean_transferarr_state() {
     log_info "Cleaning transferarr state..."
     
     # Remove state from Docker volume
-    docker exec test-transferarr rm -f /app/state.json 2>/dev/null || true
+    docker exec test-transferarr rm -f /state/state.json 2>/dev/null || true
     
     log_info "Transferarr state cleaned"
 }
@@ -189,7 +189,7 @@ clean_history() {
     log_info "Cleaning transfer history database..."
     
     # Remove history database from Docker container
-    docker exec test-transferarr rm -f /app/transfer_history.db 2>/dev/null || true
+    docker exec test-transferarr rm -f /state/history.db 2>/dev/null || true
     
     log_info "Transfer history cleaned"
 }

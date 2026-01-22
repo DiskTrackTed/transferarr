@@ -1,6 +1,5 @@
 {
     "log_level": "DEBUG",
-    "state_file": "/app/state/state.json",
     "media_managers": [
         {
             "type": "radarr",

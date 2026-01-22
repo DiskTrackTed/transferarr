@@ -158,9 +158,15 @@ class DelugeClient(DownloadClientBase):
                         [["name", "state"], {}],
                         id=3
                     )
+                    # Handle None response (e.g., during Deluge restart)
+                    if not result.get('result') or not result['result'].get('torrents'):
+                        logger.debug(f"No torrents data from {self.name} web client")
+                        return False
                     current_torrents = result['result']['torrents']
                 else:
                     current_torrents = decode_bytes(self.rpc_client.core.get_torrents_status({}, ['name']))
+                    if current_torrents is None:
+                        return False
                 for key in current_torrents:
                     if key == torrent.id:
                         return True
@@ -187,12 +193,18 @@ class DelugeClient(DownloadClientBase):
                         [["name", "state", "files", "progress", "total_size"], {}],
                         id=3
                     )
+                    # Handle None response (e.g., during Deluge restart)
+                    if not result.get('result') or not result['result'].get('torrents'):
+                        logger.debug(f"No torrents data from {self.name} web client")
+                        return old_info
                     current_torrents = result['result']['torrents']
                 else:
                     current_torrents = decode_bytes(
                         self.rpc_client.core.get_torrents_status({}, [
                             'name', 'state', 'files', 'progress','total_size'
                             ]))
+                    if current_torrents is None:
+                        return old_info
                 for key in current_torrents:
                     if key.lower() == torrent.id:
                         return current_torrents[key]
@@ -275,14 +287,19 @@ class DelugeClient(DownloadClientBase):
                 while retry_count < max_retries:
                     try:
                         if self.connection_type == "web":
-                            return self._send_web_request(
+                            result = self._send_web_request(
                                 "core.get_torrents_status",
                                 [[], fields],
                                 id=3
-                            )['result']
+                            )
+                            # Handle None response (e.g., during Deluge restart)
+                            if result.get('result') is None:
+                                logger.debug(f"No torrents data from {self.name} web client")
+                                return {}
+                            return result['result']
                         else:
                             result = self.rpc_client.core.get_torrents_status({}, fields)
-                            return decode_bytes(result)
+                            return decode_bytes(result) or {}
                     except Exception as e:
                         retry_count += 1
                         if retry_count >= max_retries:

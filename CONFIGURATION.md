@@ -64,6 +64,30 @@ Transferarr uses a JSON configuration file. Create `config.json` with the follow
 
 ---
 
+## Command Line Arguments
+
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--config` | `/config/config.json` | Path to configuration file |
+| `--state-dir` | `/state` | Directory for `state.json` and `history.db` |
+
+**Environment Variables** (override defaults if CLI args not provided):
+- `CONFIG_FILE` - Path to configuration file
+- `STATE_DIR` - Path to state directory
+
+**Priority**: CLI argument > Environment variable > Default
+
+**Example**:
+```bash
+# Docker (uses defaults)
+docker run -v ./config:/config -v ./state:/state transferarr:latest
+
+# Local development
+python -m transferarr.main --config ./config.json --state-dir ./data
+```
+
+---
+
 ## Configuration Options
 
 ### Media Managers
@@ -179,7 +203,7 @@ The `history` section controls transfer history tracking:
 **Notes:**
 - Retention policy is applied on application startup
 - Only completed/failed/cancelled transfers are pruned
-- History database is stored alongside the state file (e.g., `history.db`)
+- History database (`history.db`) is stored in the state directory
 - History API available at `/api/v1/transfers` (see Swagger docs)
 - Active transfers (pending/transferring) cannot be deleted unless using `?force=true`
 
@@ -208,11 +232,18 @@ services:
     ports:
       - "10444:10444"
     volumes:
-      - ./config.json:/app/config.json
-      - ./state.json:/app/state.json
+      - ./config:/config          # Contains config.json
+      - ./state:/state            # Contains state.json and history.db
       - ~/.ssh:/home/appuser/.ssh:ro  # For SFTP key authentication
     restart: unless-stopped
 ```
+
+### Volume Contents
+
+| Volume | Contents | Description |
+|--------|----------|-------------|
+| `/config` | `config.json` | Application configuration |
+| `/state` | `state.json`, `history.db` | Runtime state and transfer history |
 
 ---
 

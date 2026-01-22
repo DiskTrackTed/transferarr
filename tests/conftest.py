@@ -861,8 +861,8 @@ def transferarr(docker_client, docker_services, radarr_api_key, sonarr_api_key):
             try:
                 container = self.docker.containers.get(self.container_name)
                 if container.status == "running":
-                    container.exec_run("rm -f /app/state/state.json")
-                    container.exec_run("rm -f /app/state/history.db")
+                    container.exec_run("rm -f /state/state.json")
+                    container.exec_run("rm -f /state/history.db")
             except docker.errors.NotFound:
                 pass
             except docker.errors.APIError:

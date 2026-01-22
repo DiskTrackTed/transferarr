@@ -80,6 +80,9 @@ venv-dev/
 .DS_Store
 Thumbs.db
 
+# Doc stuff
+docs/plans/
+
 # Application-specific
 torrents_state.json
 state.json

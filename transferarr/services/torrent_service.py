@@ -13,14 +13,16 @@ from time import sleep
 logger = logging.getLogger("transferarr")
 
 class TorrentManager:
-    def __init__(self, config, config_file, history_service=None, history_config=None):
+    def __init__(self, config, config_file, state_dir=None, history_service=None, history_config=None):
         self.torrents = []
         self.config = config
         self.config_file = config_file
         self.media_managers = []
         self.download_clients = {}
         self.connections = {}  # Dict keyed by connection name
-        self.state_file = config.get("state_file")
+        # Construct state file path from state_dir
+        self.state_dir = state_dir or "/state"
+        self.state_file = os.path.join(self.state_dir, "state.json")
         self.history_service = history_service
         self.history_config = history_config or {}
         self.running = False
@@ -29,6 +31,8 @@ class TorrentManager:
         # Migrate connections config if needed (array to dict)
         self._migrate_connections_config()
         self.load_connections(config)
+        # Load saved torrent state (must be after media_managers and download_clients are loaded)
+        self.torrents = self.load_torrents_state()
 
     def setup_media_managers(self, config):
         """Set up the media managers."""
@@ -118,7 +122,15 @@ class TorrentManager:
             with open(self.state_file, "r") as f:
                 torrents_data = json.load(f)
             logger.info("Torrents state loaded successfully.")
-            return [Torrent.from_dict(data, self.download_clients, save_callback=self.save_torrents_state) for data in torrents_data]
+            return [
+                Torrent.from_dict(
+                    data, 
+                    self.download_clients, 
+                    media_managers=self.media_managers,
+                    save_callback=self.save_torrents_state
+                ) 
+                for data in torrents_data
+            ]
         except Exception as e:
             logger.error(f"Failed to load torrents state: {e}")
             return []
@@ -279,7 +291,15 @@ class TorrentManager:
                 logger.debug(f"Torrent {torrent.name} has target client {torrent.target_client.name}, state: {torrent.state.name}")
                 ### If it's seeding on the target, we can remove it from the home and list
                 if torrent.state == TorrentState.TARGET_SEEDING:
-                    if torrent.media_manager.torrent_ready_to_remove(torrent):
+                    # Check if ready to remove - if media_manager is None (not in queue anymore),
+                    # assume it's safe to remove since Radarr/Sonarr already finished with it
+                    ready_to_remove = True
+                    if torrent.media_manager:
+                        ready_to_remove = torrent.media_manager.torrent_ready_to_remove(torrent)
+                    else:
+                        logger.info(f"Torrent {torrent.name} has no media_manager (not in queue), assuming safe to remove")
+                    
+                    if ready_to_remove:
                         if torrent.target_client.has_torrent(torrent):
                             if torrent.home_client.has_torrent(torrent):
                                 torrent.home_client.remove_torrent(torrent.id, remove_data=True)

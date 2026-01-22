@@ -27,18 +27,21 @@ ENV PYTHONUNBUFFERED=1
 ENV UID=${UID}
 ENV GID=${GID}
 
-# Create a non-root user with specified UID/GID
+# Create a non-root user with specified UID/GID and required directories
 RUN groupadd -g ${GID} appuser && \
     useradd -u ${UID} -g ${GID} -m appuser && \
     chown -R appuser:appuser /app && \
-    mkdir -p /tmp/torrents && \
-    chown appuser:appuser /tmp/torrents
+    mkdir -p /tmp/torrents /config /state && \
+    chown appuser:appuser /tmp/torrents /config /state
 
 # Expose port (if needed)
 EXPOSE 10444
 
+# Define volumes for config and state
+VOLUME ["/config", "/state"]
+
 # Switch to non-root user
 USER appuser
 
-# Command to run the application
+# Command to run the application (uses default paths: /config/config.json, /state)
 CMD ["python3", "-m", "transferarr.main"]

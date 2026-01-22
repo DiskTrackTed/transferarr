@@ -87,6 +87,15 @@ class Torrent:
 
     def to_dict(self):
         """Convert the Torrent object to a dictionary."""
+        # Determine media_manager_type from the media_manager instance
+        media_manager_type = None
+        if self.media_manager:
+            manager_class = type(self.media_manager).__name__
+            if 'Radarr' in manager_class:
+                media_manager_type = 'radarr'
+            elif 'Sonarr' in manager_class:
+                media_manager_type = 'sonarr'
+        
         return {
             "name": self.name,
             "id": self.id,
@@ -101,11 +110,32 @@ class Torrent:
             "current_file": self.current_file,
             "current_file_count": self.current_file_count,
             "total_files": self.total_files,
+            "media_manager_type": media_manager_type,
         }
 
     @classmethod
-    def from_dict(cls, data, download_clients, save_callback=None):
-        """Create a Torrent object from a dictionary."""
+    def from_dict(cls, data, download_clients, media_managers=None, save_callback=None):
+        """Create a Torrent object from a dictionary.
+        
+        Args:
+            data: Dictionary with torrent data
+            download_clients: Dict of download client name -> client instance
+            media_managers: List of media manager instances (RadarrManager, SonarrManager)
+            save_callback: Callback function to save state
+        """
+        # Restore media_manager from type if available
+        media_manager = None
+        media_manager_type = data.get("media_manager_type")
+        if media_manager_type and media_managers:
+            for mm in media_managers:
+                manager_class = type(mm).__name__
+                if media_manager_type == 'radarr' and 'Radarr' in manager_class:
+                    media_manager = mm
+                    break
+                elif media_manager_type == 'sonarr' and 'Sonarr' in manager_class:
+                    media_manager = mm
+                    break
+        
         torrent = cls(
             name=data.get("name"),
             id=data.get("id"),
@@ -117,9 +147,11 @@ class Torrent:
             target_client_info=data.get("target_client_info"),
             target_client_name=data.get("target_client_name"),
             save_callback=save_callback,
+            media_manager=media_manager,
         )
         torrent.transfer_speed = data.get("transfer_speed", 0)
         torrent.progress = data.get("progress", 0)
+        torrent.size = data.get("size", 0)
         torrent.current_file = data.get("current_file", "")
         torrent.current_file_count = data.get("current_file_count", 0)
         torrent.total_files = data.get("total_files", 0)
