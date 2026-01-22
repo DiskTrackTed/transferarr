@@ -38,16 +38,19 @@ Current version: See [VERSION](VERSION) file.
 ### Docker (Recommended)
 
 ```bash
+# Create config and state directories
+mkdir -p config state
+
 # Create config file (see Configuration section)
-cp config.example.json config.json
-# Edit config.json with your settings
+cp config.example.json config/config.json
+# Edit config/config.json with your settings
 
 # Run with Docker
 docker run -d \
   --name transferarr \
   -p 10444:10444 \
-  -v ./config.json:/app/config.json \
-  -v ./state.json:/app/state.json \
+  -v ./config:/config \
+  -v ./state:/state \
   transferarr:latest
 ```
 
@@ -65,8 +68,8 @@ source venv/bin/activate
 # Install dependencies
 pip install -r requirements.txt
 
-# Run
-python -m transferarr.main --config config.json
+# Run (specify config file and state directory)
+python -m transferarr.main --config ./config.json --state-dir ./data
 ```
 
 Visit `http://localhost:10444` to access the web dashboard.
@@ -130,8 +133,8 @@ services:
     ports:
       - "10444:10444"
     volumes:
-      - ./config.json:/app/config.json
-      - ./state.json:/app/state.json
+      - ./config:/config
+      - ./state:/state
       - ~/.ssh:/home/appuser/.ssh:ro  # For SFTP key authentication
     restart: unless-stopped
 ```
@@ -149,7 +152,7 @@ source venv-dev/bin/activate
 pip install -r requirements.txt
 
 # Run locally
-python -m transferarr.main --config config.json
+python -m transferarr.main --config config.json --state-dir ./data
 ```
 
 ### Testing

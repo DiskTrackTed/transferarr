@@ -44,6 +44,9 @@ All configuration is JSON-based (`config.json`). Structure:
 ### State Persistence
 - Torrent state saved to `state.json` via `save_callback` pattern on the `Torrent` model
 - State auto-saves whenever `torrent.state` property is set (see `models/torrent.py` setter)
+- State directory configured via `--state-dir` CLI argument (default: `/state` in Docker)
+- State is loaded on startup in `TorrentManager.__init__()` after download clients/media managers are initialized
+- `media_manager_type` is serialized to state to restore media manager instance on restart
 
 ### Threading Model
 - `TorrentManager` runs in a daemon thread with periodic processing loop
@@ -112,7 +115,7 @@ def example_endpoint():
 ```bash
 # Run locally (venv-dev is the development environment)
 source venv-dev/bin/activate
-python -m transferarr.main --config config.json
+python -m transferarr.main --config config.json --state-dir ./data
 
 # Dependencies
 pip install -r requirements.txt
@@ -319,7 +322,8 @@ gh issue close 1
 ## Important Files
 - `README.md` - Project documentation (quick start, configuration, architecture)
 - `config.json` - Runtime configuration (gitignored, use `config copy.json` as template)
-- `state.json` - Persistent torrent state
+- `state.json` - Persistent torrent state (stored in state directory)
+- `history.db` - SQLite database for transfer history (stored in state directory)
 - `build.sh` - Docker image build script
 - `run_tests.sh` - Docker-based test runner script
 - `testing.ipynb` - Development/debugging notebook
@@ -395,7 +399,7 @@ docker compose -f docker/docker-compose.test.yml up -d
 docker stop test-transferarr
 ./docker/fixtures/update-local-config.sh  # Updates API keys in config.local.json
 source venv-dev/bin/activate
-python -m transferarr.main --config docker/fixtures/config.local.json
+python -m transferarr.main --config docker/fixtures/config.local.json --state-dir ./docker/state
 ```
 
 ### Torznab API Notes

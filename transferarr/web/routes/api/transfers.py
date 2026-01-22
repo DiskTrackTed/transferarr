@@ -58,7 +58,7 @@ def register_routes(bp):
           - in: query
             name: sort
             type: string
-            enum: [created_at, completed_at, size_bytes, torrent_name]
+            enum: [created_at, completed_at, size_bytes, bytes_transferred, torrent_name]
             default: created_at
             description: Sort field
           - in: query

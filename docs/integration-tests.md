@@ -65,6 +65,7 @@ Verifies state survives container restarts and file corruption.
 |------|-------------|
 | `test_state_survives_restart_during_copying` | Restart mid-transfer, verify completion |
 | `test_state_survives_restart_target_seeding` | Restart after target seeding, verify cleanup |
+| `test_restart_after_radarr_import_during_copying` | Restart after Radarr import completes (queue empty), verify transfer resumes |
 | `test_state_file_corruption_recovery` | Corrupt state.json, verify recovery |
 | `test_state_file_delete_recovery` | Delete state.json, verify recovery |
 | `test_multiple_torrents_state_persistence` | 3 torrents at different states, verify all restored |

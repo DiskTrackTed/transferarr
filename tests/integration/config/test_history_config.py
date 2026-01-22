@@ -137,7 +137,7 @@ class TestHistoryDisabled:
         # Start container briefly to clear only state.json
         container.start()
         time.sleep(2)
-        container.exec_run("rm -f /app/state/state.json")
+        container.exec_run("rm -f /state/state.json")
         container.stop()
         time.sleep(2)
         
@@ -318,7 +318,7 @@ class TestRetentionDays:
         
         python_cmd = f"""python3 -c "
 import sqlite3
-conn = sqlite3.connect('/app/state/history.db')
+conn = sqlite3.connect('/state/history.db')
 cursor = conn.execute(\\"UPDATE transfers SET completed_at = '{old_date}' WHERE id = '{transfer_id}'\\")
 conn.commit()
 print('Updated', cursor.rowcount, 'rows')
@@ -335,7 +335,7 @@ conn.close()
         # Clear state.json to prevent transfer resume logic
         container.start()
         time.sleep(2)
-        container.exec_run("rm -f /app/state/state.json")
+        container.exec_run("rm -f /state/state.json")
         container.stop()
         time.sleep(2)
         

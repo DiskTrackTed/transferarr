@@ -278,7 +278,166 @@ class TestStatePersistenceTargetSeeding:
         print("\n✅ Test passed: State survived restart during TARGET_SEEDING!")
 
 
-class TestStateFileCorruptionRecovery:
+class TestStatePersistenceAfterImport:
+    """
+    Test state persistence when media manager finishes import before transfer completes.
+    
+    This tests the scenario where:
+    1. Torrent is downloading/seeding on source
+    2. Transfer starts (COPYING state)
+    3. Media manager (Radarr/Sonarr) finishes importing the file (removes from queue)
+    4. Transferarr restarts before transfer completes
+    5. Transfer should resume and complete despite torrent no longer being in media manager queue
+    """
+    
+    @pytest.fixture(autouse=True)
+    def setup(self, clean_test_environment):
+        """Use shared test environment setup."""
+        pass
+    
+    @pytest.mark.timeout(900)  # 15 minutes for large file transfer
+    def test_restart_after_radarr_import_during_copying(
+        self,
+        create_torrent,
+        radarr_client,
+        deluge_source,
+        deluge_target,
+        transferarr,
+        docker_services,
+    ):
+        """
+        Test that transfer resumes after restart even when Radarr has already imported.
+        
+        Scenario:
+        1. Add movie to Radarr, torrent downloads on source
+        2. Start transferarr, enter COPYING state
+        3. Remove torrent from Radarr queue (simulating Radarr completing import)
+        4. Restart transferarr
+        5. Verify transfer resumes and completes to TARGET_SEEDING
+        6. Verify source is cleaned up (media_manager is None, so auto-cleanup)
+        """
+        movie = movie_catalog.get_movie()
+        torrent_name = make_torrent_name(movie['title'], movie['year'])
+        
+        # Use large file to ensure COPYING state lasts long enough
+        file_size_mb = 2500
+        
+        # Step 1: Create test torrent and add to Radarr
+        print(f"\n[Step 1] Creating {file_size_mb}MB torrent and adding to Radarr: {torrent_name}")
+        torrent_info = create_torrent(torrent_name, size_mb=file_size_mb)
+        print(f"  Created torrent with hash: {torrent_info['hash']}")
+        
+        added_movie = radarr_client.add_movie(
+            title=movie['title'],
+            tmdb_id=movie['tmdb_id'],
+            year=movie['year'],
+            search=True
+        )
+        movie_id = added_movie['id']
+        print(f"  Added movie ID: {movie_id}")
+        
+        time.sleep(2)
+        radarr_client.search_movie(movie_id)
+        
+        # Step 2: Wait for torrent to be seeding on source
+        print(f"\n[Step 2] Waiting for torrent in source Deluge...")
+        wait_for_queue_item_by_hash(radarr_client, torrent_info['hash'], timeout=300, expected_status='completed')
+        wait_for_torrent_in_deluge(
+            deluge_source,
+            torrent_info['hash'],
+            timeout=300,
+            expected_state='Seeding'
+        )
+        print("  Torrent is seeding on source")
+        
+        # Step 3: Start transferarr and wait for COPYING state
+        print(f"\n[Step 3] Starting transferarr and waiting for COPYING state...")
+        transferarr.start(wait_healthy=True)
+        
+        wait_for_transferarr_state(
+            transferarr,
+            torrent_name,
+            expected_state='COPYING',
+            timeout=60
+        )
+        print("  Transferarr is in COPYING state")
+        
+        # Step 4: Remove from Radarr queue (simulate Radarr completing import)
+        print(f"\n[Step 4] Removing from Radarr queue (simulating import completion)...")
+        removed = remove_from_queue_by_name(radarr_client, torrent_name)
+        assert removed, f"Should be able to remove torrent from queue: {torrent_name}"
+        print("  Removed from Radarr queue - simulating completed import")
+        
+        # Verify it's really gone from queue
+        time.sleep(2)
+        queue = radarr_client.get_queue()
+        queue_records = queue.records if hasattr(queue, 'records') else queue.get('records', [])
+        queue_names = [r.title if hasattr(r, 'title') else r.get('title', '') for r in queue_records]
+        assert torrent_name not in str(queue_names), "Torrent should not be in queue"
+        print("  Confirmed: torrent no longer in Radarr queue")
+        
+        # Step 5: Restart transferarr
+        print(f"\n[Step 5] Restarting transferarr...")
+        transferarr.restart(wait_healthy=True)
+        print("  Transferarr restarted")
+        
+        # Step 6: Verify torrent is still tracked after restart
+        print(f"\n[Step 6] Verifying torrent is still tracked...")
+        torrents = transferarr.get_torrents()
+        found_torrent = None
+        for t in torrents:
+            if torrent_name in t.get('name', ''):
+                found_torrent = t
+                break
+        
+        assert found_torrent is not None, (
+            f"Torrent should still be tracked after restart even though not in Radarr queue. "
+            f"Tracked torrents: {[t.get('name') for t in torrents]}"
+        )
+        print(f"  Torrent found with state: {found_torrent.get('state')}")
+        
+        # Step 7: Wait for transfer to complete
+        # Note: Since media_manager is None, once the torrent reaches TARGET_SEEDING
+        # it will be immediately cleaned up. We can't reliably observe TARGET_SEEDING state
+        # because it's transient. Instead, verify the transfer completes by checking:
+        # 1. Torrent is seeding on target
+        # 2. Source cleanup happens automatically
+        print(f"\n[Step 7] Waiting for transfer to complete...")
+        wait_for_torrent_in_deluge(
+            deluge_target,
+            torrent_info['hash'],
+            timeout=TIMEOUTS['torrent_transfer'],
+            expected_state='Seeding'
+        )
+        print("  Torrent seeding on target")
+        
+        # Step 8: Verify automatic cleanup (since media_manager is None after restart)
+        # The torrent should be automatically removed from tracking and source cleaned up
+        # This may have already happened by now due to the race condition
+        print(f"\n[Step 8] Waiting for automatic cleanup (media_manager is None)...")
+        wait_for_torrent_removed(
+            deluge_source,
+            torrent_info['hash'],
+            timeout=TIMEOUTS['state_transition']
+        )
+        print("  Source torrent removed automatically")
+        
+        # Verify target still has the torrent
+        target_count = get_deluge_torrent_count(deluge_target)
+        assert target_count == 1, f"Target should have 1 torrent, has {target_count}"
+        
+        # Verify torrent is no longer tracked (completed lifecycle)
+        time.sleep(5)  # Give transferarr time to remove from tracking
+        torrents = transferarr.get_torrents()
+        still_tracked = any(torrent_name in t.get('name', '') for t in torrents)
+        assert not still_tracked, (
+            f"Torrent should be removed from tracking after TARGET_SEEDING with no media_manager. "
+            f"Still tracked: {[t.get('name') for t in torrents]}"
+        )
+        
+        print("\n✅ Test passed: Transfer resumed after restart despite Radarr import completion!")
+
+
     """
     Test 1.3: State File Corruption Recovery
     

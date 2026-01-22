@@ -1,6 +1,5 @@
 {
     "log_level": "DEBUG",
-    "state_file": "./docker/fixtures/state.local.json",
     "media_managers": [
         {
             "type": "radarr",

@@ -277,8 +277,8 @@ services:
     environment:
       - TZ=UTC
     volumes:
-      - shared-config:/app/config  # Writable for CRUD tests
-      - transferarr-state:/app/state
+      - shared-config:/config  # Writable for CRUD tests
+      - transferarr-state:/state
       - source-downloads:/source-downloads:ro  # For local source access
       - source-state:/source-state:ro          # For local .torrent file access
       - target-downloads:/target-downloads      # For local destination access (target 1)
@@ -296,7 +296,7 @@ services:
         condition: service_healthy
       sftp-server:
         condition: service_healthy
-    command: ["python", "-m", "transferarr.main", "--config", "/app/config/config.json"]
+    # Uses Dockerfile CMD defaults: /config/config.json and /state
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:10444/api/v1/health"]
       interval: 10s

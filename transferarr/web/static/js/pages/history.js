@@ -536,7 +536,7 @@ function updateTable() {
                 <span class="route-arrow">→</span>
                 <span class="client-name">${escapeHtml(transfer.target_client)}</span>
             </td>
-            <td class="size-cell">${formatBytes(transfer.size_bytes)}</td>
+            <td class="size-cell">${formatBytes(transfer.bytes_transferred)}</td>
             <td class="duration-cell">${formatDuration(transfer.started_at, transfer.completed_at, transfer.status)}</td>
             <td>${formatStatus(transfer.status)}</td>
             <td class="date-cell">${formatDate(transfer.created_at)}</td>

@@ -114,7 +114,7 @@ def transfer_history_data(
         def clear_state(self):
             try:
                 container = self.docker.containers.get(self.container_name)
-                container.exec_run("rm -f /app/data/state.json")
+                container.exec_run("rm -f /state/state.json")
             except:
                 pass
         

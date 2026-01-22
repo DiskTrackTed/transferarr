@@ -1763,7 +1763,7 @@ def corrupt_state_file(transferarr) -> bool:
             container = transferarr.docker.containers.get(transferarr.container_name)
             if container.status == 'running':
                 result = container.exec_run(
-                    "sh -c 'echo \"invalid json content here{{{{\" > /app/state/state.json'"
+                    "sh -c 'echo \"invalid json content here{{{{\" > /state/state.json'"
                 )
                 return result.exit_code == 0
         except Exception:
@@ -1800,7 +1800,7 @@ def delete_state_file(transferarr) -> bool:
         try:
             container = transferarr.docker.containers.get(transferarr.container_name)
             if container.status == 'running':
-                result = container.exec_run("rm -f /app/state/state.json")
+                result = container.exec_run("rm -f /state/state.json")
                 return result.exit_code == 0
         except Exception:
             pass

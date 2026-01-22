@@ -5,7 +5,7 @@ from pathlib import Path
 from threading import Thread
 from time import sleep
 
-from transferarr.config import load_config, parse_args
+from transferarr.config import load_config, parse_args, DEFAULT_CONFIG_PATH, DEFAULT_STATE_DIR
 from transferarr.web import create_app
 from transferarr.services.torrent_service import TorrentManager
 from transferarr.services.history_service import HistoryService
@@ -13,9 +13,15 @@ from transferarr.services.history_service import HistoryService
 # Parse arguments and load config
 args = parse_args()
 
+# Resolve config file path (CLI > env > default)
+config_file = args.config or os.getenv("CONFIG_FILE", DEFAULT_CONFIG_PATH)
+
+# Resolve state directory (CLI > env > default)
+state_dir = args.state_dir or os.getenv("STATE_DIR", DEFAULT_STATE_DIR)
+state_dir = Path(state_dir)
+
 # Load configuration
 try:
-    config_file = args.config if args.config else os.getenv("CONFIG_FILE", "config.json")
     config = load_config(config_file)
 except Exception as e:
     print(f"Error loading configuration: {e}")
@@ -27,14 +33,18 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 logger = logging.getLogger("transferarr")
 logger.setLevel(log_level)
 
+logger.info(f"Config file: {config_file}")
+logger.info(f"State directory: {state_dir}")
+
+# Ensure state directory exists
+state_dir.mkdir(parents=True, exist_ok=True)
+
 # Initialize history service (if enabled)
 history_config = config.get("history", {})
 history_enabled = history_config.get("enabled", True)
 
 if history_enabled:
-    # Database goes in same directory as state file (default: torrents_state.json)
-    state_file_path = Path(config.get("state_file", "torrents_state.json"))
-    history_db_path = state_file_path.parent / "history.db"
+    history_db_path = state_dir / "history.db"
     history_service = HistoryService(str(history_db_path))
     logger.info(f"History database initialized at: {history_db_path}")
     
@@ -48,7 +58,13 @@ else:
     logger.info("History tracking is disabled")
 
 # Start torrent manager with history service and config
-torrent_manager = TorrentManager(config, config_file, history_service=history_service, history_config=history_config)
+torrent_manager = TorrentManager(
+    config, 
+    config_file, 
+    state_dir=str(state_dir),
+    history_service=history_service, 
+    history_config=history_config
+)
 torrent_manager.start()
 
 # Create and run Flask app

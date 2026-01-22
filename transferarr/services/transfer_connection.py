@@ -129,6 +129,9 @@ class TransferConnection:
             else:
                 torrent.state = TorrentState.ERROR
                 if transfer_id and self.history_service:
+                    # Record partial progress before marking as failed
+                    if bytes_transferred > 0:
+                        self.history_service.update_progress(transfer_id, bytes_transferred, force=True)
                     self.history_service.fail_transfer(transfer_id, f"Failed to upload: {source_file_path}")
                 break
                 

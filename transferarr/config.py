@@ -3,7 +3,9 @@ import os
 import argparse
 import logging
 
-DEFAULT_CONFIG_PATH = "config.json"
+# Default paths for Docker deployment
+DEFAULT_CONFIG_PATH = "/config/config.json"
+DEFAULT_STATE_DIR = "/state"
 
 logger = logging.getLogger("transferarr")
 
@@ -39,7 +41,6 @@ def validate_config(config):
 
     # Set defaults for optional fields
     config.setdefault("log_level", "INFO")
-    config.setdefault("state_file", "torrents_state.json")
     
     # History configuration defaults
     history_config = config.setdefault("history", {})
@@ -51,14 +52,20 @@ def validate_config(config):
 
 def parse_args():
     """
-    Parse command-line arguments to allow overriding the config file location.
+    Parse command-line arguments for config file and state directory.
     :return: The parsed arguments.
     """
-    parser = argparse.ArgumentParser(description="Transferarr Configuration")
+    parser = argparse.ArgumentParser(description="Transferarr - Torrent Transfer Manager")
     parser.add_argument(
         "--config",
         type=str,
-        default=DEFAULT_CONFIG_PATH,
-        help="Path to the configuration file (default: config.json)"
+        default=None,
+        help=f"Path to the configuration file (default: {DEFAULT_CONFIG_PATH})"
+    )
+    parser.add_argument(
+        "--state-dir",
+        type=str,
+        default=None,
+        help=f"Path to the state directory for state.json and history.db (default: {DEFAULT_STATE_DIR})"
     )
     return parser.parse_args()
