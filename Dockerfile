@@ -21,6 +21,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application files
 COPY ./transferarr /app/transferarr/
 COPY ./VERSION /app/
+COPY ./LICENSE /app/
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
