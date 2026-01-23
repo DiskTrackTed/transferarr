@@ -168,3 +168,45 @@ class TestSetupFlow:
         # Should redirect away from setup
         assert response.status_code == 302
         assert '/setup' not in response.headers['Location']
+
+    @pytest.mark.timeout(180)
+    def test_auth_persists_after_restart(self, transferarr, docker_services):
+        """Auth settings created via setup persist after container restart."""
+        # Start with no auth configured
+        transferarr.clear_auth_config()
+        transferarr.start(wait_healthy=True)
+        
+        base_url = self._get_transferarr_url()
+        session = requests.Session()
+        
+        # Create account via setup
+        response = session.post(f"{base_url}/setup", data={
+            'action': 'create',
+            'username': 'testadmin',
+            'password': 'testpass123',
+            'confirm_password': 'testpass123'
+        }, allow_redirects=False)
+        assert response.status_code == 302
+        
+        # Restart the container
+        transferarr.restart()
+        
+        # New session (simulates fresh browser)
+        new_session = requests.Session()
+        
+        # Try to access dashboard - should redirect to login (auth is enabled)
+        response = new_session.get(f"{base_url}/", allow_redirects=False)
+        assert response.status_code == 302
+        assert '/login' in response.headers['Location']
+        
+        # Login with the credentials we created
+        response = new_session.post(f"{base_url}/login", data={
+            'username': 'testadmin',
+            'password': 'testpass123'
+        }, allow_redirects=False)
+        assert response.status_code == 302  # Successful login redirects
+        
+        # Now we should be able to access dashboard
+        response = new_session.get(f"{base_url}/")
+        assert response.status_code == 200
+        assert 'Dashboard' in response.text or 'dashboard' in response.text.lower()

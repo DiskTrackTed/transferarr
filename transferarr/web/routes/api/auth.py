@@ -7,7 +7,7 @@ from the Settings page.
 from functools import wraps
 
 from flask import request, current_app
-from flask_login import login_required, current_user
+from flask_login import login_required, current_user, logout_user
 
 from transferarr.auth import (
     get_auth_config,
@@ -118,6 +118,11 @@ def register_routes(api_bp):
         
         if updates:
             save_auth_config(current_app.config['APP_CONFIG'], updates)
+            
+            # If auth was just enabled, invalidate current session
+            # so user must log in with the new credentials
+            if updates.get('enabled') is True:
+                logout_user()
         
         return success_response({'message': 'Settings updated'})
     

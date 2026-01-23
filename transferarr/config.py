@@ -30,7 +30,12 @@ def load_config(config_path=None):
     except json.JSONDecodeError as e:
         raise ConfigError(f"Error parsing configuration file: {e}")
 
-    return validate_config(config)
+    config = validate_config(config)
+    
+    # Store config path for saving (used by save_auth_config and others)
+    config["_config_path"] = config_path
+    
+    return config
 
 def validate_config(config):
     """

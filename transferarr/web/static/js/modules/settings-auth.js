@@ -162,10 +162,14 @@ async function saveAuthSettings() {
         const data = await response.json();
         
         if (response.ok && data.data) {
-            showStatus(statusSpan, 'Settings saved!', 'success');
-            
-            // If auth was disabled, we might need to reload
-            if (!authEnabled) {
+            // If auth was just enabled, redirect to login
+            // (session was invalidated server-side)
+            if (authEnabled) {
+                showStatus(statusSpan, 'Auth enabled! Redirecting to login...', 'success');
+                setTimeout(() => {
+                    window.location.href = '/login';
+                }, 1500);
+            } else {
                 showStatus(statusSpan, 'Settings saved! Auth disabled.', 'success');
             }
         } else {
