@@ -209,6 +209,57 @@ The `history` section controls transfer history tracking:
 
 ---
 
+## Authentication Configuration
+
+The `auth` section controls web UI authentication:
+
+```json
+{
+  "auth": {
+    "enabled": true,
+    "username": "admin",
+    "password_hash": "$2b$12$...",
+    "session_timeout_minutes": 60
+  }
+}
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | boolean | `false` | Enable/disable authentication |
+| `username` | string | `null` | Login username |
+| `password_hash` | string | `null` | Bcrypt-hashed password (never store plain text) |
+| `session_timeout_minutes` | number | `60` | Session duration before re-login required. Set to `0` for no timeout. **Changes require restart** |
+
+**First-Run Behavior:**
+- If no `auth` section exists, Transferarr shows a setup page on first access
+- You can create credentials or skip setup (which sets `enabled: false`)
+- Skipping allows full access without login
+
+**Enabling Auth Later:**
+1. Go to **Settings → Auth** tab
+2. Toggle "Authentication" on
+3. Set your session timeout preference
+4. Click "Save Settings"
+
+**Changing Password:**
+1. Go to **Settings → Auth** tab
+2. Fill in the "Change Password" form
+3. Enter current password and new password
+4. Click "Change Password"
+
+**Session Storage:**
+- Sessions are signed using a secret key stored in `<state_dir>/secret_key`
+- The secret key is auto-generated on first run
+- Deleting the secret key will invalidate all existing sessions
+
+**Protected Routes:**
+- When auth is enabled, all routes redirect to `/login` except:
+  - `/login` and `/setup` pages
+  - `/api/v1/health` endpoint (for monitoring)
+
+---
+
 ## Transfer Type Combinations
 
 Transferarr supports four transfer type combinations:

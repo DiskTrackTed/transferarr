@@ -2,8 +2,8 @@
 #
 # This workflow runs the full test suite including:
 # - Unit tests (no Docker needed)
-# - Integration tests (torrent lifecycle, transfers, API, error handling)
-# - UI tests (Playwright-based browser tests)
+# - Integration tests (torrent lifecycle, transfers, API, auth, error handling)
+# - UI tests (Playwright-based browser tests, including auth flows)
 #
 # Tests run in parallel using a matrix strategy for faster execution.
 # Each category runs in its own job with appropriate timeouts.
@@ -34,6 +34,7 @@ on:
           - all
           - unit
           - integration-api
+          - integration-auth
           - integration-lifecycle
           - integration-persistence
           - integration-transfers
@@ -42,6 +43,7 @@ on:
           - ui-fast
           - ui-crud
           - ui-e2e
+          - ui-auth
 
 # Cancel in-progress runs when a new run is triggered
 concurrency:
@@ -67,6 +69,10 @@ jobs:
           - category: integration-api
             path: tests/integration/api/
             timeout: 10
+            needs_docker: true
+          - category: integration-auth
+            path: tests/integration/auth/
+            timeout: 15
             needs_docker: true
           - category: integration-lifecycle
             path: tests/integration/lifecycle/
@@ -99,6 +105,10 @@ jobs:
           - category: ui-e2e
             path: tests/ui/e2e/
             timeout: 25
+            needs_docker: true
+          - category: ui-auth
+            path: tests/ui/auth/
+            timeout: 20
             needs_docker: true
 
     name: ${{ matrix.category }}

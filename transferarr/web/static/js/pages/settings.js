@@ -12,6 +12,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     let connectionsLoaded = false;
+    let authLoaded = false;
     
     // Import required modules
     import('../modules/modals.js').then(modalsModule => {
@@ -52,6 +53,25 @@ document.addEventListener('DOMContentLoaded', function() {
             alert('Failed to load connections module: ' + error.message);
         });
 
+        // Load auth settings module
+        import('../modules/settings-auth.js').then(authModule => {
+            // Initialize auth module
+            authModule.initAuthSettings();
+            
+            // Only load auth settings if the auth tab is active on page load
+            if (window.location.hash === '#auth' || 
+                document.querySelector('#settings-tabs .client-tab[data-tab="auth"]')?.classList.contains('active')) {
+                authModule.loadAuthSettings();
+                authLoaded = true;
+            }
+            
+            // Store module for later use
+            window.authModule = authModule;
+        }).catch(error => {
+            console.error('Error loading auth module:', error);
+            // Non-fatal error, auth tab just won't work
+        });
+
         // Initialize tab switching
         initTabs();
         
@@ -85,6 +105,14 @@ document.addEventListener('DOMContentLoaded', function() {
                         if (window.connectionsModule) {
                             window.connectionsModule.loadConnections();
                             connectionsLoaded = true;
+                        }
+                    }
+                    
+                    // Load auth settings when auth tab is selected
+                    if (tabId === 'auth' && !authLoaded) {
+                        if (window.authModule) {
+                            window.authModule.loadAuthSettings();
+                            authLoaded = true;
                         }
                     }
                 });

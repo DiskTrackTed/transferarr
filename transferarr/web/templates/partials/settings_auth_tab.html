@@ -1,0 +1,99 @@
+<!-- Authentication Tab Content -->
+<div class="client-tab-content" id="auth-tab-content">
+    <div class="card settings-section">
+        <div class="card-body">
+            <!-- Authentication Settings Section -->
+            <div class="auth-settings-section">
+                <h3><i class="fas fa-shield-alt"></i> Authentication Settings</h3>
+                
+                <div class="setting-row">
+                    <div class="setting-label">
+                        <label for="auth-enabled">Authentication</label>
+                        <span class="setting-help">Require login to access Transferarr</span>
+                    </div>
+                    <div class="setting-control">
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="auth-enabled">
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                </div>
+                
+                <div class="setting-row">
+                    <div class="setting-label">
+                        <label for="session-timeout">Session Timeout</label>
+                        <span class="setting-help">How long until you need to log in again</span>
+                    </div>
+                    <div class="setting-control">
+                        <select id="session-timeout" class="form-control">
+                            <option value="30">30 minutes</option>
+                            <option value="60">1 hour</option>
+                            <option value="480">8 hours</option>
+                            <option value="1440">24 hours</option>
+                            <option value="10080">1 week</option>
+                            <option value="0">Never</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <!-- Restart Required Warning -->
+                <div class="setting-row restart-warning" id="restart-warning" style="display: none;">
+                    <div class="alert alert-warning">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        <span>Session timeout change requires a restart to take effect.</span>
+                    </div>
+                </div>
+                
+                <div class="setting-row setting-actions">
+                    <button type="button" class="btn btn-primary" id="save-auth-settings">
+                        <i class="fas fa-save"></i> Save Settings
+                    </button>
+                    <span id="auth-settings-status" class="status-message"></span>
+                </div>
+            </div>
+            
+            <!-- Change Password Section -->
+            <div class="auth-settings-section" id="change-password-section">
+                <h3><i class="fas fa-key"></i> Change Password</h3>
+                
+                <form id="change-password-form">
+                    <div class="form-group">
+                        <label for="current-password">Current Password</label>
+                        <input type="password" id="current-password" class="form-control" required
+                               placeholder="Enter your current password">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="new-password">New Password</label>
+                        <input type="password" id="new-password" class="form-control" required
+                               minlength="8" placeholder="Enter new password (min 8 characters)">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="confirm-new-password">Confirm New Password</label>
+                        <input type="password" id="confirm-new-password" class="form-control" required
+                               placeholder="Confirm your new password">
+                    </div>
+                    
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-lock"></i> Change Password
+                        </button>
+                        <span id="password-change-status" class="status-message"></span>
+                    </div>
+                </form>
+            </div>
+            
+            <!-- Info Section when auth is disabled -->
+            <div class="auth-disabled-info" id="auth-disabled-info" style="display: none;">
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle"></i>
+                    <div>
+                        <strong>Authentication is disabled</strong>
+                        <p>Enable authentication above to secure your Transferarr instance with a username and password.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>

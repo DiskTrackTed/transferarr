@@ -48,6 +48,11 @@ def validate_config(config):
     history_config.setdefault("retention_days", 90)  # None = keep forever
     history_config.setdefault("track_progress", True)
 
+    # Auth configuration defaults (don't set 'enabled' - that's set by setup)
+    # We only set defaults for fields that have safe defaults
+    auth_config = config.setdefault("auth", {})
+    auth_config.setdefault("session_timeout_minutes", 60)
+
     return config
 
 def parse_args():

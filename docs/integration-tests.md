@@ -11,6 +11,7 @@ Transferarr has 55+ integration tests organized into 6 categories, covering the 
 ```
 tests/integration/
     api/                    # API endpoint tests (~3 min)
+    auth/                   # Authentication tests (~5 min)
     lifecycle/              # Core migration flows (~15 min)
     persistence/            # State recovery tests (~20 min)
     transfers/              # Concurrent & type tests (~15 min)
@@ -151,6 +152,70 @@ Transfer History API endpoint tests (23 tests).
 | `TestTransferHistoryIntegration` | End-to-end record creation during transfer |
 | `TestDeleteTransferEndpoint` | DELETE /transfers/<id> single record deletion |
 | `TestClearTransfersEndpoint` | DELETE /transfers batch clearing by status |
+
+### auth/
+
+#### [test_login_flow.py](../tests/integration/auth/test_login_flow.py)
+Login endpoint and session management.
+
+| Test | Description |
+|------|-------------|
+| `test_login_valid_credentials` | Successful login returns redirect |
+| `test_login_invalid_password` | Wrong password returns 401 |
+| `test_login_invalid_username` | Wrong username returns 401 |
+| `test_login_missing_fields` | Missing credentials returns 400 |
+| `test_logout_clears_session` | Logout invalidates session |
+| `test_session_persists_across_requests` | Session maintained after login |
+
+#### [test_setup_flow.py](../tests/integration/auth/test_setup_flow.py)
+First-run setup flow.
+
+| Test | Description |
+|------|-------------|
+| `test_setup_creates_user` | Setup endpoint creates credentials |
+| `test_setup_skip_disables_auth` | Skip disables authentication |
+| `test_setup_redirects_when_configured` | Setup unavailable after initial config |
+| `test_setup_password_validation` | Password mismatch rejected |
+
+#### [test_protected_routes.py](../tests/integration/auth/test_protected_routes.py)
+Route protection with authentication enabled.
+
+| Test | Description |
+|------|-------------|
+| `test_protected_routes_redirect_to_login` | UI routes redirect when not logged in |
+| `test_api_routes_return_401` | API routes return 401 when not logged in |
+| `test_routes_accessible_after_login` | Routes accessible after login |
+| `test_next_parameter_preserved` | Redirect preserves original URL |
+
+#### [test_auth_disabled.py](../tests/integration/auth/test_auth_disabled.py)
+Behavior when authentication is disabled.
+
+| Test | Description |
+|------|-------------|
+| `test_routes_accessible_without_login` | All routes accessible |
+| `test_login_page_redirects` | Login page redirects to dashboard |
+| `test_api_accessible_without_auth` | API endpoints work without auth |
+
+#### [test_secret_key.py](../tests/integration/auth/test_secret_key.py)
+Secret key generation and persistence.
+
+| Test | Description |
+|------|-------------|
+| `test_secret_key_created_on_startup` | Key generated if missing |
+| `test_secret_key_persists_across_restarts` | Same key used after restart |
+| `test_session_invalidated_on_key_change` | New key invalidates sessions |
+
+#### [test_settings_auth.py](../tests/integration/auth/test_settings_auth.py)
+Auth settings API endpoints.
+
+| Test | Description |
+|------|-------------|
+| `test_get_settings_returns_auth_config` | GET returns current auth config |
+| `test_get_settings_when_auth_disabled` | Returns config with runtime timeout |
+| `test_update_session_timeout` | PUT updates timeout setting |
+| `test_change_password_valid` | Password change succeeds |
+| `test_change_password_wrong_current` | Wrong current password rejected |
+| `test_runtime_timeout_differs_after_update` | Runtime timeout unchanged until restart |
 
 ---
 

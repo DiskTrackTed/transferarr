@@ -68,6 +68,7 @@ class TestTransferTypeCombinations:
     def setup(self, clean_test_environment, transferarr):
         """Setup clean environment with running transferarr."""
         # Use sftp-to-sftp config as base since it has all SFTP credentials
+        transferarr.set_auth_config(enabled=False)
         transferarr.start(wait_healthy=True, config_type='sftp-to-sftp')
         self.transferarr = transferarr
     
@@ -190,6 +191,7 @@ class TestSftpFieldVisibility:
     @pytest.fixture(autouse=True)
     def setup(self, clean_test_environment, transferarr):
         """Setup clean environment with running transferarr."""
+        transferarr.set_auth_config(enabled=False)
         transferarr.start(wait_healthy=True)
         self.transferarr = transferarr
     

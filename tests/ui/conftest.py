@@ -237,6 +237,26 @@ def history_page(page: Page, base_url: str) -> "HistoryPage":
     return HistoryPage(page, base_url)
 
 
+@pytest.fixture
+def login_page(page: Page, base_url: str) -> "LoginPage":
+    """Create a LoginPage instance.
+    
+    Uses pytest-playwright's page fixture which handles screenshots.
+    """
+    from tests.ui.pages.login_page import LoginPage
+    return LoginPage(page, base_url)
+
+
+@pytest.fixture
+def setup_page(page: Page, base_url: str) -> "SetupPage":
+    """Create a SetupPage instance.
+    
+    Uses pytest-playwright's page fixture which handles screenshots.
+    """
+    from tests.ui.pages.setup_page import SetupPage
+    return SetupPage(page, base_url)
+
+
 # ==============================================================================
 # Utility Fixtures
 # ==============================================================================
@@ -247,7 +267,8 @@ def crud_test_setup(clean_test_environment, transferarr):
     
     This fixture:
     1. Uses clean_test_environment to reset state
-    2. Starts transferarr and waits for it to be healthy
+    2. Disables auth (so tests don't redirect to login)
+    3. Starts transferarr and waits for it to be healthy
     
     Use this in CRUD test classes to reduce fixture duplication.
     
@@ -257,6 +278,7 @@ def crud_test_setup(clean_test_environment, transferarr):
             def setup(self, crud_test_setup):
                 pass
     """
+    transferarr.set_auth_config(enabled=False)
     transferarr.start(wait_healthy=True)
     yield transferarr
     # transferarr cleanup is handled by the fixture itself

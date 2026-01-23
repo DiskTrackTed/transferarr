@@ -32,7 +32,8 @@ All configuration is JSON-based (`config.json`). Structure:
   "media_managers": [{"type": "radarr|sonarr", "host", "port", "api_key"}],
   "download_clients": {"name": {"type": "deluge", "connection_type": "rpc|web", ...}},
   "connections": [{"from": "client_name", "to": "client_name", "transfer_config": {...}}],
-  "history": {"enabled": true, "retention_days": 90, "track_progress": true}
+  "history": {"enabled": true, "retention_days": 90, "track_progress": true},
+  "auth": {"enabled": true, "username": "admin", "password_hash": "$2b$...", "session_timeout_minutes": 60}
 }
 ```
 
@@ -40,6 +41,12 @@ All configuration is JSON-based (`config.json`). Structure:
 - `history.enabled` (default: `true`) - Enable/disable history tracking
 - `history.retention_days` (default: `90`) - Days to keep history records (null = forever)
 - `history.track_progress` (default: `true`) - Update byte progress during transfers
+
+### Authentication Configuration
+- `auth.enabled` (default: `false`) - Enable/disable web UI authentication
+- `auth.username` - Login username
+- `auth.password_hash` - Bcrypt-hashed password (use `hash_password()` from `auth.py`)
+- `auth.session_timeout_minutes` (default: `60`) - Session duration (0 = no timeout). **Changes require app restart**
 
 ### State Persistence
 - Torrent state saved to `state.json` via `save_callback` pattern on the `Torrent` model
@@ -84,6 +91,52 @@ Flask blueprints in `web/routes/`:
 - PUT endpoints preserve existing passwords if not provided in the request
 - Test connection endpoint for download clients accepts optional `name` field to use stored password when editing existing clients
 - Frontend edit modals show "Leave blank to keep current password" placeholder
+
+### Authentication Architecture
+
+The web UI supports optional username/password authentication using Flask-Login and bcrypt.
+
+**Core Components:**
+- **`transferarr/auth.py`** - Password hashing, User model, config helpers, secret key management
+- **`transferarr/web/routes/auth.py`** - Login/logout/setup page routes
+- **`transferarr/web/routes/api/auth.py`** - Auth settings API (`/api/v1/auth/*`)
+
+**Key Functions in `auth.py`:**
+- `hash_password(password)` - Bcrypt hash for storing passwords
+- `verify_password(password, hash)` - Verify password against hash
+- `get_auth_config(config)` - Get auth section with defaults
+- `is_auth_enabled(config)` - Check if auth is enabled AND configured
+- `is_auth_configured(config)` - Check if user has completed setup
+- `save_auth_config(config, updates)` - Save auth changes to config.json
+- `get_or_create_secret_key(state_dir)` - Manage Flask session signing key
+
+**Route Protection:**
+- UI routes use `@auth_required` decorator (in `web/routes/ui.py`)
+- API routes use `@api_auth_required` (in `web/routes/api/__init__.py`)
+- Auth settings API uses `@auth_api_required` (allows access when auth disabled)
+- Public routes: `/login`, `/setup`, `/api/v1/health`, static files
+
+**First-Run Flow:**
+1. No `auth` section in config → redirect to `/setup`
+2. User creates account → `auth.enabled=true`, credentials stored
+3. User skips setup → `auth.enabled=false`, no credentials needed
+
+**Session Management:**
+- Secret key stored in `<state_dir>/secret_key`
+- Auto-generated 32-byte random key on first run
+- Session timeout configurable (default 60 min, 0 = no timeout)
+- "Remember me" extends session to 30 days
+
+**Templates:**
+- `login_base.html` - Minimal layout for login/setup (no sidebar)
+- `pages/login.html` - Login form with remember me
+- `pages/setup.html` - First-run setup with create/skip options
+- `partials/settings_auth_tab.html` - Auth settings tab in Settings page
+
+**API Endpoints:**
+- `GET /api/v1/auth/settings` - Get auth config (no password_hash)
+- `PUT /api/v1/auth/settings` - Update enabled/timeout
+- `PUT /api/v1/auth/password` - Change password (requires login)
 
 When adding new API endpoints, include YAML docstrings in the function docstring for automatic Swagger documentation:
 ```python
@@ -175,14 +228,23 @@ GitHub Actions workflow in `.github/workflows/tests.yml` runs the full test suit
 1. Builds `transferarr:dev` image
 2. Starts full Docker Compose test infrastructure
 3. Runs service-registrar to configure Radarr/Sonarr
-4. Runs integration tests (`tests/integration/`)
-5. Runs UI tests (`tests/ui/`)
-6. Uploads test artifacts on failure (screenshots, logs)
+4. Runs tests in parallel (matrix strategy)
+5. Uploads test artifacts on failure (screenshots, logs)
 
 **Manual trigger options** (workflow_dispatch):
-- `all` - Run both integration and UI tests (default)
-- `integration` - Run only integration tests
-- `ui` - Run only UI tests
+- `all` - Run all test categories (default)
+- `unit` - Unit tests only (no Docker)
+- `integration-api` - API tests
+- `integration-auth` - Authentication tests
+- `integration-lifecycle` - Torrent lifecycle tests
+- `integration-persistence` - State persistence tests
+- `integration-transfers` - Transfer type tests
+- `integration-config` - Client routing tests
+- `integration-edge` - Edge case/error tests
+- `ui-fast` - Fast UI tests
+- `ui-crud` - CRUD UI tests
+- `ui-e2e` - End-to-end UI tests
+- `ui-auth` - Authentication UI tests
 
 **Artifacts on failure**:
 - `test-results/` - Screenshots, traces from Playwright
@@ -473,6 +535,7 @@ docker compose -f docker/docker-compose.test.yml --profile test run --rm test-ru
 ```
 tests/integration/
     api/                    # API and CRUD tests (~5 min)
+    auth/                   # Authentication tests (~5 min)
     lifecycle/              # Torrent lifecycle tests (~15 min)
     persistence/            # State persistence tests (~8 min)
     transfers/              # Transfer type variations (~12 min)
