@@ -24,10 +24,14 @@ docker compose -f docker/docker-compose.test.yml up -d
 ```
 tests/
     unit/                            # No Docker needed (<1 min)
+        test_auth.py
+        test_config.py
+        test_download_client_base.py
         test_history_service.py
     
     integration/
         api/                         # API tests (~3 min)
+        auth/                        # Authentication tests (~5 min)
         lifecycle/                   # Core migration flows (~15 min)
         persistence/                 # State recovery (~20 min)
         transfers/                   # Concurrent/type tests (~15 min)
@@ -35,6 +39,7 @@ tests/
         edge/                        # Edge cases & errors (~10 min)
     
     ui/
+        auth/                        # Auth UI tests (~25 min)
         fast/                        # UI-only tests (~5 min)
         crud/                        # CRUD operations (~8 min)
         e2e/                         # Real transfers (~15 min)
@@ -99,6 +104,8 @@ Fast tests that don't require Docker infrastructure.
 **Location:** `tests/unit/`
 
 **Coverage:**
+- Authentication (password hashing, verification, config helpers)
+- Config loading and validation
 - HistoryService SQLite operations
 - Threading and concurrency
 - Cleanup and retention
@@ -112,6 +119,7 @@ End-to-end tests verifying the complete torrent migration lifecycle.
 | Category | Path | Description |
 |----------|------|-------------|
 | API | `api/` | Transfer history API endpoints |
+| Auth | `auth/` | Login, setup, protected routes, session persistence |
 | Lifecycle | `lifecycle/` | Radarr/Sonarr migration flows |
 | Persistence | `persistence/` | State recovery across restarts |
 | Transfers | `transfers/` | Concurrent and transfer type tests |
@@ -128,6 +136,7 @@ Playwright-based browser automation tests using the Page Object Model pattern.
 
 | Category | Path | Description |
 |----------|------|-------------|
+| Auth | `auth/` | Login page, setup page, settings auth tab |
 | Fast | `fast/` | Navigation, dashboard, settings (no transfers) |
 | CRUD | `crud/` | Client and connection CRUD via modals |
 | E2E | `e2e/` | Full workflows with real transfers |

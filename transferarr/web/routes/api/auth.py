@@ -117,11 +117,15 @@ def register_routes(api_bp):
                 return error_response('BAD_REQUEST', 'Invalid timeout value', 400)
         
         if updates:
+            # Check if auth is being newly enabled (was disabled, now enabled)
+            auth_config = get_auth_config(current_app.config['APP_CONFIG'])
+            was_disabled = not auth_config.get('enabled', False)
+            
             save_auth_config(current_app.config['APP_CONFIG'], updates)
             
-            # If auth was just enabled, invalidate current session
+            # If auth was just enabled (was disabled, now enabled), invalidate session
             # so user must log in with the new credentials
-            if updates.get('enabled') is True:
+            if updates.get('enabled') is True and was_disabled:
                 logout_user()
         
         return success_response({'message': 'Settings updated'})

@@ -5,6 +5,7 @@
 
 let authLoaded = false;
 let runtimeSessionTimeout = null;  // Timeout value at app startup
+let initialAuthEnabled = null;  // Auth state when page loaded
 
 /**
  * Initialize the auth settings tab.
@@ -81,6 +82,9 @@ function populateAuthSettings(settings) {
     
     // Store the runtime timeout for restart warning comparison
     runtimeSessionTimeout = settings.runtime_session_timeout_minutes;
+    
+    // Store initial auth state to detect when it's newly enabled
+    initialAuthEnabled = settings.enabled;
     
     updateAuthUI();
     updateRestartWarning();
@@ -162,15 +166,17 @@ async function saveAuthSettings() {
         const data = await response.json();
         
         if (response.ok && data.data) {
-            // If auth was just enabled, redirect to login
+            // If auth was just enabled (was disabled, now enabled), redirect to login
             // (session was invalidated server-side)
-            if (authEnabled) {
+            if (authEnabled && !initialAuthEnabled) {
                 showStatus(statusSpan, 'Auth enabled! Redirecting to login...', 'success');
                 setTimeout(() => {
                     window.location.href = '/login';
                 }, 1500);
-            } else {
+            } else if (!authEnabled) {
                 showStatus(statusSpan, 'Settings saved! Auth disabled.', 'success');
+            } else {
+                showStatus(statusSpan, 'Settings saved!', 'success');
             }
         } else {
             showStatus(statusSpan, data.error?.message || 'Failed to save settings', 'error');
