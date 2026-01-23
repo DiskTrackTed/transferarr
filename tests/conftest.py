@@ -735,6 +735,7 @@ def transferarr(docker_client, docker_services, radarr_api_key, sonarr_api_key):
             self.radarr_api_key = radarr_key
             self.sonarr_api_key = sonarr_key
             self._current_config_type = None
+            self._pending_auth_config = None  # Auth config to apply when set_config is called
         
         def is_running(self) -> bool:
             """Check if transferarr container is running."""
@@ -868,6 +869,77 @@ def transferarr(docker_client, docker_services, radarr_api_key, sonarr_api_key):
             except docker.errors.APIError:
                 pass  # Container may not be running
         
+        def exec_in_container(self, command, running: bool = True) -> str:
+            """Execute a command in the transferarr container.
+            
+            Args:
+                command: Command to execute. Can be a list of args or a string.
+                         List is preferred as it avoids shell escaping issues.
+                running: If True, container must be running. If False, start a temp container.
+                
+            Returns:
+                stdout from the command as a string
+                
+            Raises:
+                docker.errors.NotFound: If container doesn't exist
+                docker.errors.APIError: If exec fails
+            """
+            try:
+                container = self.docker.containers.get(self.container_name)
+                if running and container.status != "running":
+                    pytest.fail("Container is not running")
+                
+                # For running containers, use exec_run
+                if container.status == "running":
+                    exit_code, output = container.exec_run(command)
+                    return output.decode('utf-8')
+                else:
+                    # Start container temporarily to run command
+                    container.start()
+                    try:
+                        exit_code, output = container.exec_run(command)
+                        return output.decode('utf-8')
+                    finally:
+                        container.stop()
+            except docker.errors.NotFound:
+                pytest.fail("Transferarr container not found")
+        
+        def clear_auth_config(self):
+            """Clear auth configuration to simulate first-run state.
+            
+            Removes the auth section from config.json to trigger setup flow.
+            """
+            self._pending_auth_config = 'clear'  # Special marker to clear auth
+            # Force config reload on next start
+            self._current_config_type = None
+        
+        def set_auth_config(self, enabled: bool, username: str = None, password: str = None):
+            """Set auth configuration in config.json.
+            
+            Args:
+                enabled: Whether auth is enabled
+                username: Username for auth (required if enabled=True)
+                password: Plain text password (will be hashed)
+            """
+            import bcrypt
+            
+            auth_config = {
+                'enabled': enabled,
+                'session_timeout_minutes': 60,
+            }
+            
+            if enabled and username and password:
+                password_hash = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+                auth_config['username'] = username
+                auth_config['password_hash'] = password_hash
+            elif not enabled:
+                auth_config['username'] = None
+                auth_config['password_hash'] = None
+            
+            self._pending_auth_config = auth_config
+            # Force config reload on next start
+            self._current_config_type = None
+        
         def set_config(self, config_path: Path, radarr_api_key: str, sonarr_api_key: str, history_override: dict = None):
             """
             Copy a config file to the shared-config volume with API keys injected.
@@ -877,6 +949,8 @@ def transferarr(docker_client, docker_services, radarr_api_key, sonarr_api_key):
                 radarr_api_key: Radarr API key to inject
                 sonarr_api_key: Sonarr API key to inject
                 history_override: Optional dict to merge into config['history']
+            
+            Also applies any pending auth config set via set_auth_config() or clear_auth_config().
             """
             import json
             import tarfile
@@ -898,6 +972,16 @@ def transferarr(docker_client, docker_services, radarr_api_key, sonarr_api_key):
                 if 'history' not in config:
                     config['history'] = {}
                 config['history'].update(history_override)
+            
+            # Apply pending auth config if set
+            if self._pending_auth_config is not None:
+                if self._pending_auth_config == 'clear':
+                    # Clear auth section
+                    config.pop('auth', None)
+                else:
+                    # Set auth section
+                    config['auth'] = self._pending_auth_config
+                # Don't clear _pending_auth_config - keep it for restarts
             
             config_content = json.dumps(config, indent=4)
             

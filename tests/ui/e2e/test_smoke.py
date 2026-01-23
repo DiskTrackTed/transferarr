@@ -46,6 +46,7 @@ class TestE2EFullSmokeTest:
     @pytest.fixture(autouse=True)
     def setup(self, clean_test_environment, transferarr):
         """Setup clean environment with running transferarr."""
+        transferarr.set_auth_config(enabled=False)
         transferarr.start(wait_healthy=True)
         self.transferarr = transferarr
     

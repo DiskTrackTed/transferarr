@@ -10,6 +10,11 @@ Playwright-based UI tests using the Page Object Model pattern. Tests run in Dock
 
 ```
 tests/ui/
+    auth/                   # Authentication tests (~25 min)
+        test_login_page.py
+        test_setup_page.py
+        test_login_logout.py
+        test_settings_auth.py
     fast/                   # UI-only tests (~5 min)
         test_navigation.py
         test_dashboard.py
@@ -35,6 +40,7 @@ tests/ui/
 ./run_tests.sh tests/ui/ -v
 
 # Run specific category
+./run_tests.sh tests/ui/auth/ -v
 ./run_tests.sh tests/ui/fast/ -v
 ./run_tests.sh tests/ui/crud/ -v
 ./run_tests.sh tests/ui/e2e/ -v
@@ -49,6 +55,198 @@ tests/ui/
 Test artifacts (screenshots, traces) are saved to `test-results/` (gitignored).
 
 ## Test Files
+
+### auth/
+
+#### [test_login_page.py](../tests/ui/auth/test_login_page.py)
+Login page elements, interactions, form validation, and successful login flows.
+
+**TestLoginPageElements** - Login page UI elements present and styled:
+
+| Test | Description |
+|------|-------------|
+| `test_login_page_loads` | Page loads with correct title |
+| `test_login_container_visible` | Login container is visible |
+| `test_login_card_visible` | Login card is visible |
+| `test_logo_displays_transferarr` | Logo displays 'Transferarr' |
+| `test_subtitle_displays_sign_in` | Subtitle shows sign in message |
+| `test_username_field_visible` | Username input field is visible |
+| `test_password_field_visible` | Password input field is visible |
+| `test_remember_checkbox_visible` | Remember me checkbox is visible |
+| `test_submit_button_visible` | Sign in button is visible |
+| `test_version_displayed_in_footer` | Version number displayed in footer |
+
+**TestLoginPageInteractions** - Login form interactions:
+
+| Test | Description |
+|------|-------------|
+| `test_can_type_in_username_field` | Can type in username field |
+| `test_can_type_in_password_field` | Can type in password field |
+| `test_can_check_remember_me` | Can check remember me checkbox |
+| `test_can_uncheck_remember_me` | Can uncheck remember me checkbox |
+
+**TestLoginFormValidation** - Login form validation:
+
+| Test | Description |
+|------|-------------|
+| `test_invalid_credentials_shows_error` | Invalid credentials show error |
+| `test_empty_username_shows_error` | Empty username shows error |
+| `test_empty_password_shows_error` | Empty password shows error |
+
+**TestSuccessfulLogin** - Successful login flows:
+
+| Test | Description |
+|------|-------------|
+| `test_successful_login_redirects_to_dashboard` | Login redirects to dashboard |
+| `test_login_preserves_next_parameter` | Login redirects to 'next' URL |
+| `test_logged_in_user_sees_sidebar` | After login, sidebar shows user info |
+| `test_logged_in_user_sees_logout_link` | After login, logout link visible |
+
+#### [test_setup_page.py](../tests/ui/auth/test_setup_page.py)
+Setup page elements, interactions, form validation, account creation, and skip flows.
+
+**TestSetupPageElements** - Setup page UI elements:
+
+| Test | Description |
+|------|-------------|
+| `test_setup_page_loads` | Page loads with correct title |
+| `test_setup_container_visible` | Setup container is visible |
+| `test_setup_card_visible` | Setup card is visible |
+| `test_logo_displays_transferarr` | Logo displays 'Transferarr' |
+| `test_subtitle_displays_setup_message` | Subtitle shows setup message |
+| `test_username_field_visible` | Username field is visible |
+| `test_password_field_visible` | Password field is visible |
+| `test_confirm_password_field_visible` | Confirm password field is visible |
+| `test_create_button_visible` | Create account button is visible |
+| `test_skip_button_visible` | Skip setup button is visible |
+| `test_version_displayed_in_footer` | Version number displayed in footer |
+
+**TestSetupPageInteractions** - Setup form interactions:
+
+| Test | Description |
+|------|-------------|
+| `test_can_type_in_username_field` | Can type in username field |
+| `test_can_type_in_password_field` | Can type in password field |
+| `test_can_type_in_confirm_password_field` | Can type in confirm password field |
+
+**TestSetupFormValidation** - Setup form validation:
+
+| Test | Description |
+|------|-------------|
+| `test_password_mismatch_shows_error` | Password mismatch shows error |
+| `test_empty_username_shows_error` | Empty username shows error |
+| `test_empty_password_shows_error` | Empty password shows error |
+
+**TestSuccessfulSetup** - Successful setup flows:
+
+| Test | Description |
+|------|-------------|
+| `test_successful_setup_redirects_to_dashboard` | Account creation redirects to dashboard |
+| `test_created_user_is_logged_in` | After setup, user is logged in |
+
+**TestSkipSetup** - Skip setup flows:
+
+| Test | Description |
+|------|-------------|
+| `test_skip_button_redirects_to_dashboard` | Skip redirects to dashboard |
+| `test_skip_disables_auth` | Skipping disables auth |
+| `test_after_skip_can_access_pages_directly` | After skip, pages accessible |
+
+#### [test_login_logout.py](../tests/ui/auth/test_login_logout.py)
+Complete login/logout workflows including session persistence and protected routes.
+
+**TestLogoutFlow** - Logout functionality:
+
+| Test | Description |
+|------|-------------|
+| `test_logout_link_in_sidebar` | Logout link appears after login |
+| `test_click_logout_redirects_to_login` | Clicking logout redirects to login |
+| `test_after_logout_cannot_access_protected_pages` | After logout, protected pages redirect |
+| `test_logout_clears_session` | Logout clears session completely |
+
+**TestLoginPersistence** - Session persistence:
+
+| Test | Description |
+|------|-------------|
+| `test_session_persists_across_page_reload` | Session persists on reload |
+| `test_session_persists_across_navigation` | Session persists across pages |
+
+**TestProtectedRouteRedirects** - Protected route behavior:
+
+| Test | Description |
+|------|-------------|
+| `test_dashboard_redirects_to_login` | Dashboard redirects when not logged in |
+| `test_torrents_redirects_to_login` | Torrents redirects when not logged in |
+| `test_settings_redirects_to_login` | Settings redirects when not logged in |
+| `test_history_redirects_to_login` | History redirects when not logged in |
+| `test_redirect_preserves_original_url` | Redirect preserves original URL |
+| `test_after_login_returns_to_original_page` | After login, returns to original page |
+
+**TestSidebarUserInfo** - Sidebar user info display:
+
+| Test | Description |
+|------|-------------|
+| `test_username_displayed_in_sidebar` | Username displayed in sidebar |
+| `test_user_icon_visible` | User icon visible in sidebar |
+| `test_logout_icon_visible` | Logout icon visible in sidebar |
+
+**TestAuthDisabledUI** - Auth disabled behavior:
+
+| Test | Description |
+|------|-------------|
+| `test_no_user_info_when_auth_disabled` | No user info when auth disabled |
+| `test_no_logout_link_when_auth_disabled` | No logout link when auth disabled |
+| `test_can_access_all_pages_without_login` | All pages accessible without login |
+| `test_login_page_redirects_when_auth_disabled` | Login page redirects when auth disabled |
+
+#### [test_settings_auth.py](../tests/ui/auth/test_settings_auth.py)
+Settings page Auth tab elements, interactions, save/password changes.
+
+**TestAuthTabElements** - Auth tab UI elements present:
+
+| Test | Description |
+|------|-------------|
+| `test_auth_tab_exists` | Auth tab exists in settings |
+| `test_auth_tab_can_be_selected` | Can switch to Auth tab |
+| `test_auth_enabled_toggle_visible` | Auth enabled toggle is visible |
+| `test_session_timeout_dropdown_visible` | Session timeout dropdown is visible |
+| `test_change_password_section_visible` | Change password section is visible |
+| `test_save_button_visible` | Save Auth Settings button is visible |
+| `test_auth_tab_content_hidden_initially` | Auth content hidden when tab not active |
+
+**TestAuthTabInteractions** - Auth tab form interactions:
+
+| Test | Description |
+|------|-------------|
+| `test_can_toggle_auth_enabled` | Can toggle auth enabled switch |
+| `test_can_change_session_timeout` | Can change session timeout dropdown |
+| `test_restart_warning_hidden_by_default` | Restart warning hidden when timeout matches runtime |
+| `test_restart_warning_shows_on_timeout_change` | Restart warning appears when timeout changed |
+| `test_restart_warning_hides_when_reset` | Restart warning hides when reset to original |
+| `test_can_enter_password_fields` | Can enter values in password fields |
+| `test_password_fields_are_password_type` | Password fields mask input |
+
+**TestSaveAuthSettings** - Saving auth settings:
+
+| Test | Description |
+|------|-------------|
+| `test_save_auth_settings_updates_config` | Save button updates config |
+| `test_save_shows_success_message` | Save shows success toast |
+
+**TestChangePassword** - Password change functionality:
+
+| Test | Description |
+|------|-------------|
+| `test_change_password_requires_current` | Password change requires current password |
+| `test_change_password_requires_match` | New passwords must match |
+| `test_change_password_success` | Password change succeeds with valid input |
+
+**TestAuthTabWhenDisabled** - Auth tab when auth is disabled:
+
+| Test | Description |
+|------|-------------|
+| `test_auth_tab_visible_when_disabled` | Auth tab still visible |
+| `test_can_enable_auth_from_disabled` | Can enable auth from disabled state |
 
 ### fast/
 

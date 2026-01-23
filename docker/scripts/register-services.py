@@ -108,6 +108,14 @@ def generate_transferarr_config(radarr_key, sonarr_key):
         elif mm["type"] == "sonarr":
             mm["api_key"] = sonarr_key
     
+    # Explicitly disable auth so tests don't redirect to setup page
+    config["auth"] = {
+        "enabled": False,
+        "username": None,
+        "password_hash": None,
+        "session_timeout_minutes": 60
+    }
+    
     return config
 
 

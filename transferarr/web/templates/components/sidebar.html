@@ -21,6 +21,15 @@
         </ul>
     </nav>
     <div class="sidebar-footer">
+        {% if current_user.is_authenticated %}
+        <div class="user-info">
+            <i class="fas fa-user"></i>
+            <span class="username">{{ current_user.id }}</span>
+        </div>
+        <a href="/logout" class="logout-link" title="Sign out">
+            <i class="fas fa-sign-out-alt"></i> Logout
+        </a>
+        {% endif %}
         <span class="version">v{{ version }}</span>
     </div>
 </div>

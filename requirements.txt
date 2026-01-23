@@ -8,6 +8,8 @@ python-abc
 deluge-client
 tqdm-loggable
 Flask
+flask-login>=0.6.0
+bcrypt>=4.0.0
 flasgger
 requests
 marshmallow>=3.0.0

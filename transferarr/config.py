@@ -30,7 +30,12 @@ def load_config(config_path=None):
     except json.JSONDecodeError as e:
         raise ConfigError(f"Error parsing configuration file: {e}")
 
-    return validate_config(config)
+    config = validate_config(config)
+    
+    # Store config path for saving (used by save_auth_config and others)
+    config["_config_path"] = config_path
+    
+    return config
 
 def validate_config(config):
     """
@@ -47,6 +52,11 @@ def validate_config(config):
     history_config.setdefault("enabled", True)
     history_config.setdefault("retention_days", 90)  # None = keep forever
     history_config.setdefault("track_progress", True)
+
+    # Auth configuration defaults (don't set 'enabled' - that's set by setup)
+    # We only set defaults for fields that have safe defaults
+    auth_config = config.setdefault("auth", {})
+    auth_config.setdefault("session_timeout_minutes", 60)
 
     return config
 

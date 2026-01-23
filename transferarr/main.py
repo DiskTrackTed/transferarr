@@ -68,7 +68,7 @@ torrent_manager = TorrentManager(
 torrent_manager.start()
 
 # Create and run Flask app
-app = create_app(config, torrent_manager)
+app = create_app(config, torrent_manager, state_dir=str(state_dir))
 
 def start_web_server():
     app.run(host="0.0.0.0", port=10444, debug=False)

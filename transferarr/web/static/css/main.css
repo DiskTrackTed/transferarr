@@ -119,16 +119,56 @@ body {
     display: block;
 }
 
-/* Sidebar footer with version */
+/* Sidebar footer with version and user info */
 .sidebar-footer {
     margin-top: auto;
     padding: 15px 20px;
     border-top: 1px solid rgba(255,255,255,0.1);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
 }
 
 .sidebar-footer .version {
     font-size: 12px;
     color: rgba(255,255,255,0.5);
+}
+
+/* User info in sidebar */
+.user-info {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: rgba(255,255,255,0.8);
+    font-size: 13px;
+}
+
+.user-info i {
+    color: rgba(255,255,255,0.6);
+}
+
+.username {
+    font-weight: 500;
+}
+
+/* Logout link */
+.logout-link {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: rgba(255,255,255,0.6);
+    text-decoration: none;
+    font-size: 13px;
+    padding: 6px 0;
+    transition: color 0.2s;
+}
+
+.logout-link:hover {
+    color: #e74c3c;
+}
+
+.logout-link i {
+    font-size: 14px;
 }
 
 /* Responsive design */

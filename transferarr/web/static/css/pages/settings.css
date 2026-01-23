@@ -861,4 +861,240 @@
     }
 }
 
+/* =====================================================
+   Auth Tab Styles
+   ===================================================== */
 
+.auth-settings-section {
+    background-color: #f8f9fa;
+    border-radius: 8px;
+    padding: 24px;
+    margin-bottom: 24px;
+}
+
+.auth-settings-section h3 {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: #333;
+    margin-bottom: 20px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid #dee2e6;
+}
+
+.auth-settings-section h3 i {
+    margin-right: 8px;
+    color: #667;
+}
+
+.setting-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 0;
+    border-bottom: 1px solid #e9ecef;
+}
+
+.setting-row:last-of-type:not(.setting-actions) {
+    border-bottom: none;
+}
+
+.setting-row.setting-actions {
+    border-bottom: none;
+    padding-top: 24px;
+    gap: 16px;
+}
+
+.setting-label {
+    flex: 1;
+}
+
+.setting-label label {
+    display: block;
+    font-weight: 500;
+    color: #333;
+    margin-bottom: 4px;
+}
+
+.setting-label .setting-help {
+    font-size: 0.875rem;
+    color: #6c757d;
+}
+
+.setting-control {
+    flex-shrink: 0;
+    margin-left: 24px;
+}
+
+.setting-control select.form-control {
+    width: 160px;
+}
+
+/* Toggle Switch */
+.toggle-switch {
+    position: relative;
+    display: inline-block;
+    width: 50px;
+    height: 26px;
+}
+
+.toggle-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.toggle-slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: #ccc;
+    transition: 0.4s;
+    border-radius: 26px;
+}
+
+.toggle-slider:before {
+    position: absolute;
+    content: "";
+    height: 20px;
+    width: 20px;
+    left: 3px;
+    bottom: 3px;
+    background-color: white;
+    transition: 0.4s;
+    border-radius: 50%;
+}
+
+.toggle-switch input:checked + .toggle-slider {
+    background-color: #007bff;
+}
+
+.toggle-switch input:checked + .toggle-slider:before {
+    transform: translateX(24px);
+}
+
+/* Status Messages */
+.status-message {
+    font-size: 0.875rem;
+    margin-left: 12px;
+}
+
+.status-message.status-success {
+    color: #28a745;
+}
+
+.status-message.status-error {
+    color: #dc3545;
+}
+
+/* Change Password Form */
+#change-password-form .form-group {
+    margin-bottom: 16px;
+}
+
+#change-password-form label {
+    display: block;
+    font-weight: 500;
+    color: #333;
+    margin-bottom: 6px;
+}
+
+#change-password-form input.form-control {
+    width: 100%;
+    max-width: 400px;
+    padding: 10px 12px;
+    border: 1px solid #ced4da;
+    border-radius: 4px;
+    font-size: 1rem;
+}
+
+#change-password-form input.form-control:focus {
+    border-color: #80bdff;
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
+}
+
+#change-password-form .form-actions {
+    margin-top: 20px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+/* Auth Disabled Info */
+.auth-disabled-info {
+    margin-top: 16px;
+}
+
+.auth-disabled-info .alert {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 16px;
+    background-color: #e7f3ff;
+    border: 1px solid #b6d4fe;
+    border-radius: 6px;
+    color: #084298;
+}
+
+.auth-disabled-info .alert i {
+    font-size: 1.25rem;
+    margin-top: 2px;
+}
+
+.auth-disabled-info .alert strong {
+    display: block;
+    margin-bottom: 4px;
+}
+
+.auth-disabled-info .alert p {
+    margin: 0;
+    font-size: 0.875rem;
+}
+
+/* Restart Warning */
+.restart-warning {
+    border-bottom: none;
+    padding-top: 8px;
+}
+
+.restart-warning .alert {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    background-color: #fff3cd;
+    border: 1px solid #ffecb5;
+    border-radius: 6px;
+    color: #664d03;
+    font-size: 0.875rem;
+    margin: 0;
+}
+
+.restart-warning .alert i {
+    color: #997404;
+}
+
+/* Responsive Auth Tab */
+@media (max-width: 767px) {
+    .setting-row {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 12px;
+    }
+    
+    .setting-control {
+        margin-left: 0;
+        width: 100%;
+    }
+    
+    .setting-control select.form-control {
+        width: 100%;
+    }
+    
+    #change-password-form input.form-control {
+        max-width: none;
+    }
+}

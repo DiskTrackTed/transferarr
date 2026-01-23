@@ -39,6 +39,7 @@ class TestE2ETorrentWorkflow:
     @pytest.fixture(autouse=True)
     def setup(self, clean_test_environment, transferarr):
         """Setup clean environment with running transferarr."""
+        transferarr.set_auth_config(enabled=False)
         transferarr.start(wait_healthy=True)
         self.transferarr = transferarr
     
@@ -234,6 +235,7 @@ class TestE2ESettingsPersistence:
     @pytest.fixture(autouse=True)
     def setup(self, clean_test_environment, transferarr):
         """Setup clean environment with running transferarr."""
+        transferarr.set_auth_config(enabled=False)
         transferarr.start(wait_healthy=True)
         self._created_clients = []
         yield
@@ -410,6 +412,7 @@ class TestE2ECrossPageWorkflows:
     @pytest.fixture(autouse=True)
     def setup(self, clean_test_environment, transferarr):
         """Setup clean environment with running transferarr."""
+        transferarr.set_auth_config(enabled=False)
         transferarr.start(wait_healthy=True)
         self.transferarr = transferarr
     
@@ -555,6 +558,7 @@ class TestE2ESonarrWorkflow:
     @pytest.fixture(autouse=True)
     def setup(self, clean_test_environment, transferarr):
         """Setup clean environment with running transferarr."""
+        transferarr.set_auth_config(enabled=False)
         transferarr.start(wait_healthy=True)
         self.transferarr = transferarr
     
