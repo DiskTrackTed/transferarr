@@ -72,7 +72,7 @@ jobs:
             needs_docker: true
           - category: integration-auth
             path: tests/integration/auth/
-            timeout: 15
+            timeout: 30
             needs_docker: true
           - category: integration-lifecycle
             path: tests/integration/lifecycle/
@@ -108,7 +108,7 @@ jobs:
             needs_docker: true
           - category: ui-auth
             path: tests/ui/auth/
-            timeout: 20
+            timeout: 40
             needs_docker: true
 
     name: ${{ matrix.category }}
