@@ -1,6 +1,6 @@
 # Integration Tests
 
-*Last Updated: 2026-01-19*
+*Last Updated: 2026-01-25*
 
 ## Overview
 
@@ -11,7 +11,9 @@ Transferarr has 55+ integration tests organized into 6 categories, covering the 
 ```
 tests/integration/
     api/                    # API endpoint tests (~3 min)
-    auth/                   # Authentication tests (~5 min)
+    auth/                   # Authentication tests
+        user/               # User auth tests (~20 min)
+        api-key/            # API key auth tests (~10 min)
     lifecycle/              # Core migration flows (~15 min)
     persistence/            # State recovery tests (~20 min)
     transfers/              # Concurrent & type tests (~15 min)
@@ -155,7 +157,9 @@ Transfer History API endpoint tests (23 tests).
 
 ### auth/
 
-#### [test_login_flow.py](../tests/integration/auth/test_login_flow.py)
+#### auth/user/
+
+##### [test_login_flow.py](../tests/integration/auth/user/test_login_flow.py)
 Login endpoint and session management.
 
 | Test | Description |
@@ -167,7 +171,7 @@ Login endpoint and session management.
 | `test_logout_clears_session` | Logout invalidates session |
 | `test_session_persists_across_requests` | Session maintained after login |
 
-#### [test_setup_flow.py](../tests/integration/auth/test_setup_flow.py)
+##### [test_setup_flow.py](../tests/integration/auth/user/test_setup_flow.py)
 First-run setup flow.
 
 | Test | Description |
@@ -177,7 +181,7 @@ First-run setup flow.
 | `test_setup_redirects_when_configured` | Setup unavailable after initial config |
 | `test_setup_password_validation` | Password mismatch rejected |
 
-#### [test_protected_routes.py](../tests/integration/auth/test_protected_routes.py)
+##### [test_protected_routes.py](../tests/integration/auth/user/test_protected_routes.py)
 Route protection with authentication enabled.
 
 | Test | Description |
@@ -187,7 +191,7 @@ Route protection with authentication enabled.
 | `test_routes_accessible_after_login` | Routes accessible after login |
 | `test_next_parameter_preserved` | Redirect preserves original URL |
 
-#### [test_auth_disabled.py](../tests/integration/auth/test_auth_disabled.py)
+##### [test_auth_disabled.py](../tests/integration/auth/user/test_auth_disabled.py)
 Behavior when authentication is disabled.
 
 | Test | Description |
@@ -196,7 +200,7 @@ Behavior when authentication is disabled.
 | `test_login_page_redirects` | Login page redirects to dashboard |
 | `test_api_accessible_without_auth` | API endpoints work without auth |
 
-#### [test_secret_key.py](../tests/integration/auth/test_secret_key.py)
+##### [test_secret_key.py](../tests/integration/auth/user/test_secret_key.py)
 Secret key generation and persistence.
 
 | Test | Description |
@@ -205,7 +209,7 @@ Secret key generation and persistence.
 | `test_secret_key_persists_across_restarts` | Same key used after restart |
 | `test_session_invalidated_on_key_change` | New key invalidates sessions |
 
-#### [test_settings_auth.py](../tests/integration/auth/test_settings_auth.py)
+##### [test_settings_auth.py](../tests/integration/auth/user/test_settings_auth.py)
 Auth settings API endpoints.
 
 | Test | Description |
@@ -217,7 +221,9 @@ Auth settings API endpoints.
 | `test_change_password_wrong_current` | Wrong current password rejected |
 | `test_runtime_timeout_differs_after_update` | Runtime timeout unchanged until restart |
 
-#### [test_api_key.py](../tests/integration/auth/test_api_key.py)
+#### auth/api-key/
+
+##### [test_api_key.py](../tests/integration/auth/api-key/test_api_key.py)
 API key authentication and management.
 
 **TestApiKeyAuthentication:**

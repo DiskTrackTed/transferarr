@@ -300,7 +300,8 @@ GitHub Actions workflow in `.github/workflows/tests.yml` runs the full test suit
 - `all` - Run all test categories (default)
 - `unit` - Unit tests only (no Docker)
 - `integration-api` - API tests
-- `integration-auth` - Authentication tests
+- `integration-auth-user` - User authentication tests
+- `integration-auth-api-key` - API key authentication tests
 - `integration-lifecycle` - Torrent lifecycle tests
 - `integration-persistence` - State persistence tests
 - `integration-transfers` - Transfer type tests
@@ -309,7 +310,8 @@ GitHub Actions workflow in `.github/workflows/tests.yml` runs the full test suit
 - `ui-fast` - Fast UI tests
 - `ui-crud` - CRUD UI tests
 - `ui-e2e` - End-to-end UI tests
-- `ui-auth` - Authentication UI tests
+- `ui-auth-pages` - Login/setup page UI tests
+- `ui-auth-settings` - Auth settings UI tests
 
 **Artifacts on failure**:
 - `test-results/` - Screenshots, traces from Playwright
@@ -600,7 +602,9 @@ docker compose -f docker/docker-compose.test.yml --profile test run --rm test-ru
 ```
 tests/integration/
     api/                    # API and CRUD tests (~5 min)
-    auth/                   # Authentication tests (~5 min)
+    auth/                   # Authentication tests
+        user/               # User auth tests (~20 min)
+        api-key/            # API key auth tests (~10 min)
     lifecycle/              # Torrent lifecycle tests (~15 min)
     persistence/            # State persistence tests (~8 min)
     transfers/              # Transfer type variations (~12 min)
@@ -772,6 +776,13 @@ UI tests use Playwright for browser automation and follow the Page Object Model 
 **Directory Structure**:
 ```
 tests/ui/
+    auth/                   # Authentication tests
+        pages/              # Login/setup page tests (~25 min)
+            test_login_page.py
+            test_login_logout.py
+            test_setup_page.py
+        settings/           # Auth settings tab tests (~15 min)
+            test_settings_auth.py
     fast/                   # UI-only tests (~5 min)
         test_navigation.py
         test_dashboard.py
@@ -796,6 +807,8 @@ tests/ui/
 ./run_tests.sh tests/ui/ -v
 
 # Run specific category
+./run_tests.sh tests/ui/auth/pages/ -v
+./run_tests.sh tests/ui/auth/settings/ -v
 ./run_tests.sh tests/ui/fast/ -v
 ./run_tests.sh tests/ui/crud/ -v
 ./run_tests.sh tests/ui/e2e/ -v

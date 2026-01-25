@@ -34,7 +34,8 @@ on:
           - all
           - unit
           - integration-api
-          - integration-auth
+          - integration-auth-user
+          - integration-auth-api-key
           - integration-lifecycle
           - integration-persistence
           - integration-transfers
@@ -43,7 +44,8 @@ on:
           - ui-fast
           - ui-crud
           - ui-e2e
-          - ui-auth
+          - ui-auth-pages
+          - ui-auth-settings
 
 # Cancel in-progress runs when a new run is triggered
 concurrency:
@@ -70,9 +72,13 @@ jobs:
             path: tests/integration/api/
             timeout: 10
             needs_docker: true
-          - category: integration-auth
-            path: tests/integration/auth/
-            timeout: 40
+          - category: integration-auth-user
+            path: tests/integration/auth/user/
+            timeout: 30
+            needs_docker: true
+          - category: integration-auth-api-key
+            path: tests/integration/auth/api-key/
+            timeout: 30
             needs_docker: true
           - category: integration-lifecycle
             path: tests/integration/lifecycle/
@@ -106,9 +112,13 @@ jobs:
             path: tests/ui/e2e/
             timeout: 25
             needs_docker: true
-          - category: ui-auth
-            path: tests/ui/auth/
-            timeout: 45
+          - category: ui-auth-pages
+            path: tests/ui/auth/pages/
+            timeout: 30
+            needs_docker: true
+          - category: ui-auth-settings
+            path: tests/ui/auth/settings/
+            timeout: 30
             needs_docker: true
 
     name: ${{ matrix.category }}
