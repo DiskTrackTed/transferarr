@@ -11,7 +11,13 @@ This package organizes API routes into domain-specific modules:
 from flask import Blueprint, request, current_app
 from flask_login import current_user
 
-from transferarr.auth import is_auth_enabled, is_auth_configured
+from transferarr.auth import (
+    is_auth_enabled,
+    is_auth_configured,
+    is_api_key_required,
+    check_api_key_in_request,
+    get_api_config,
+)
 from transferarr.web.routes.api.responses import error_response
 
 # Create the main API blueprint with version prefix
@@ -25,30 +31,45 @@ def check_api_auth():
     This middleware runs before every API request and:
     - Always allows the health endpoint (for monitoring)
     - Allows all requests if auth is not configured yet
-    - Allows all requests if auth is disabled
+    - Allows all requests if neither user auth nor API key is required
     - Allows requests from authenticated users (session-based)
+    - Allows requests with valid API key
     - Returns 401 for unauthenticated requests when auth is enabled
-    
-    TODO: Issue #3 - Add API key support here
     """
+    config = current_app.config['APP_CONFIG']
+    
     # Always allow health endpoint
     if request.endpoint == 'api.health_check':
         return None
     
     # If auth not configured, allow all (setup not done yet)
-    if not is_auth_configured(current_app.config['APP_CONFIG']):
+    if not is_auth_configured(config):
         return None
     
-    # If auth not enabled, allow all
-    if not is_auth_enabled(current_app.config['APP_CONFIG']):
+    # Check if any authentication is required
+    user_auth_enabled = is_auth_enabled(config)
+    api_key_required = is_api_key_required(config)
+    
+    # If neither user auth nor API key is required, allow all
+    if not user_auth_enabled and not api_key_required:
         return None
     
     # If user is logged in via session, allow
     if current_user.is_authenticated:
         return None
     
-    # TODO: Issue #3 - Add API key check here
-    # Check X-API-Key header or ?apikey= query param against configured keys
+    # Check API key if configured
+    if api_key_required:
+        if check_api_key_in_request(config, request):
+            return None
+        # API key is required but invalid/missing
+        return error_response("UNAUTHORIZED", "Invalid or missing API key", status_code=401)
+    
+    # User auth is enabled but no session - check if they provided API key anyway
+    # (API key can be used even when key_required=False, as long as key exists)
+    api_config = get_api_config(config)
+    if api_config.get("key") and check_api_key_in_request(config, request):
+        return None
     
     # Otherwise deny
     return error_response("UNAUTHORIZED", "Authentication required", status_code=401)

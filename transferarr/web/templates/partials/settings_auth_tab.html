@@ -48,13 +48,68 @@
                     <button type="button" class="btn btn-primary" id="save-auth-settings">
                         <i class="fas fa-save"></i> Save Settings
                     </button>
-                    <span id="auth-settings-status" class="status-message"></span>
+                </div>
+            </div>
+            
+            <!-- API Key Section -->
+            <div class="auth-settings-section" id="api-key-section">
+                <h3><i class="fas fa-key"></i> API Key</h3>
+                <p class="section-description">Use an API key to authenticate programmatic access to the API without a user session.</p>
+                
+                <!-- Warning: API key exists but auth disabled -->
+                <div class="alert alert-warning" id="api-key-auth-warning" style="display: none;">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    <span>An API key exists but user authentication is disabled. The API key won't be enforced until you enable authentication above.</span>
+                </div>
+                
+                <div class="setting-row">
+                    <div class="setting-label">
+                        <label for="api-key-required">Require API Key</label>
+                        <span class="setting-help">Require API key for requests without a session</span>
+                    </div>
+                    <div class="setting-control">
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="api-key-required">
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                </div>
+                
+                <div class="setting-row">
+                    <div class="setting-label">
+                        <label>Current API Key</label>
+                        <span class="setting-help">Use this key in the X-API-Key header or ?apikey= parameter</span>
+                    </div>
+                    <div class="setting-control api-key-display">
+                        <div class="api-key-wrapper">
+                            <input type="text" id="api-key-value" class="form-control api-key-input" readonly
+                                   placeholder="No API key generated">
+                            <button type="button" class="btn btn-icon" id="toggle-api-key-visibility" title="Show/Hide API Key">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                            <button type="button" class="btn btn-icon" id="copy-api-key" title="Copy API Key">
+                                <i class="fas fa-copy"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="setting-row setting-actions">
+                    <button type="button" class="btn btn-primary" id="generate-api-key">
+                        <i class="fas fa-sync-alt"></i> <span id="generate-api-key-text">Generate API Key</span>
+                    </button>
+                    <button type="button" class="btn btn-danger" id="revoke-api-key" style="display: none;">
+                        <i class="fas fa-trash"></i> Revoke Key
+                    </button>
+                    <button type="button" class="btn btn-primary" id="save-api-key-settings" style="display: none;">
+                        <i class="fas fa-save"></i> Save Settings
+                    </button>
                 </div>
             </div>
             
             <!-- Change Password Section -->
             <div class="auth-settings-section" id="change-password-section">
-                <h3><i class="fas fa-key"></i> Change Password</h3>
+                <h3><i class="fas fa-lock"></i> Change Password</h3>
                 
                 <form id="change-password-form">
                     <div class="form-group">
@@ -79,7 +134,6 @@
                         <button type="submit" class="btn btn-primary">
                             <i class="fas fa-lock"></i> Change Password
                         </button>
-                        <span id="password-change-status" class="status-message"></span>
                     </div>
                 </form>
             </div>

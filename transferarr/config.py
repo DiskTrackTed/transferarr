@@ -58,6 +58,12 @@ def validate_config(config):
     auth_config = config.setdefault("auth", {})
     auth_config.setdefault("session_timeout_minutes", 60)
 
+    # API configuration defaults
+    # key_required defaults to False (don't require API key until user enables it)
+    # key is not set by default (generated on first request to view/generate)
+    api_config = config.setdefault("api", {})
+    api_config.setdefault("key_required", False)
+
     return config
 
 def parse_args():

@@ -248,6 +248,41 @@ Settings page Auth tab elements, interactions, save/password changes.
 | `test_auth_tab_visible_when_disabled` | Auth tab still visible |
 | `test_can_enable_auth_from_disabled` | Can enable auth from disabled state |
 
+**TestApiKeySection** - API key section elements and interactions:
+
+| Test | Description |
+|------|-------------|
+| `test_api_key_section_visible` | API key section visible in auth tab |
+| `test_api_key_auth_warning_visible_when_auth_disabled` | Warning shows when key exists but auth disabled |
+| `test_api_key_required_toggle_visible` | Key required toggle is visible |
+| `test_api_key_input_visible` | Key input field is visible |
+| `test_api_key_masked_by_default` | Key is masked by default |
+| `test_toggle_visibility_button_shows_key` | Visibility toggle shows full key |
+| `test_copy_button_visible` | Copy button is visible |
+| `test_generate_button_visible` | Generate/Regenerate button visible |
+| `test_revoke_button_visible_when_key_exists` | Revoke button visible when key exists |
+| `test_key_required_toggle_state` | Toggle reflects config state |
+| `test_revoke_key_removes_key` | Clicking revoke removes the key |
+| `test_regenerate_key_changes_key` | Regenerate creates a different key |
+| `test_enable_key_required_with_auth_disabled_shows_error` | Enabling key_required with auth disabled shows error |
+
+**TestApiKeySectionNoKey** - API key section when no key configured:
+
+| Test | Description |
+|------|-------------|
+| `test_generate_button_shows_generate` | Shows "Generate API Key" when no key |
+| `test_api_key_auth_warning_hidden_when_no_key` | Warning hidden when no key (even with auth disabled) |
+| `test_revoke_button_hidden_when_no_key` | Revoke button hidden when no key |
+| `test_key_required_toggle_off_by_default` | Key required toggle is OFF by default |
+| `test_key_input_shows_placeholder` | Input shows "No API key generated" |
+| `test_generate_key_creates_new_key` | Generate creates a new key |
+
+**TestApiKeyWithAuthEnabled** - API key settings with user auth enabled:
+
+| Test | Description |
+|------|-------------|
+| `test_enable_key_required_saves_successfully` | Enabling key_required with auth enabled saves successfully |
+
 ### fast/
 
 #### [test_navigation.py](../tests/ui/fast/test_navigation.py)

@@ -15,6 +15,11 @@ from transferarr.auth import (
     verify_password,
     save_auth_config,
     is_auth_enabled,
+    get_api_config,
+    generate_api_key,
+    save_api_config,
+    get_or_create_api_key,
+    check_api_key_in_request,
 )
 from transferarr.web.routes.api.responses import success_response, error_response
 
@@ -22,14 +27,19 @@ from transferarr.web.routes.api.responses import success_response, error_respons
 def auth_api_required(f):
     """Decorator for auth settings endpoints.
     
-    - If auth is enabled: requires login
+    - If auth is enabled: requires login OR valid API key
     - If auth is disabled: allows access (for settings page to work)
     """
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if is_auth_enabled(current_app.config['APP_CONFIG']):
-            if not current_user.is_authenticated:
-                return error_response('UNAUTHORIZED', 'Authentication required', 401)
+            # Check session auth first
+            if current_user.is_authenticated:
+                return f(*args, **kwargs)
+            # Check API key auth
+            if check_api_key_in_request(current_app.config['APP_CONFIG'], request):
+                return f(*args, **kwargs)
+            return error_response('UNAUTHORIZED', 'Authentication required', 401)
         return f(*args, **kwargs)
     return decorated_function
 
@@ -117,11 +127,20 @@ def register_routes(api_bp):
                 return error_response('BAD_REQUEST', 'Invalid timeout value', 400)
         
         if updates:
+            config = current_app.config['APP_CONFIG']
+            
             # Check if auth is being newly enabled (was disabled, now enabled)
-            auth_config = get_auth_config(current_app.config['APP_CONFIG'])
+            auth_config = get_auth_config(config)
             was_disabled = not auth_config.get('enabled', False)
             
-            save_auth_config(current_app.config['APP_CONFIG'], updates)
+            # If disabling user auth, also disable API key requirement
+            # (API key requirement needs user auth for the UI to work)
+            if updates.get('enabled') is False:
+                api_config = get_api_config(config)
+                if api_config.get('key_required'):
+                    save_api_config(config, {'key_required': False})
+            
+            save_auth_config(config, updates)
             
             # If auth was just enabled (was disabled, now enabled), invalidate session
             # so user must log in with the new credentials
@@ -192,3 +211,164 @@ def register_routes(api_bp):
         })
         
         return success_response({'message': 'Password changed successfully'})
+
+    # =========================================================================
+    # API Key Management Endpoints
+    # =========================================================================
+    
+    @api_bp.route('/auth/api-key', methods=['GET'])
+    @auth_api_required
+    def get_api_key_settings():
+        """Get API key settings.
+        ---
+        tags:
+          - Authentication
+        responses:
+          200:
+            description: API key settings
+            schema:
+              type: object
+              properties:
+                success:
+                  type: boolean
+                data:
+                  type: object
+                  properties:
+                    key:
+                      type: string
+                      description: The API key (or null if not generated)
+                    key_required:
+                      type: boolean
+                      description: Whether API key is required for requests
+          401:
+            description: Authentication required
+        """
+        config = current_app.config['APP_CONFIG']
+        api_config = get_api_config(config)
+        
+        return success_response({
+            'key': api_config['key'],
+            'key_required': api_config['key_required'],
+        })
+    
+    @api_bp.route('/auth/api-key', methods=['PUT'])
+    @auth_api_required
+    def update_api_key_settings():
+        """Update API key settings (enable/disable requirement).
+        ---
+        tags:
+          - Authentication
+        parameters:
+          - in: body
+            name: body
+            required: true
+            schema:
+              type: object
+              properties:
+                key_required:
+                  type: boolean
+                  description: Whether API key is required for API requests
+        responses:
+          200:
+            description: Settings updated successfully
+          400:
+            description: Invalid request
+          401:
+            description: Authentication required
+        """
+        data = request.get_json()
+        if not data:
+            return error_response('BAD_REQUEST', 'Request body required', 400)
+        
+        config = current_app.config['APP_CONFIG']
+        updates = {}
+        if 'key_required' in data:
+            key_required = bool(data['key_required'])
+            
+            # Cannot enable API key requirement when user auth is disabled
+            # (the UI would be locked out - browser can't send a key it doesn't know)
+            if key_required and not is_auth_enabled(config):
+                return error_response(
+                    'BAD_REQUEST',
+                    'Cannot require API key when user authentication is disabled. '
+                    'Enable user authentication first.',
+                    400
+                )
+            
+            # Cannot enable API key requirement when no key exists
+            api_config = get_api_config(config)
+            if key_required and not api_config.get('key'):
+                return error_response(
+                    'BAD_REQUEST',
+                    'Cannot require API key when no key has been generated. '
+                    'Generate an API key first.',
+                    400
+                )
+            
+            updates['key_required'] = key_required
+        
+        if updates:
+            save_api_config(config, updates)
+        
+        return success_response({'message': 'API settings updated'})
+    
+    @api_bp.route('/auth/api-key/generate', methods=['POST'])
+    @auth_api_required
+    def generate_new_api_key():
+        """Generate a new API key (replaces existing key).
+        ---
+        tags:
+          - Authentication
+        responses:
+          200:
+            description: New API key generated
+            schema:
+              type: object
+              properties:
+                success:
+                  type: boolean
+                data:
+                  type: object
+                  properties:
+                    key:
+                      type: string
+                      description: The newly generated API key
+          401:
+            description: Authentication required
+        """
+        config = current_app.config['APP_CONFIG']
+        
+        # Generate new key (replaces existing)
+        new_key = generate_api_key()
+        save_api_config(config, {'key': new_key})
+        
+        return success_response({
+            'key': new_key,
+            'message': 'New API key generated successfully'
+        })
+    
+    @api_bp.route('/auth/api-key/revoke', methods=['POST'])
+    @auth_api_required
+    def revoke_api_key():
+        """Revoke the current API key.
+        ---
+        tags:
+          - Authentication
+        responses:
+          200:
+            description: API key revoked
+          401:
+            description: Authentication required
+          404:
+            description: No API key to revoke
+        """
+        config = current_app.config['APP_CONFIG']
+        api_config = get_api_config(config)
+        
+        if not api_config.get('key'):
+            return error_response('NOT_FOUND', 'No API key to revoke', status_code=404)
+        
+        # Revoke key and disable key_required to avoid invalid state
+        save_api_config(config, {'key': None, 'key_required': False})
+        
+        return success_response({'message': 'API key revoked'})

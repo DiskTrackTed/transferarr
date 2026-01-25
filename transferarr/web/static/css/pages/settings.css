@@ -1077,6 +1077,84 @@
     color: #997404;
 }
 
+/* Section Description */
+.section-description {
+    color: #6c757d;
+    font-size: 0.875rem;
+    margin: -12px 0 20px 0;
+}
+
+/* API Key Display */
+.api-key-display {
+    min-width: 400px;
+}
+
+.api-key-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.api-key-input {
+    flex: 1;
+    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+    font-size: 0.875rem;
+    padding: 8px 12px;
+    border: 1px solid #ced4da;
+    border-radius: 4px;
+    background-color: #f8f9fa;
+    letter-spacing: 0.5px;
+}
+
+.api-key-input:focus {
+    outline: none;
+}
+
+.api-key-input.masked {
+    letter-spacing: 2px;
+}
+
+.btn-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    border: 1px solid #ced4da;
+    border-radius: 4px;
+    background-color: #fff;
+    color: #495057;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.btn-icon:hover {
+    background-color: #e9ecef;
+    border-color: #adb5bd;
+}
+
+.btn-icon:active {
+    background-color: #dee2e6;
+}
+
+.btn-icon i {
+    font-size: 0.875rem;
+}
+
+/* API Key Section Buttons */
+#api-key-section .setting-actions {
+    flex-wrap: wrap;
+}
+
+#api-key-section .btn {
+    margin-right: 8px;
+}
+
+#api-key-section .btn:last-of-type {
+    margin-right: 0;
+}
+
 /* Responsive Auth Tab */
 @media (max-width: 767px) {
     .setting-row {
@@ -1096,5 +1174,19 @@
     
     #change-password-form input.form-control {
         max-width: none;
+    }
+    
+    .api-key-display {
+        min-width: unset;
+        width: 100%;
+    }
+    
+    .api-key-wrapper {
+        flex-wrap: wrap;
+    }
+    
+    .api-key-input {
+        width: 100%;
+        margin-bottom: 8px;
     }
 }

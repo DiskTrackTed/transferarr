@@ -736,6 +736,7 @@ def transferarr(docker_client, docker_services, radarr_api_key, sonarr_api_key):
             self.sonarr_api_key = sonarr_key
             self._current_config_type = None
             self._pending_auth_config = None  # Auth config to apply when set_config is called
+            self._pending_api_config = None  # API key config to apply when set_config is called
         
         def is_running(self) -> bool:
             """Check if transferarr container is running."""
@@ -940,6 +941,31 @@ def transferarr(docker_client, docker_services, radarr_api_key, sonarr_api_key):
             # Force config reload on next start
             self._current_config_type = None
         
+        def set_api_config(self, key: str = None, key_required: bool = True):
+            """Set API key configuration in config.json.
+            
+            Args:
+                key: The API key (None to remove/not set)
+                key_required: Whether API key is required for requests
+            """
+            api_config = {
+                'key': key,
+                'key_required': key_required,
+            }
+            
+            self._pending_api_config = api_config
+            # Force config reload on next start
+            self._current_config_type = None
+        
+        def clear_api_config(self):
+            """Clear API key configuration.
+            
+            Removes the api section from config.json.
+            """
+            self._pending_api_config = 'clear'  # Special marker to clear api section
+            # Force config reload on next start
+            self._current_config_type = None
+        
         def set_config(self, config_path: Path, radarr_api_key: str, sonarr_api_key: str, history_override: dict = None):
             """
             Copy a config file to the shared-config volume with API keys injected.
@@ -982,6 +1008,16 @@ def transferarr(docker_client, docker_services, radarr_api_key, sonarr_api_key):
                     # Set auth section
                     config['auth'] = self._pending_auth_config
                 # Don't clear _pending_auth_config - keep it for restarts
+            
+            # Apply pending API config if set
+            if self._pending_api_config is not None:
+                if self._pending_api_config == 'clear':
+                    # Clear api section
+                    config.pop('api', None)
+                else:
+                    # Set api section
+                    config['api'] = self._pending_api_config
+                # Don't clear _pending_api_config - keep it for restarts
             
             config_content = json.dumps(config, indent=4)
             

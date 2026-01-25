@@ -13,7 +13,7 @@ Transferarr monitors your Radarr/Sonarr queues and automatically transfers compl
 
 - 🔄 **Automatic Migration** — Monitors media manager queues and transfers torrents when seeding completes
 - 🌐 **Multi-Server Support** — Transfer between local storage, SFTP, or any combination
-- � **Optional Authentication** — Protect your web UI with username/password login
+- 🔐 **Optional Authentication** — Protect your web UI with username/password login or API keys for scripts
 - 📊 **Web Dashboard** — Real-time status and manual controls
 - 📜 **Transfer History** — Track completed/failed transfers with stats, filtering, and retention policies
 - 🔗 **Radarr & Sonarr Integration** — Seamless integration via API
@@ -84,7 +84,7 @@ On first launch, Transferarr will display a setup page where you can:
 1. **Create Account** — Set up a username and password to protect the web UI
 2. **Skip Setup** — Continue without authentication (not recommended for exposed instances)
 
-You can enable or change authentication later in **Settings → Auth**.
+You can enable or change authentication later in **Settings → Auth**. For programmatic access, API key authentication is also available.
 
 ---
 

@@ -217,6 +217,47 @@ Auth settings API endpoints.
 | `test_change_password_wrong_current` | Wrong current password rejected |
 | `test_runtime_timeout_differs_after_update` | Runtime timeout unchanged until restart |
 
+#### [test_api_key.py](../tests/integration/auth/test_api_key.py)
+API key authentication and management.
+
+**TestApiKeyAuthentication:**
+
+| Test | Description |
+|------|-------------|
+| `test_api_blocked_without_key_when_required` | 401 when API key required but not provided |
+| `test_api_accessible_with_valid_header_key` | X-API-Key header grants access |
+| `test_api_accessible_with_valid_query_param_key` | ?apikey= query param grants access |
+| `test_api_blocked_with_invalid_key` | 401 with wrong API key |
+| `test_header_takes_precedence_over_query_param` | Header key checked first |
+| `test_api_accessible_without_key_when_not_required` | No key needed when key_required=False |
+| `test_api_key_still_works_when_not_required` | Key works even when not required |
+| `test_session_auth_bypasses_api_key` | Logged-in users bypass API key check |
+| `test_api_key_works_without_session_when_user_auth_enabled` | API key works alongside user auth |
+| `test_no_key_no_session_returns_401` | 401 with neither auth method |
+| `test_health_always_accessible` | /health bypasses all auth |
+
+**TestApiKeyManagementEndpoints:**
+
+| Test | Description |
+|------|-------------|
+| `test_get_api_key_settings` | GET returns key and key_required |
+| `test_update_api_key_settings` | PUT updates key_required |
+| `test_generate_api_key` | POST creates new API key |
+| `test_regenerate_api_key` | Regenerating invalidates old key |
+| `test_revoke_api_key` | Revoking removes key and disables key_required |
+| `test_revoke_api_key_when_none_exists` | Revoking when no key returns 404 |
+| `test_api_key_endpoints_require_auth_when_enabled` | Management endpoints protected |
+| `test_api_key_case_sensitive` | API keys are case-sensitive |
+
+**TestApiKeyConfigurationConstraints:**
+
+| Test | Description |
+|------|-------------|
+| `test_cannot_enable_key_required_without_user_auth` | 400 when enabling key_required with auth disabled |
+| `test_disabling_user_auth_disables_key_required` | Disabling user auth auto-disables key_required |
+| `test_can_enable_key_required_with_user_auth` | Can enable key_required when user auth enabled |
+| `test_cannot_enable_key_required_without_key` | 400 when enabling key_required with no key generated |
+
 ---
 
 ## Test Framework

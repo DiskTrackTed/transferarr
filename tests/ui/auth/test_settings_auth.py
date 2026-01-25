@@ -289,9 +289,10 @@ class TestSaveAuthSettings:
         # Click save
         settings_page.page.click('#save-auth-settings')
         
-        # Wait for status message
-        status = settings_page.page.locator('#auth-settings-status')
-        expect(status).to_contain_text('saved', timeout=5000)
+        # Wait for toast notification
+        notification = settings_page.page.locator('.notification-success')
+        expect(notification).to_be_visible(timeout=5000)
+        expect(notification).to_contain_text('Settings Saved')
 
 
 class TestChangePassword:
@@ -326,9 +327,10 @@ class TestChangePassword:
         # Submit
         settings_page.page.click('#change-password-form button[type="submit"]')
         
-        # Should show error
-        status = settings_page.page.locator('#password-change-status')
-        expect(status).to_contain_text('incorrect', timeout=5000)
+        # Should show error toast
+        notification = settings_page.page.locator('.notification-error')
+        expect(notification).to_be_visible(timeout=5000)
+        expect(notification).to_contain_text('incorrect')
 
     def test_change_password_mismatch(self, settings_page, login_page):
         """Mismatched passwords show error."""
@@ -348,9 +350,10 @@ class TestChangePassword:
         # Submit
         settings_page.page.click('#change-password-form button[type="submit"]')
         
-        # Should show error (client-side validation)
-        status = settings_page.page.locator('#password-change-status')
-        expect(status).to_contain_text('match', timeout=5000)
+        # Should show error toast (client-side validation)
+        notification = settings_page.page.locator('.notification-error')
+        expect(notification).to_be_visible(timeout=5000)
+        expect(notification).to_contain_text('match')
 
     def test_change_password_success(self, settings_page, login_page):
         """Successful password change shows success message."""
@@ -370,9 +373,10 @@ class TestChangePassword:
         # Submit
         settings_page.page.click('#change-password-form button[type="submit"]')
         
-        # Should show success
-        status = settings_page.page.locator('#password-change-status')
-        expect(status).to_contain_text('success', timeout=5000)
+        # Should show success toast
+        notification = settings_page.page.locator('.notification-success')
+        expect(notification).to_be_visible(timeout=5000)
+        expect(notification).to_contain_text('Password Changed')
 
 
 class TestAuthTabWhenDisabled:
@@ -430,3 +434,381 @@ class TestAuthTabWhenDisabled:
         # Info message should be visible (display: block set by JS)
         info = settings_page.page.locator('#auth-disabled-info')
         expect(info).to_be_visible()
+
+
+class TestApiKeySection:
+    """Test API key section UI elements and interactions."""
+
+    @pytest.fixture(autouse=True)
+    def setup(self, clean_test_environment, transferarr):
+        """Set up transferarr without user auth but with API key config.
+        
+        Note: key_required=False so the browser can access API without key header.
+        The browser doesn't know the API key yet, so it can't authenticate with it.
+        """
+        transferarr.set_auth_config(enabled=False)
+        transferarr.set_api_config(key="tr_testkey123456789012345678901234", key_required=False)
+        transferarr.start(wait_healthy=True)
+        yield
+
+    def test_api_key_section_visible(self, settings_page, base_url):
+        """API key section is visible in auth tab."""
+        settings_page.goto()
+        settings_page.page.click('[data-tab="auth"]')
+        settings_page.page.wait_for_load_state("networkidle")
+        
+        api_section = settings_page.page.locator('#api-key-section')
+        expect(api_section).to_be_visible()
+
+    def test_api_key_auth_warning_visible_when_auth_disabled(self, settings_page, base_url):
+        """Warning shows when API key exists but auth is disabled."""
+        settings_page.goto()
+        settings_page.page.click('[data-tab="auth"]')
+        settings_page.page.wait_for_load_state("networkidle")
+        settings_page.page.wait_for_timeout(1000)
+        
+        # Warning should be visible (auth disabled + key exists)
+        warning = settings_page.page.locator('#api-key-auth-warning')
+        expect(warning).to_be_visible()
+        expect(warning).to_contain_text('authentication is disabled')
+
+    def test_api_key_required_toggle_visible(self, settings_page, base_url):
+        """API key required toggle is visible."""
+        settings_page.goto()
+        settings_page.page.click('[data-tab="auth"]')
+        settings_page.page.wait_for_load_state("networkidle")
+        
+        toggle = settings_page.page.locator('#api-key-required')
+        # Toggle is inside a label, check label wrapper
+        toggle_switch = settings_page.page.locator('.toggle-switch').filter(
+            has=settings_page.page.locator('#api-key-required')
+        )
+        expect(toggle_switch).to_be_visible()
+
+    def test_api_key_input_visible(self, settings_page, base_url):
+        """API key input field is visible."""
+        settings_page.goto()
+        settings_page.page.click('[data-tab="auth"]')
+        settings_page.page.wait_for_load_state("networkidle")
+        
+        # Wait for API settings to load
+        settings_page.page.wait_for_timeout(1000)
+        
+        key_input = settings_page.page.locator('#api-key-value')
+        expect(key_input).to_be_visible()
+
+    def test_api_key_masked_by_default(self, settings_page, base_url):
+        """API key is masked by default."""
+        settings_page.goto()
+        settings_page.page.click('[data-tab="auth"]')
+        settings_page.page.wait_for_load_state("networkidle")
+        
+        # Wait for API settings to load by waiting for the input to have a value
+        key_input = settings_page.page.locator('#api-key-value')
+        # Wait for the input to have some value (not empty)
+        settings_page.page.wait_for_function(
+            "document.getElementById('api-key-value').value.length > 0",
+            timeout=10000
+        )
+        
+        # Value should be masked (contain bullets)
+        value = key_input.input_value()
+        # Should show prefix and then bullets
+        assert value.startswith('tr_test'), f"Expected value to start with 'tr_test', got: '{value}'"
+        assert '•' in value, f"Expected bullets in masked value, got: '{value}'"
+
+    def test_toggle_visibility_button_shows_key(self, settings_page, base_url):
+        """Clicking visibility toggle shows full key."""
+        settings_page.goto()
+        settings_page.page.click('[data-tab="auth"]')
+        settings_page.page.wait_for_load_state("networkidle")
+        
+        # Wait for API settings to load
+        settings_page.page.wait_for_function(
+            "document.getElementById('api-key-value').value.length > 0",
+            timeout=10000
+        )
+        
+        # Click visibility toggle
+        settings_page.page.click('#toggle-api-key-visibility')
+        settings_page.page.wait_for_timeout(500)
+        
+        key_input = settings_page.page.locator('#api-key-value')
+        value = key_input.input_value()
+        # Should show full key now
+        assert value == 'tr_testkey123456789012345678901234'
+
+    def test_copy_button_visible(self, settings_page, base_url):
+        """Copy button is visible."""
+        settings_page.goto()
+        settings_page.page.click('[data-tab="auth"]')
+        settings_page.page.wait_for_load_state("networkidle")
+        
+        copy_btn = settings_page.page.locator('#copy-api-key')
+        expect(copy_btn).to_be_visible()
+
+    def test_generate_button_visible(self, settings_page, base_url):
+        """Generate/Regenerate button is visible."""
+        settings_page.goto()
+        settings_page.page.click('[data-tab="auth"]')
+        settings_page.page.wait_for_load_state("networkidle")
+        
+        generate_btn = settings_page.page.locator('#generate-api-key')
+        expect(generate_btn).to_be_visible()
+        # Should say "Regenerate" since key exists
+        expect(generate_btn).to_contain_text('Regenerate')
+
+    def test_revoke_button_visible_when_key_exists(self, settings_page, base_url):
+        """Revoke button is visible when API key exists."""
+        settings_page.goto()
+        settings_page.page.click('[data-tab="auth"]')
+        settings_page.page.wait_for_load_state("networkidle")
+        settings_page.page.wait_for_timeout(1000)
+        
+        revoke_btn = settings_page.page.locator('#revoke-api-key')
+        expect(revoke_btn).to_be_visible()
+
+    def test_key_required_toggle_state(self, settings_page, base_url):
+        """Key required toggle reflects config state."""
+        settings_page.goto()
+        settings_page.page.click('[data-tab="auth"]')
+        settings_page.page.wait_for_load_state("networkidle")
+        settings_page.page.wait_for_timeout(1000)
+        
+        toggle = settings_page.page.locator('#api-key-required')
+        expect(toggle).not_to_be_checked()  # Set to False in fixture
+
+    def test_revoke_key_removes_key(self, settings_page, base_url):
+        """Clicking revoke button removes the API key."""
+        settings_page.goto()
+        settings_page.page.click('[data-tab="auth"]')
+        settings_page.page.wait_for_load_state("networkidle")
+        settings_page.page.wait_for_timeout(1000)
+        
+        # Verify key exists first
+        key_input = settings_page.page.locator('#api-key-value')
+        initial_value = key_input.input_value()
+        assert initial_value != '', "Expected key to exist initially"
+        
+        # Set up dialog handler to accept the confirm prompt
+        settings_page.page.on('dialog', lambda dialog: dialog.accept())
+        
+        # Click revoke button and wait for the API response
+        with settings_page.page.expect_response(
+            lambda r: "/api/v1/auth/api-key/revoke" in r.url,
+            timeout=10000
+        ):
+            settings_page.page.click('#revoke-api-key')
+        
+        # Wait for the UI to update
+        settings_page.page.wait_for_timeout(500)
+        
+        # Verify key was removed
+        value = key_input.input_value()
+        assert value == '', f"Expected key to be empty, got: '{value}'"
+        
+        # Button should now say "Generate API Key"
+        generate_btn = settings_page.page.locator('#generate-api-key')
+        expect(generate_btn).to_contain_text('Generate API Key')
+        
+        # Revoke button should be hidden
+        revoke_btn = settings_page.page.locator('#revoke-api-key')
+        expect(revoke_btn).to_be_hidden()
+
+    def test_regenerate_key_changes_key(self, settings_page, base_url):
+        """Clicking regenerate creates a different API key."""
+        settings_page.goto()
+        settings_page.page.click('[data-tab="auth"]')
+        settings_page.page.wait_for_load_state("networkidle")
+        settings_page.page.wait_for_timeout(1000)
+        
+        # Get the initial key (masked, so just check it's not empty)
+        key_input = settings_page.page.locator('#api-key-value')
+        initial_key = key_input.input_value()
+        assert initial_key != '', "Expected initial key to exist"
+        
+        # Set up dialog handler to accept the confirm prompt
+        settings_page.page.on('dialog', lambda dialog: dialog.accept())
+        
+        # Click regenerate button and wait for the API response
+        with settings_page.page.expect_response(
+            lambda r: "/api/v1/auth/api-key/generate" in r.url,
+            timeout=10000
+        ):
+            settings_page.page.click('#generate-api-key')
+        
+        # Wait for the UI to update
+        settings_page.page.wait_for_timeout(500)
+        
+        # Verify key changed (new key should be visible by default after generation)
+        new_key = key_input.input_value()
+        assert new_key.startswith('tr_'), f"Expected key to start with 'tr_', got: '{new_key}'"
+
+    def test_enable_key_required_with_auth_disabled_shows_error(self, settings_page, base_url):
+        """Enabling key_required with auth disabled shows error notification."""
+        settings_page.goto()
+        settings_page.page.click('[data-tab="auth"]')
+        settings_page.page.wait_for_load_state("networkidle")
+        settings_page.page.wait_for_timeout(1000)
+        
+        # Toggle key_required ON using the visible slider
+        toggle = settings_page.page.locator('#api-key-required')
+        toggle_slider = settings_page.page.locator('.toggle-switch').filter(has=toggle)
+        toggle_slider.click()
+        
+        # Save button should appear
+        save_btn = settings_page.page.locator('#save-api-key-settings')
+        expect(save_btn).to_be_visible()
+        
+        # Click save and wait for API response
+        with settings_page.page.expect_response(
+            lambda r: "/api/v1/auth/api-key" in r.url and r.request.method == "PUT",
+            timeout=10000
+        ):
+            save_btn.click()
+        
+        # Should show error toast (cannot enable key_required with auth disabled)
+        notification = settings_page.page.locator('.notification-error')
+        expect(notification).to_be_visible(timeout=5000)
+        expect(notification).to_contain_text('auth')
+
+
+class TestApiKeySectionNoKey:
+    """Test API key section when no key is configured."""
+
+    @pytest.fixture(autouse=True)
+    def setup(self, clean_test_environment, transferarr):
+        """Set up transferarr without API key."""
+        transferarr.set_auth_config(enabled=False)
+        transferarr.clear_api_config()
+        transferarr.start(wait_healthy=True)
+        yield
+
+    def test_generate_button_shows_generate(self, settings_page, base_url):
+        """Generate button shows 'Generate API Key' when no key."""
+        settings_page.goto()
+        settings_page.page.click('[data-tab="auth"]')
+        settings_page.page.wait_for_load_state("networkidle")
+        settings_page.page.wait_for_timeout(1000)
+        
+        generate_btn = settings_page.page.locator('#generate-api-key')
+        expect(generate_btn).to_contain_text('Generate API Key')
+
+    def test_api_key_auth_warning_hidden_when_no_key(self, settings_page, base_url):
+        """Warning is hidden when no API key exists (even with auth disabled)."""
+        settings_page.goto()
+        settings_page.page.click('[data-tab="auth"]')
+        settings_page.page.wait_for_load_state("networkidle")
+        settings_page.page.wait_for_timeout(1000)
+        
+        warning = settings_page.page.locator('#api-key-auth-warning')
+        expect(warning).to_be_hidden()
+
+    def test_revoke_button_hidden_when_no_key(self, settings_page, base_url):
+        """Revoke button is hidden when no API key exists."""
+        settings_page.goto()
+        settings_page.page.click('[data-tab="auth"]')
+        settings_page.page.wait_for_load_state("networkidle")
+        settings_page.page.wait_for_timeout(1000)
+        
+        revoke_btn = settings_page.page.locator('#revoke-api-key')
+        expect(revoke_btn).to_be_hidden()
+
+    def test_key_input_shows_placeholder(self, settings_page, base_url):
+        """Key input shows placeholder when no key."""
+        settings_page.goto()
+        settings_page.page.click('[data-tab="auth"]')
+        settings_page.page.wait_for_load_state("networkidle")
+        settings_page.page.wait_for_timeout(1000)
+        
+        key_input = settings_page.page.locator('#api-key-value')
+        placeholder = key_input.get_attribute('placeholder')
+        assert placeholder == 'No API key generated'
+
+    def test_key_required_toggle_off_by_default(self, settings_page, base_url):
+        """Key required toggle is OFF when no API config exists."""
+        settings_page.goto()
+        settings_page.page.click('[data-tab="auth"]')
+        settings_page.page.wait_for_load_state("networkidle")
+        settings_page.page.wait_for_timeout(1000)
+        
+        toggle = settings_page.page.locator('#api-key-required')
+        expect(toggle).not_to_be_checked()
+
+    def test_generate_key_creates_new_key(self, settings_page, base_url):
+        """Clicking generate button creates a new API key."""
+        settings_page.goto()
+        settings_page.page.click('[data-tab="auth"]')
+        settings_page.page.wait_for_load_state("networkidle")
+        settings_page.page.wait_for_timeout(1000)
+        
+        # Click generate button and wait for the API response
+        with settings_page.page.expect_response(
+            lambda r: "/api/v1/auth/api-key" in r.url and "generate" in r.url,
+            timeout=15000
+        ):
+            settings_page.page.click('#generate-api-key')
+        
+        # Wait for the UI to update (new key is automatically visible)
+        settings_page.page.wait_for_timeout(1000)
+        
+        # Verify key was generated (key is visible by default after generation)
+        key_input = settings_page.page.locator('#api-key-value')
+        value = key_input.input_value()
+        assert value.startswith('tr_'), f"Expected key to start with 'tr_', got: '{value}'"
+        
+        # Revoke button should now be visible
+        revoke_btn = settings_page.page.locator('#revoke-api-key')
+        expect(revoke_btn).to_be_visible()
+
+
+class TestApiKeyWithAuthEnabled:
+    """Test API key settings when user auth is enabled."""
+
+    @pytest.fixture(autouse=True)
+    def setup(self, clean_test_environment, transferarr):
+        """Set up transferarr with user auth enabled and API key configured."""
+        transferarr.set_auth_config(
+            enabled=True,
+            username="testuser",
+            password="testpass123"
+        )
+        transferarr.set_api_config(key="tr_testkey123456789012345678901234", key_required=False)
+        transferarr.start(wait_healthy=True)
+        yield
+
+    def test_enable_key_required_saves_successfully(self, settings_page, login_page):
+        """Enabling key_required with auth enabled saves successfully."""
+        # Login first
+        login_page.goto()
+        login_page.login("testuser", "testpass123")
+        login_page.wait_for_redirect()
+        
+        settings_page.goto()
+        settings_page.page.click('[data-tab="auth"]')
+        settings_page.page.wait_for_load_state("networkidle")
+        settings_page.page.wait_for_timeout(1000)
+        
+        # Toggle key_required ON using the visible slider
+        toggle = settings_page.page.locator('#api-key-required')
+        toggle_slider = settings_page.page.locator('.toggle-switch').filter(has=toggle)
+        toggle_slider.click()
+        
+        # Save button should appear
+        save_btn = settings_page.page.locator('#save-api-key-settings')
+        expect(save_btn).to_be_visible()
+        
+        # Click save and wait for API response
+        with settings_page.page.expect_response(
+            lambda r: "/api/v1/auth/api-key" in r.url and r.request.method == "PUT",
+            timeout=10000
+        ):
+            save_btn.click()
+        
+        # Should show success toast
+        notification = settings_page.page.locator('.notification-success')
+        expect(notification).to_be_visible(timeout=5000)
+        expect(notification).to_contain_text('Settings Saved')
+        
+        # Save button should be hidden again
+        expect(save_btn).to_be_hidden()
