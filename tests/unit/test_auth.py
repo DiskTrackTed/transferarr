@@ -5,13 +5,21 @@ import tempfile
 import pytest
 
 from transferarr.auth import (
+    API_KEY_LENGTH,
+    API_KEY_PREFIX,
     User,
+    generate_api_key,
+    get_api_config,
     get_auth_config,
+    get_or_create_api_key,
     get_or_create_secret_key,
     hash_password,
+    is_api_key_required,
     is_auth_configured,
     is_auth_enabled,
+    save_api_config,
     save_auth_config,
+    verify_api_key,
     verify_password,
 )
 
@@ -320,3 +328,214 @@ class TestSecretKey:
 
                 # Different directories should have different keys
                 assert key1 != key2
+
+
+# =============================================================================
+# API Key Tests
+# =============================================================================
+
+
+class TestGenerateApiKey:
+    """Tests for generate_api_key function."""
+
+    def test_generate_api_key_has_prefix(self):
+        """Generated key has the correct prefix."""
+        key = generate_api_key()
+        assert key.startswith(API_KEY_PREFIX)
+
+    def test_generate_api_key_correct_length(self):
+        """Generated key has the correct length."""
+        key = generate_api_key()
+        # Total length = prefix length + random part length
+        expected_length = len(API_KEY_PREFIX) + API_KEY_LENGTH
+        assert len(key) == expected_length
+
+    def test_generate_api_key_unique(self):
+        """Generated keys are unique."""
+        key1 = generate_api_key()
+        key2 = generate_api_key()
+        assert key1 != key2
+
+    def test_generate_api_key_alphanumeric(self):
+        """Generated key contains only alphanumeric characters after prefix."""
+        key = generate_api_key()
+        random_part = key[len(API_KEY_PREFIX):]
+        assert random_part.isalnum()
+
+
+class TestVerifyApiKey:
+    """Tests for verify_api_key function."""
+
+    def test_verify_api_key_correct(self):
+        """Correct key verifies."""
+        key = generate_api_key()
+        assert verify_api_key(key, key) is True
+
+    def test_verify_api_key_incorrect(self):
+        """Wrong key fails."""
+        key1 = generate_api_key()
+        key2 = generate_api_key()
+        assert verify_api_key(key1, key2) is False
+
+    def test_verify_api_key_empty_provided(self):
+        """Empty provided key fails gracefully."""
+        stored_key = generate_api_key()
+        assert verify_api_key("", stored_key) is False
+        assert verify_api_key(None, stored_key) is False
+
+    def test_verify_api_key_empty_stored(self):
+        """Empty stored key fails gracefully."""
+        provided_key = generate_api_key()
+        assert verify_api_key(provided_key, "") is False
+        assert verify_api_key(provided_key, None) is False
+
+    def test_verify_api_key_both_empty(self):
+        """Both empty fails gracefully."""
+        assert verify_api_key("", "") is False
+        assert verify_api_key(None, None) is False
+
+    def test_verify_api_key_case_sensitive(self):
+        """API key comparison is case-sensitive."""
+        key = "tr_TestKey123456789012345678901234"
+        assert verify_api_key(key, key) is True
+        assert verify_api_key(key.lower(), key) is False
+        assert verify_api_key(key.upper(), key) is False
+        assert verify_api_key(key, key.lower()) is False
+
+
+class TestGetApiConfig:
+    """Tests for get_api_config function."""
+
+    def test_get_api_config_defaults(self):
+        """Missing api section returns defaults."""
+        config = {}
+        api = get_api_config(config)
+
+        assert api["key"] is None
+        assert api["key_required"] is False
+
+    def test_get_api_config_partial(self):
+        """Partial api section fills missing fields with defaults."""
+        config = {
+            "api": {
+                "key": "tr_testkey123",
+            }
+        }
+        api = get_api_config(config)
+
+        assert api["key"] == "tr_testkey123"
+        assert api["key_required"] is False  # Default
+
+    def test_get_api_config_full(self):
+        """Full api section returns all values."""
+        config = {
+            "api": {
+                "key": "tr_testkey123",
+                "key_required": False,
+            }
+        }
+        api = get_api_config(config)
+
+        assert api["key"] == "tr_testkey123"
+        assert api["key_required"] is False
+
+
+class TestIsApiKeyRequired:
+    """Tests for is_api_key_required function."""
+
+    def test_is_api_key_required_no_key(self):
+        """No key means not required."""
+        config = {"api": {"key_required": True}}
+        assert is_api_key_required(config) is False
+
+    def test_is_api_key_required_with_key_and_required(self):
+        """Key present and required=True means required."""
+        config = {"api": {"key": "tr_testkey", "key_required": True}}
+        assert is_api_key_required(config) is True
+
+    def test_is_api_key_required_with_key_not_required(self):
+        """Key present but required=False means not required."""
+        config = {"api": {"key": "tr_testkey", "key_required": False}}
+        assert is_api_key_required(config) is False
+
+    def test_is_api_key_required_empty_config(self):
+        """Empty config means not required (no key)."""
+        config = {}
+        assert is_api_key_required(config) is False
+
+
+class TestSaveApiConfig:
+    """Tests for save_api_config function."""
+
+    def test_save_api_config_creates_section(self):
+        """Creates api section if missing."""
+        config = {}
+        save_api_config(config, {"key": "tr_newkey"})
+
+        assert "api" in config
+        assert config["api"]["key"] == "tr_newkey"
+
+    def test_save_api_config_updates_existing(self):
+        """Updates existing api section."""
+        config = {"api": {"key": "tr_oldkey", "key_required": True}}
+        save_api_config(config, {"key": "tr_newkey"})
+
+        assert config["api"]["key"] == "tr_newkey"
+        assert config["api"]["key_required"] is True  # Unchanged
+
+    def test_save_api_config_writes_to_file(self):
+        """Saves to file when config path is set."""
+        import json
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump({"api": {}}, f)
+            config_path = f.name
+
+        try:
+            config = {"api": {}, "_config_path": config_path}
+            save_api_config(config, {"key": "tr_filetest"})
+
+            # Read back and verify
+            with open(config_path) as f:
+                saved = json.load(f)
+
+            assert saved["api"]["key"] == "tr_filetest"
+            assert "_config_path" not in saved  # Internal key not saved
+        finally:
+            os.unlink(config_path)
+
+
+class TestGetOrCreateApiKey:
+    """Tests for get_or_create_api_key function."""
+
+    def test_get_or_create_api_key_returns_existing(self):
+        """Returns existing key without generating new one."""
+        config = {"api": {"key": "tr_existingkey"}}
+        key = get_or_create_api_key(config)
+
+        assert key == "tr_existingkey"
+
+    def test_get_or_create_api_key_generates_new(self):
+        """Generates and saves new key if none exists."""
+        import json
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump({"api": {}}, f)
+            config_path = f.name
+
+        try:
+            config = {"api": {}, "_config_path": config_path}
+            key = get_or_create_api_key(config)
+
+            # Should have generated a key
+            assert key.startswith(API_KEY_PREFIX)
+
+            # Key should be saved in config
+            assert config["api"]["key"] == key
+
+            # Key should be saved to file
+            with open(config_path) as f:
+                saved = json.load(f)
+            assert saved["api"]["key"] == key
+        finally:
+            os.unlink(config_path)

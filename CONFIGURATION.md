@@ -258,6 +258,46 @@ The `auth` section controls web UI authentication:
   - `/login` and `/setup` pages
   - `/api/v1/health` endpoint (for monitoring)
 
+### API Key Authentication
+
+For programmatic access (scripts, integrations), you can use API key authentication instead of sessions.
+
+**Configuration:**
+```json
+{
+  "api": {
+    "key": "tr_abc123...",
+    "key_required": false
+  }
+}
+```
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `key` | `null` | The API key (auto-generated via Settings) |
+| `key_required` | `false` | Require API key for unauthenticated requests |
+
+**Usage:**
+```bash
+# Via header (preferred)
+curl -H "X-API-Key: tr_abc123..." http://localhost:10444/api/v1/torrents
+
+# Via query parameter
+curl "http://localhost:10444/api/v1/torrents?apikey=tr_abc123..."
+```
+
+**Managing Keys:**
+1. Go to **Settings → Auth** tab
+2. Scroll to the "API Key" section
+3. Click "Generate API Key" to create a new key
+4. Toggle "Require API Key" to enforce authentication
+5. Use "Revoke Key" to invalidate the current key
+
+**Important Notes:**
+- Session-authenticated users bypass API key requirement
+- Cannot enable "Require API Key" when user authentication is disabled
+- The `/api/v1/health` endpoint is always accessible (no auth required)
+
 ---
 
 ## Transfer Type Combinations
