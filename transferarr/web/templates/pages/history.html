@@ -79,6 +79,16 @@
         </div>
         
         <div class="filter-group">
+            <label for="filter-method">Type</label>
+            <select id="filter-method" class="filter-select">
+                <option value="">All Types</option>
+                <option value="sftp">SFTP</option>
+                <option value="local">Local</option>
+                <option value="torrent">Torrent</option>
+            </select>
+        </div>
+        
+        <div class="filter-group">
             <label for="filter-search">Search</label>
             <input type="text" id="filter-search" class="filter-input" placeholder="Search torrent name...">
         </div>
@@ -109,6 +119,7 @@
                 <tr>
                     <th class="sortable" data-sort="torrent_name">Name <i class="fas fa-sort"></i></th>
                     <th>From → To</th>
+                    <th>Type</th>
                     <th class="sortable" data-sort="bytes_transferred">Transferred <i class="fas fa-sort"></i></th>
                     <th>Duration</th>
                     <th>Status</th>

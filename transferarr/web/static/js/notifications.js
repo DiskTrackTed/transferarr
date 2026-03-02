@@ -231,3 +231,6 @@ const TransferarrNotifications = (function() {
         dismissAll: dismissAll
     };
 })();
+
+// Expose globally so ES modules loaded via dynamic import() can access it
+window.TransferarrNotifications = TransferarrNotifications;

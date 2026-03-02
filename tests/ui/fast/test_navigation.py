@@ -192,7 +192,7 @@ class TestPageLoading:
         # Stats cards should be visible
         expect(page.locator("#active-torrents")).to_be_visible()
         expect(page.locator("#completed-torrents")).to_be_visible()
-        expect(page.locator("#copying-torrents")).to_be_visible()
+        expect(page.locator("#transferring-torrents")).to_be_visible()
         
         # Watchlist container should exist
         expect(page.locator("#recent-torrents-container")).to_be_visible()
@@ -207,9 +207,11 @@ class TestPageLoading:
         expect(page.locator("#client-tabs")).to_be_attached()
     
     def test_settings_page_loads_tabs(self, page: Page, base_url: str):
-        """Test that settings page loads both tabs."""
+        """Test that settings page loads all tabs."""
         page.goto(f"{base_url}/settings")
         
-        # Both tabs should be visible
+        # All tabs should be visible
         expect(page.locator(".client-tab[data-tab='download-clients']")).to_be_visible()
         expect(page.locator(".client-tab[data-tab='connections']")).to_be_visible()
+        expect(page.locator(".client-tab[data-tab='tracker']")).to_be_visible()
+        expect(page.locator(".client-tab[data-tab='auth']")).to_be_visible()

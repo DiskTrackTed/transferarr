@@ -21,6 +21,8 @@ def _convert_marshmallow_keys(data: dict) -> dict:
     
     Marshmallow uses from_ because 'from' is a Python reserved word.
     This converts it back for the service/config layer.
+    
+    For torrent configs, transfer_config has no from_ key (no nested from/to).
     """
     if "from_" in data:
         data["from"] = data.pop("from_")
@@ -58,16 +60,25 @@ def register_routes(bp):
                       to:
                         type: string
                         description: Destination client name
+                      transfer_type:
+                        type: string
+                        enum: [file, torrent]
+                        description: Transfer type (file for SFTP/Local, torrent for P2P)
                       source_dot_torrent_path:
                         type: string
+                        description: Path to .torrent files on source (file transfers only)
                       source_torrent_download_path:
                         type: string
+                        description: Download path on source (file transfers only)
                       destination_dot_torrent_tmp_dir:
                         type: string
+                        description: Temp directory for .torrent files on destination (file transfers only)
                       destination_torrent_download_path:
                         type: string
+                        description: Download path on destination (file transfers only)
                       transfer_config:
                         type: object
+                        description: Transfer method configuration (shape depends on transfer_type)
                       active_transfers:
                         type: integer
                       max_transfers:
@@ -102,10 +113,6 @@ def register_routes(bp):
                 - from
                 - to
                 - transfer_config
-                - source_dot_torrent_path
-                - source_torrent_download_path
-                - destination_dot_torrent_tmp_dir
-                - destination_torrent_download_path
               properties:
                 name:
                   type: string
@@ -118,66 +125,26 @@ def register_routes(bp):
                   description: Destination download client name
                 transfer_config:
                   type: object
-                  description: Transfer method configuration
-                  properties:
-                    from:
-                      type: object
-                      properties:
-                        type:
-                          type: string
-                          enum: [local, sftp]
-                        sftp:
-                          type: object
-                          properties:
-                            ssh_config_file:
-                              type: string
-                            ssh_config_host:
-                              type: string
-                            host:
-                              type: string
-                            port:
-                              type: integer
-                            username:
-                              type: string
-                            password:
-                              type: string
-                            private_key:
-                              type: string
-                    to:
-                      type: object
-                      properties:
-                        type:
-                          type: string
-                          enum: [local, sftp]
-                        sftp:
-                          type: object
-                          properties:
-                            ssh_config_file:
-                              type: string
-                            ssh_config_host:
-                              type: string
-                            host:
-                              type: string
-                            port:
-                              type: integer
-                            username:
-                              type: string
-                            password:
-                              type: string
-                            private_key:
-                              type: string
+                  description: |
+                    Transfer method configuration. Two shapes supported:
+                    
+                    File Transfer (SFTP/Local) - requires path fields:
+                      {from: {type: "local"|"sftp", sftp: {...}}, to: {type: "local"|"sftp", sftp: {...}}}
+                    
+                    Torrent (P2P) - no path fields needed:
+                      {type: "torrent", destination_path: "/downloads"}
                 source_dot_torrent_path:
                   type: string
-                  description: Path to .torrent files on source
+                  description: Path to .torrent files on source (required for file transfers)
                 source_torrent_download_path:
                   type: string
-                  description: Download path on source
+                  description: Download path on source (required for file transfers)
                 destination_dot_torrent_tmp_dir:
                   type: string
-                  description: Temp directory for .torrent files on destination
+                  description: Temp directory for .torrent files on destination (required for file transfers)
                 destination_torrent_download_path:
                   type: string
-                  description: Download path on destination
+                  description: Download path on destination (required for file transfers)
         responses:
           201:
             description: Connection added successfully
@@ -237,7 +204,10 @@ def register_routes(bp):
                   description: Destination client name
                 transfer_config:
                   type: object
-                  description: Transfer method configuration
+                  description: |
+                    Transfer method configuration. Two shapes supported:
+                    File Transfer: {from: {type: "local"|"sftp", sftp: {...}}, to: {type: ...}}
+                    Torrent: {type: "torrent"}
         responses:
           200:
             description: Connection test result
@@ -266,7 +236,7 @@ def register_routes(bp):
         try:
             result = service.test_connection(data)
             return success_response(
-                {"success": result.get("success", False)},
+                result,
                 result.get("message", "Connection test completed")
             )
         except NotFoundError as e:
@@ -297,10 +267,6 @@ def register_routes(bp):
                 - from
                 - to
                 - transfer_config
-                - source_dot_torrent_path
-                - source_torrent_download_path
-                - destination_dot_torrent_tmp_dir
-                - destination_torrent_download_path
               properties:
                 name:
                   type: string
@@ -311,14 +277,22 @@ def register_routes(bp):
                   type: string
                 transfer_config:
                   type: object
+                  description: |
+                    Transfer method configuration. Two shapes supported:
+                    File Transfer: {from: {type: "local"|"sftp", sftp: {...}}, to: {type: ...}}
+                    Torrent: {type: "torrent", destination_path: "/downloads"}
                 source_dot_torrent_path:
                   type: string
+                  description: Required for file transfers only
                 source_torrent_download_path:
                   type: string
+                  description: Required for file transfers only
                 destination_dot_torrent_tmp_dir:
                   type: string
+                  description: Required for file transfers only
                 destination_torrent_download_path:
                   type: string
+                  description: Required for file transfers only
         responses:
           200:
             description: Connection updated successfully

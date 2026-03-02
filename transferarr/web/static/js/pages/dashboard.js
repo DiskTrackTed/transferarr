@@ -40,12 +40,18 @@ async function fetchHistoryStats() {
 // Update the dashboard stats
 function updateDashboardStats(torrents) {
     const activeTorrents = torrents.length;
-    const copyingTorrents = torrents.filter(t => 
-        t.state === 'COPYING'
+    const transferringStates = [
+        'COPYING',
+        'TORRENT_CREATING',
+        'TORRENT_TARGET_ADDING',
+        'TORRENT_DOWNLOADING'
+    ];
+    const transferringTorrents = torrents.filter(t => 
+        transferringStates.includes(t.state)
     ).length;
     
     document.getElementById('active-torrents').textContent = activeTorrents;
-    document.getElementById('copying-torrents').textContent = copyingTorrents;
+    document.getElementById('transferring-torrents').textContent = transferringTorrents;
 }
 
 // Update current torrents on dashboard with in-place updates
@@ -87,10 +93,13 @@ function updateRecentTorrents(torrents) {
     // Create a set of current torrent IDs for tracking what to keep
     const currentTorrentIds = new Set();
     
-    // Sort torrents by priority (COPYING first, then QUEUED, then others)
+    // Sort torrents by priority (Transferring first, then QUEUED, then others)
     const sortedTorrents = [...torrents].sort((a, b) => {
         const stateOrder = {
             'COPYING': 1,
+            'TORRENT_CREATING': 1,
+            'TORRENT_TARGET_ADDING': 1,
+            'TORRENT_DOWNLOADING': 1,
             'QUEUED': 2,
             'HOME_SEEDING': 3
         };
@@ -166,7 +175,18 @@ function updateCardContent(card, torrent, isCompact = false) {
             break;
         case 'COPYING':
             progressPercentage = torrent.progress || 0;
-            statusText = 'Copying';
+            statusText = 'Transferring';
+            progressBarClass = 'progress-copying';
+            break;
+        case 'TORRENT_CREATING':
+        case 'TORRENT_TARGET_ADDING':
+            progressPercentage = 0;
+            statusText = 'Transferring';
+            progressBarClass = 'progress-copying';
+            break;
+        case 'TORRENT_DOWNLOADING':
+            progressPercentage = torrent.progress || 0;
+            statusText = 'Transferring';
             progressBarClass = 'progress-copying';
             break;
         case 'COPIED':
@@ -180,9 +200,10 @@ function updateCardContent(card, torrent, isCompact = false) {
             progressBarClass = '';
     }
     
-    // Format transfer speed if available and torrent is copying
+    // Format transfer speed if available and torrent is transferring
     let transferSpeedHtml = '';
-    if (torrent.state === 'COPYING' && torrent.transfer_speed !== undefined && torrent.transfer_speed > 0) {
+    const showSpeedStates = ['COPYING', 'TORRENT_DOWNLOADING'];
+    if (showSpeedStates.includes(torrent.state) && torrent.transfer_speed !== undefined && torrent.transfer_speed > 0) {
         const speedFormatted = formatTransferSpeed(torrent.transfer_speed);
         transferSpeedHtml = `<div class="info-row"><span class="info-label">Speed:</span><span class="info-value speed-value">${speedFormatted}</span></div>`;
     }
@@ -205,7 +226,8 @@ function updateCardContent(card, torrent, isCompact = false) {
     `;
     
     // Add file information if available
-    if (torrent.state === 'COPYING') {
+    const showFileInfoStates = ['COPYING', 'TORRENT_DOWNLOADING'];
+    if (showFileInfoStates.includes(torrent.state)) {
         if (torrent.current_file) {
             cardContent += `<span class="file-name">File: ${torrent.current_file}</span>`;
         }

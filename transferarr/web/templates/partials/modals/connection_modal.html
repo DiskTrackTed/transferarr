@@ -19,6 +19,16 @@
                         <small class="form-text text-muted">A unique name for this connection (cannot contain '/')</small>
                     </div>
                     
+                    <!-- Transfer Method Selector -->
+                    <div class="form-group mb-3">
+                        <label for="transferMethod" class="form-label">Transfer Method</label>
+                        <select class="form-control" id="transferMethod">
+                            <option value="file">File Transfer (SFTP/Local)</option>
+                            <option value="torrent">Torrent (P2P)</option>
+                        </select>
+                        <small class="form-text text-muted">How files are transferred between clients</small>
+                    </div>
+                    
                     <div class="connection-layout-container">
                         <!-- Source (From) Client Section -->
                         <div class="connection-section">
@@ -30,9 +40,9 @@
                                         <!-- Options will be populated dynamically -->
                                     </select>
                                 </div>
-                                <div class="col-md-4">
+                                <div class="col-md-4 file-transfer-only">
                                     <label for="fromType" class="form-label">Type</label>
-                                    <select class="form-control" id="fromType" required>
+                                    <select class="form-control" id="fromType">
                                         <option value="sftp">SFTP</option>
                                         <option value="local">Local</option>
                                     </select>
@@ -40,7 +50,7 @@
                             </div>
                             
                             <!-- SFTP Config for From -->
-                            <div id="fromSftpConfig" class="config-section">
+                            <div id="fromSftpConfig" class="config-section file-transfer-only">
                                 <!-- ... existing SFTP config fields ... -->
                                 <div class="form-group">
                                     <div class="form-check">
@@ -94,9 +104,9 @@
                                         <!-- Options will be populated dynamically -->
                                     </select>
                                 </div>
-                                <div class="col-md-4">
+                                <div class="col-md-4 file-transfer-only">
                                     <label for="toType" class="form-label">Type</label>
-                                    <select class="form-control" id="toType" required>
+                                    <select class="form-control" id="toType">
                                         <option value="sftp">SFTP</option>
                                         <option value="local">Local</option>
                                     </select>
@@ -104,7 +114,7 @@
                             </div>
                             
                             <!-- SFTP Config for To -->
-                            <div id="toSftpConfig" class="config-section">
+                            <div id="toSftpConfig" class="config-section file-transfer-only">
                                 <!-- ... existing SFTP config fields ... -->
                                 <div class="form-group">
                                     <div class="form-check">
@@ -156,8 +166,8 @@
                     </button>
                     <button type="button" class="btn btn-primary" id="saveConnectionBtn" disabled>Save</button>
                 </div>
-                <!-- Path Configuration Section -->
-                <div class="path-config-section mt-4">
+                <!-- Path Configuration Section (File Transfer only) -->
+                <div class="path-config-section mt-4 file-transfer-only">
                     <h4 class="section-title">Path Configuration</h4>
                     <div id="pathConfigDisabledOverlay" class="path-config-disabled-overlay">
                         <div class="path-config-message">
@@ -222,7 +232,40 @@
                         </div>
                     </div>
                 </div>
+                <!-- Torrent Transfer Configuration (Torrent method only) -->
+                <div id="torrentTransferConfig" class="mt-4" style="display: none;">
+                    <!-- Advanced Options (collapsible) -->
+                    <div class="mb-0">
+                        <a class="text-decoration-none" href="#" role="button" aria-expanded="false" id="torrentAdvancedToggle" onclick="toggleTorrentAdvanced(event)">
+                            <i class="fas fa-chevron-right fa-xs me-1" id="torrentAdvancedIcon"></i>  Advanced Options
+                        </a>
+                        <div class="mt-2" id="torrentAdvancedOptions" style="display: none;">
+                            <div class="form-group mb-0">
+                                <label for="torrentDestinationPath" class="form-label">
+                                    Destination Path <span class="text-muted fw-normal">(optional)</span>
+                                </label>
+                                <small class="form-text text-muted" style="display: block; margin-bottom: 0.35rem;">Override the download path on the target client. If empty, the client's default download path will be used.</small>
+                                <input type="text" class="form-control" id="torrentDestinationPath" placeholder="Leave empty to use client default">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="alert alert-info mb-3">
+                        <i class="fas fa-info-circle"></i>
+                        Torrent transfers use BitTorrent P2P protocol and require the built-in tracker to be enabled.
+                        No filesystem access to source or target is needed.
+                    </div>
+                </div>
             </div>
+            <script>
+            function toggleTorrentAdvanced(e) {
+                e.preventDefault();
+                const options = document.getElementById('torrentAdvancedOptions');
+                const toggle = document.getElementById('torrentAdvancedToggle');
+                const isHidden = options.style.display === 'none';
+                options.style.display = isHidden ? 'block' : 'none';
+                toggle.setAttribute('aria-expanded', isHidden ? 'true' : 'false');
+            }
+            </script>
             <!-- <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                 <button type="button" class="btn btn-info" id="testConnectionBtn2">

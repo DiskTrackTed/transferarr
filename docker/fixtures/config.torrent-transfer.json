@@ -1,0 +1,62 @@
+{
+  "log_level": "DEBUG",
+  "media_managers": [
+    {
+      "type": "radarr",
+      "host": "http://radarr",
+      "port": 7878,
+      "api_key": "PLACEHOLDER_RADARR_API_KEY"
+    },
+    {
+      "type": "sonarr",
+      "host": "http://sonarr",
+      "port": 8989,
+      "api_key": "PLACEHOLDER_SONARR_API_KEY"
+    }
+  ],
+  "download_clients": {
+    "source-deluge": {
+      "type": "deluge",
+      "host": "deluge-source",
+      "port": 58846,
+      "connection_type": "rpc",
+      "username": "transferarr",
+      "password": "testpassword"
+    },
+    "target-deluge": {
+      "type": "deluge",
+      "host": "deluge-target",
+      "port": 58846,
+      "connection_type": "rpc",
+      "username": "transferarr",
+      "password": "testpassword"
+    }
+  },
+  "connections": [
+    {
+      "from": "source-deluge",
+      "to": "target-deluge",
+      "transfer_config": {
+        "type": "torrent",
+        "destination_path": "/downloads"
+      }
+    }
+  ],
+  "tracker": {
+    "enabled": true,
+    "port": 6969,
+    "external_url": "http://transferarr:6969/announce"
+  },
+  "history": {
+    "enabled": true,
+    "retention_days": 90,
+    "track_progress": true
+  },
+  "auth": {
+    "enabled": false
+  },
+  "api": {
+    "key": null,
+    "key_required": false
+  }
+}

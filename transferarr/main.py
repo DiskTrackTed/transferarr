@@ -33,6 +33,20 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 logger = logging.getLogger("transferarr")
 logger.setLevel(log_level)
 
+# Filter out noisy werkzeug request logs (health checks, polling endpoints)
+class WerkzeugFilter(logging.Filter):
+    """Filter out frequent polling endpoints from werkzeug logs (INFO only)."""
+    NOISY_ENDPOINTS = ['/api/v1/health', '/api/v1/torrents']
+    
+    def filter(self, record):
+        # Only filter INFO level - let WARNING/ERROR through
+        if record.levelno > logging.INFO:
+            return True
+        message = record.getMessage()
+        return not any(endpoint in message for endpoint in self.NOISY_ENDPOINTS)
+
+logging.getLogger('werkzeug').addFilter(WerkzeugFilter())
+
 logger.info(f"Config file: {config_file}")
 logger.info(f"State directory: {state_dir}")
 
@@ -58,6 +72,7 @@ else:
     logger.info("History tracking is disabled")
 
 # Start torrent manager with history service and config
+# Note: TorrentManager handles tracker initialization internally based on connection types
 torrent_manager = TorrentManager(
     config, 
     config_file, 
@@ -84,3 +99,5 @@ try:
 except KeyboardInterrupt:
     logger.info("Application interrupted. Shutting down...")
     torrent_manager.stop()
+    if tracker:
+        tracker.stop()

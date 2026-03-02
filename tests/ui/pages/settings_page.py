@@ -16,8 +16,12 @@ class SettingsPage(BasePage):
     SETTINGS_TABS = "#settings-tabs"
     TAB_CLIENTS = ".client-tab[data-tab='download-clients']"
     TAB_CONNECTIONS = ".client-tab[data-tab='connections']"
+    TAB_TRACKER = ".client-tab[data-tab='tracker']"
+    TAB_AUTH = ".client-tab[data-tab='auth']"
     TAB_CONTENT_CLIENTS = "#download-clients-tab-content"
     TAB_CONTENT_CONNECTIONS = "#connections-tab-content"
+    TAB_CONTENT_TRACKER = "#tracker-tab-content"
+    TAB_CONTENT_AUTH = "#auth-tab-content"
     
     # Client management selectors
     ADD_CLIENT_BTN = "#addClientBtn"
@@ -71,6 +75,30 @@ class SettingsPage(BasePage):
     DEST_TMP_PATH = "#destinationDotTorrentTmpDir"
     DEST_DOWNLOAD_PATH = "#destinationTorrentDownloadPath"
     
+    # Transfer method selectors
+    TRANSFER_METHOD = "#transferMethod"
+    FILE_TRANSFER_ONLY = ".file-transfer-only"
+    TORRENT_TRANSFER_CONFIG = "#torrentTransferConfig"
+    TORRENT_DESTINATION_PATH = "#torrentDestinationPath"
+    TORRENT_TRACKER_INFO = "#torrentTransferConfig .alert-info"
+    TORRENT_ADVANCED_TOGGLE = "#torrentAdvancedToggle"
+    TORRENT_ADVANCED_OPTIONS = "#torrentAdvancedOptions"
+    
+    # Tracker tab selectors
+    TRACKER_STATUS_INDICATOR = "#tracker-status-indicator"
+    TRACKER_STATUS_DOT = "#tracker-status-dot"
+    TRACKER_STATUS_TEXT = "#tracker-status-text"
+    TRACKER_ACTIVE_TRANSFERS = "#tracker-active-transfers"
+    TRACKER_RUNNING_PORT = "#tracker-running-port"
+    TRACKER_ENABLED_TOGGLE = "#tracker-enabled"
+    TRACKER_PORT_INPUT = "#tracker-port"
+    TRACKER_EXTERNAL_URL_INPUT = "#tracker-external-url"
+    TRACKER_ANNOUNCE_INTERVAL_INPUT = "#tracker-announce-interval"
+    TRACKER_PEER_EXPIRY_INPUT = "#tracker-peer-expiry"
+    TRACKER_ADVANCED_TOGGLE_BTN = "#trackerAdvancedToggle"
+    TRACKER_ADVANCED_OPTIONS_DIV = "#trackerAdvancedOptions"
+    SAVE_TRACKER_BTN = "#save-tracker-settings"
+    
     # Tab content visibility selectors (aliases for clarity)
     CLIENTS_CONTENT = "#download-clients-tab-content"
     CONNECTIONS_CONTENT = "#connections-tab-content"
@@ -100,6 +128,16 @@ class SettingsPage(BasePage):
         self.page.click(self.TAB_CONNECTIONS)
         expect(self.page.locator(self.TAB_CONTENT_CONNECTIONS)).to_be_visible()
     
+    def switch_to_tracker_tab(self) -> None:
+        """Switch to Tracker tab."""
+        self.page.click(self.TAB_TRACKER)
+        expect(self.page.locator(self.TAB_CONTENT_TRACKER)).to_be_visible()
+    
+    def switch_to_auth_tab(self) -> None:
+        """Switch to Authentication tab."""
+        self.page.click(self.TAB_AUTH)
+        expect(self.page.locator(self.TAB_CONTENT_AUTH)).to_be_visible()
+    
     def is_clients_tab_active(self) -> bool:
         """Check if Download Clients tab is active."""
         return "active" in self.page.locator(self.TAB_CLIENTS).get_attribute("class")
@@ -107,6 +145,10 @@ class SettingsPage(BasePage):
     def is_connections_tab_active(self) -> bool:
         """Check if Connections tab is active."""
         return "active" in self.page.locator(self.TAB_CONNECTIONS).get_attribute("class")
+    
+    def is_tracker_tab_active(self) -> bool:
+        """Check if Tracker tab is active."""
+        return "active" in self.page.locator(self.TAB_TRACKER).get_attribute("class")
     
     # ========== Client Operations ==========
     
@@ -401,3 +443,25 @@ class SettingsPage(BasePage):
     def get_connection_count(self) -> int:
         """Get the number of connections (alias for get_connection_card_count)."""
         return self.get_connection_card_count()
+
+    # ========== Tracker Operations ==========
+
+    def get_tracker_status_text(self) -> str:
+        """Get the tracker status text (Running/Stopped/Disabled)."""
+        return self.page.locator(self.TRACKER_STATUS_TEXT).text_content().strip()
+
+    def get_tracker_status_dot_class(self) -> str:
+        """Get the tracker status dot CSS class."""
+        return self.page.locator(self.TRACKER_STATUS_DOT).get_attribute("class")
+
+    def get_tracker_active_transfers(self) -> str:
+        """Get the active transfers count text."""
+        return self.page.locator(self.TRACKER_ACTIVE_TRANSFERS).text_content().strip()
+
+    def get_tracker_tab(self):
+        """Get the tracker tab locator."""
+        return self.page.locator(self.TAB_TRACKER)
+
+    def get_auth_tab(self):
+        """Get the auth tab locator."""
+        return self.page.locator(self.TAB_AUTH)

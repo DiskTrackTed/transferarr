@@ -9,16 +9,23 @@ Transferarr is a Python application that automates torrent migration between dow
 - **`transferarr/main.py`** - Entry point: loads config, starts `TorrentManager` thread, runs Flask web server on port 10444
 - **`transferarr/services/torrent_service.py`** (`TorrentManager`) - Central orchestrator managing the torrent lifecycle, connections, and state persistence
 - **`transferarr/services/transfer_connection.py`** (`TransferConnection`) - Handles file transfers between source/destination with a ThreadPoolExecutor (max 3 concurrent transfers)
+- **`transferarr/services/torrent_transfer.py`** (`TorrentTransferHandler`) - Handles torrent-based transfer states (TORRENT_*), creating transfer torrents and managing BitTorrent-based file transfer
+- **`transferarr/services/tracker.py`** (`BitTorrentTracker`) - Lightweight HTTP BitTorrent tracker for peer discovery during torrent-based transfers
 - **`transferarr/services/history_service.py`** (`HistoryService`) - SQLite-based transfer history tracking with thread-safe connection-per-thread pattern
 - **`transferarr/services/media_managers.py`** - Radarr/Sonarr API integration using devopsarr Python SDKs
 
 ### Data Flow
 1. `TorrentManager` polls Radarr/Sonarr queues for new torrents
 2. Torrents are tracked with state machine (`TorrentState` enum in `models/torrent.py`)
-3. `TransferConnection` copies files via SFTP or local storage
-4. Torrent is added to destination Deluge client, then removed from source
+3. Transfer method depends on connection type:
+   - **SFTP/Local**: `TransferConnection` copies files via SFTP or local storage, then adds `.torrent` file to destination client
+   - **Torrent**: `TorrentTransferHandler` creates a transfer torrent on source, target downloads via BitTorrent P2P through the private tracker
+4. Original torrent is added to destination client (via magnet for torrent transfers), then removed from source
 
 ### Client Abstractions
+- **`clients/download_client.py`** (`DownloadClientBase`) - Abstract base class defining the download client interface (all clients must implement this)
+- **`clients/registry.py`** (`ClientRegistry`) - Decorator-based registry for client types with `@ClientRegistry.register("type")` pattern
+- **`clients/config.py`** (`ClientConfig`) - Dataclass for download client configuration with `from_dict()` factory method
 - **`clients/deluge.py`** - Supports both RPC (`deluge-client`) and Web UI JSON API connections
 - **`clients/ftp.py`** (`SFTPClient`) - pysftp wrapper supporting SSH config aliases or direct credentials
 - **`clients/transfer_client.py`** - Composite clients (e.g., `LocalAndSFTPClient`) for source→destination transfers
@@ -31,7 +38,7 @@ All configuration is JSON-based (`config.json`). Structure:
 {
   "media_managers": [{"type": "radarr|sonarr", "host", "port", "api_key"}],
   "download_clients": {"name": {"type": "deluge", "connection_type": "rpc|web", ...}},
-  "connections": [{"from": "client_name", "to": "client_name", "transfer_config": {...}}],
+  "connections": {"name": {"from": "client_name", "to": "client_name", "transfer_config": {...}}},
   "history": {"enabled": true, "retention_days": 90, "track_progress": true},
   "auth": {"enabled": true, "username": "admin", "password_hash": "$2b$...", "session_timeout_minutes": 60},
   "api": {"key": "tr_...", "key_required": true}
@@ -52,6 +59,95 @@ All configuration is JSON-based (`config.json`). Structure:
 ### API Configuration
 - `api.key` (default: `null`) - The API key for programmatic access
 - `api.key_required` (default: `false`) - Whether API key is required for unauthenticated requests. **Cannot be enabled when user auth is disabled.**
+
+### Tracker Configuration
+- `tracker.enabled` (default: `true`) - Enable/disable the BitTorrent tracker
+- `tracker.port` (default: `6969`) - Tracker listen port
+- `tracker.external_url` (required for torrent transfers) - URL clients use to reach tracker (e.g., `http://transferarr:6969/announce`)
+- `tracker.announce_interval` (default: `60`) - Seconds between peer re-announces
+- `tracker.peer_expiry` (default: `120`) - Seconds before a peer is considered expired
+
+### Torrent Transfer Architecture
+
+Torrent-based transfers use BitTorrent protocol instead of SFTP. **No filesystem access required** - all operations via Deluge RPC/Web API.
+
+**Key Components:**
+- **`TorrentTransferHandler`** (`services/torrent_transfer.py`) - State machine for TORRENT_* states
+- **`BitTorrentTracker`** (`services/tracker.py`) - HTTP tracker with whitelist-based peer discovery
+- **`TransferConnection.is_torrent_transfer`** - Property to check transfer type
+
+**Transfer Flow:**
+1. Create transfer torrent on source (unique hash via tracker URL, `private=False` for BEP 9)
+2. Register hash with tracker whitelist
+3. Get magnet URI from source, add to target
+4. Target announces to tracker, discovers source as peer
+5. Target downloads files via BitTorrent P2P
+6. Add original torrent to target via magnet (hash check passes instantly)
+7. Transition to COPIED → TARGET_CHECKING → TARGET_SEEDING
+8. Clean up transfer torrents from both clients, unregister from tracker
+
+**Connection Config for Torrent Transfer:**
+```json
+{
+  "from": "source-deluge",
+  "to": "target-deluge",
+  "transfer_config": {
+    "type": "torrent",
+    "destination_path": "/downloads"
+  }
+}
+```
+
+**Key Constraint:** No filesystem access to source or target. Everything via Deluge API:
+- `create_torrent()` - Creates transfer torrent from existing files
+- `get_magnet_uri()` - Gets magnet link for torrent
+- `add_torrent_magnet()` - Adds torrent via magnet link
+- `get_transfer_progress()` - Gets download progress
+- `force_reannounce()` - Forces tracker re-announce for stall recovery
+- `remove_torrent()` - Removes torrent from client
+
+**Transfer Torrent Identification:**
+- Transfer torrents are identified by tracker URL (our tracker) and optional `transferarr_tmp` label
+- Helper: `is_transfer_torrent_name(name)` checks for `[TR-` prefix (used in state, not Deluge UI)
+- Deluge shows the original path basename as the torrent name (ignores custom name parameter)
+
+**Transfer Torrent UI Filtering:**
+- Radarr/Sonarr may pick up transfer torrents from Deluge and add them to their queues
+- `get_queue_updates()` in both `RadarrManager` and `SonarrManager` skips queue items whose `download_id` matches any tracked torrent's `transfer["hash"]` — prevents transfer torrents from ever entering `self.torrents`
+- The existing detection in `update_torrents()` (hash-based `is_transfer` check → `torrents_to_remove`) remains as a safety net
+- `TorrentManager.get_all_client_torrents()` filters transfer hashes from raw Deluge listings so they don't appear on the Torrents page
+- `TorrentManager._get_transfer_hashes()` collects all active transfer hashes (lowercase) from `self.torrents`
+
+**`Torrent.transfer` dict** (persisted in state.json):
+```python
+{
+    "id": "f7e2a1",           # 6-char transfer ID
+    "name": "[TR-f7e2a1] ...", # Transfer torrent name
+    "hash": "abc123...",       # Transfer torrent info_hash
+    "on_source": True,         # Whether transfer torrent exists on source
+    "on_target": True,         # Whether transfer torrent exists on target
+    "original_on_target": True,# Whether original torrent added to target
+    "started_at": "ISO-8601",  # Transfer start time
+    "last_progress_at": "ISO", # Last time bytes_downloaded increased
+    "bytes_downloaded": 12345, # Bytes downloaded on target
+    "total_size": 99999,       # Total torrent size
+    "download_rate": 1024,     # Current download rate (bytes/sec)
+    "retry_count": 0,          # Retry counter (max 3)
+    "reannounce_count": 0,     # Stall re-announce counter (max 3)
+    "cleaned_up": True,        # Set after transfer torrent cleanup
+}
+```
+
+**Retry & Error Handling:**
+- `MAX_RETRIES = 3` per transfer attempt. On max retries: `_cleanup_failed_transfer()` removes from both clients + tracker, then resets to `HOME_SEEDING` for future retry
+- `STALL_THRESHOLD_SECONDS = 300` (5 min). Triggers `force_reannounce()` on both source and target, up to 3 times
+- `_transfer_id` (history service ID) is serialized to state.json so history tracking survives restarts
+
+**Restart Recovery:**
+- `_reregister_pending_transfers()` runs after `load_torrents_state()` on startup
+- Scans loaded torrents for TORRENT_* states or COPIED/TARGET_* with un-cleaned transfer data
+- Re-registers transfer hashes with tracker (tracker state is in-memory only, lost on restart)
+- Forces re-announce on source and target clients so peers rediscover each other
 
 ### State Persistence
 - Torrent state saved to `state.json` via `save_callback` pattern on the `Torrent` model
@@ -74,6 +170,8 @@ Flask blueprints in `web/routes/`:
   - `connections.py` - Transfer connection CRUD operations
   - `torrents.py` - `/torrents`, `/all_torrents` endpoints
   - `transfers.py` - `/transfers` history endpoints (list, stats, delete)
+  - `auth.py` - `/auth/*` authentication settings and API key management endpoints
+  - `tracker.py` - `/tracker/settings` tracker configuration endpoints
   - `utilities.py` - `/browse` file browser endpoint
   - `validation.py` - `@validate_json` decorator for request validation
   - `responses.py` - Standardized response helpers (`success_response`, `error_response`, etc.)
@@ -100,9 +198,16 @@ Flask blueprints in `web/routes/`:
 **Frontend Notifications**:
 - Toast notifications use `TransferarrNotifications` global (in `web/static/js/notifications.js`)
 - Available methods: `success(title, message)`, `error(title, message)`, `warning(title, message)`, `info(title, message)`
-- All settings modules (clients, connections, auth) use this for consistent user feedback
+- All settings modules (clients, connections, auth, tracker) use this for consistent user feedback
 - Success/warning/info auto-dismiss after 5 seconds; errors persist until dismissed
 - For persistent warnings (like "API key + auth disabled"), use inline alert elements instead of toasts
+- **CRITICAL**: `TransferarrNotifications` is declared with `const` in a classic `<script>` tag. `const` globals do NOT automatically become `window` properties. The file explicitly sets `window.TransferarrNotifications = TransferarrNotifications;` so ES modules loaded via dynamic `import()` can access it. When creating new global objects in classic scripts, always add `window.X = X;` if ES modules need to reference them.
+
+**Frontend Settings Patterns**:
+- Settings tabs use ES modules loaded via dynamic `import()` (e.g., `settings-tracker.js`, `settings-auth.js`)
+- **Dynamic Save Button**: The tracker tab uses a "Save Settings" / "Save and Apply" pattern. The button text changes dynamically based on whether restart-requiring fields (`port`, `enabled`) have been modified from their API-loaded values. Non-restart fields (`external_url`, `announce_interval`, `peer_expiry`) are applied live to the running tracker without restart. Store `originalValues` on load, compare on input change, and send `apply: true` in the PUT payload when restart-requiring fields changed.
+- **Toggle switches**: The `<input type="checkbox">` inside `.toggle-switch` labels is hidden by CSS. In Playwright tests, click the `.toggle-switch` wrapper label, not the hidden checkbox. Use `.filter(has=page.locator('#checkbox-id'))` to target the right wrapper.
+- **Number inputs**: When using Playwright `fill()` on number inputs that are pre-populated from API data, always call `clear()` first — otherwise `fill()` appends to the existing value instead of replacing it. Add `page.wait_for_load_state("networkidle")` before interacting with API-loaded form fields.
 
 ### Authentication Architecture
 
@@ -202,6 +307,28 @@ curl "http://localhost:10444/api/v1/torrents?apikey=tr_abc123..."
 - Generate/regenerate key
 - Revoke key
 - Toggle key requirement
+
+### Tracker Settings API
+
+The tracker has a settings API for viewing and updating configuration.
+
+**API Endpoints:**
+- `GET /api/v1/tracker/settings` - Get tracker config and runtime status (running, port, active_transfers)
+- `PUT /api/v1/tracker/settings` - Update tracker settings with optional `apply` flag
+
+**PUT with `apply` flag:**
+The PUT endpoint accepts an `apply: true` field in the JSON body. When set:
+- If `port` or `enabled` changed: stops the running tracker and starts a new one with updated config
+- Returns updated `status` object and `applied: true` in response
+- Live-updatable settings (`announce_interval`, `peer_expiry`) are always applied to the running tracker instance without restart, regardless of the `apply` flag
+
+There is **no separate restart endpoint**. The restart logic is integrated into the PUT with the `apply` flag.
+
+**BitTorrentTracker runtime updates:**
+- `tracker.announce_interval` - Instance attribute on `BitTorrentTracker`, also must update `TrackerRequestHandler.announce_interval` (class variable) for the HTTP handler to use the new value
+- `tracker.state.peer_expiry` - Instance attribute on `TrackerState`
+- `HTTPServer.shutdown()` only works with `serve_forever()`, NOT manual `handle_request()` loops (causes deadlock). The tracker uses `serve_forever()` in its `_serve()` thread.
+- `server_close()` must be called after `shutdown()` to release the socket and prevent "Address already in use" errors on restart
 
 When adding new API endpoints, include YAML docstrings in the function docstring for automatic Swagger documentation:
 ```python
@@ -335,6 +462,10 @@ GitHub Actions workflow in `.github/workflows/tests.yml` runs the full test suit
 ### Utility Functions
 - `utils.decode_bytes()` - Recursively decode bytes from Deluge RPC responses
 - `utils.get_paths_to_copy()` - Extract unique top-level paths from torrent file list
+- `utils.generate_transfer_id()` - Generate random 6-char alphanumeric transfer ID
+- `utils.build_transfer_torrent_name(name, id)` - Build `[TR-xxxxxx] Original Name` format
+- `utils.parse_magnet_uri(uri)` - Parse magnet URI into `{hash, name, trackers}` dict
+- `utils.build_magnet_uri(hash, name, trackers)` - Build magnet URI from components
 
 ### Client Connection Pattern
 ```python
@@ -365,22 +496,34 @@ Torrents progress through states defined in `models/torrent.py`. The `TorrentMan
     │   SEEDING, etc.) │
     └────────┬─────────┘
              │ HOME_SEEDING + has target connection
-             ▼
-    ┌──────────────────┐
-    │     COPYING      │  ← TransferConnection copying files via SFTP/local
-    └────────┬─────────┘
-             │ All files transferred successfully
-             ▼
-    ┌──────────────────┐
-    │      COPIED      │  ← Files copied, .torrent added to target client
-    └────────┬─────────┘
-             │ Target client processes torrent
-             ▼
+             │
+             ├─── SFTP/Local transfer ──────────┐
+             │                                   │
+             │     ┌──────────────────┐          │
+             │     │     COPYING      │          │
+             │     └────────┬─────────┘          │
+             │              │                    │
+             │     ┌────────▼─────────┐          │
+             │     │      COPIED      │          │
+             │     └────────┬─────────┘          │
+             │              │                    │
+             ├─── Torrent transfer ─────────┐    │
+             │                               │    │
+             │  ┌─────────────────────────┐  │    │
+             │  │  TORRENT_CREATING       │  │    │
+             │  │  TORRENT_TARGET_ADDING  │  │    │
+             │  │  TORRENT_DOWNLOADING    │  │    │
+             │  │  TORRENT_SEEDING        │  │    │
+             │  │  → COPIED               │  │    │
+             │  └────────────┬────────────┘  │    │
+             │               │               │    │
+             ▼───────────────▼───────────────▼────▼
     ┌──────────────────┐
     │  TARGET_* states │  ← Torrent checking/seeding on destination
     │  (CHECKING,      │
     │   SEEDING, etc.) │
     └────────┬─────────┘
+             │ TARGET_SEEDING: cleanup transfer torrent (if torrent transfer)
              │ TARGET_SEEDING + media manager confirms grab
              ▼
     ┌──────────────────┐
@@ -390,38 +533,50 @@ Torrents progress through states defined in `models/torrent.py`. The `TorrentMan
     Error States:
     ─────────────
     UNCLAIMED  → Torrent not found on any client (retries 10x then removed)
-    ERROR      → Transfer or client operation failed
+    ERROR      → Transfer or client operation failed (SFTP)
     MISSING    → Torrent disappeared unexpectedly
+    
+    Torrent Transfer Errors:
+    ────────────────────────
+    Max retries → _cleanup_failed_transfer (remove from clients + tracker)
+               → Reset to HOME_SEEDING for future retry
 ```
 
 **Key transition logic** (in `torrent_service.py`):
 - `MANAGER_QUEUED` → `HOME_*`: When torrent found on a download client via `client.has_torrent()`
-- `HOME_SEEDING` → `COPYING`: When `connection.enqueue_copy_torrent()` is called
+- `HOME_SEEDING` → `TARGET_*`: Shortcut when torrent already exists on target (skips transfer entirely)
+- `HOME_SEEDING` → `COPYING`: When SFTP/local connection, `connection.enqueue_copy_torrent()` is called
+- `HOME_SEEDING` → `TORRENT_CREATING`: When torrent connection, handler begins transfer torrent creation
+- `TORRENT_CREATING` → `TORRENT_TARGET_ADDING` → `TORRENT_DOWNLOADING` → `TORRENT_SEEDING` → `COPIED`: Torrent transfer states
+- `TORRENT_*` → `ERROR`: If no transfer handler available or no connection found for torrent
 - `COPYING` → `COPIED`: Set by `TransferConnection._do_copy_torrent()` on success
 - `COPIED` → `TARGET_*`: When target client reports torrent status
-- `TARGET_SEEDING` → removed: When `media_manager.torrent_ready_to_remove()` returns True
+- `TARGET_SEEDING` → cleanup transfer torrent (if present) → removed: When `media_manager.torrent_ready_to_remove()` returns True
 
 ## Adding New Download Clients
 
 To add a new download client type (e.g., qBittorrent, Transmission):
 
-1. **Create client class** in `clients/` implementing these methods:
+1. **Create client class** in `clients/` extending `DownloadClientBase` and registering via decorator:
    ```python
-   class NewClient:
-       def __init__(self, name, host, port, ...): ...
+   from transferarr.clients.registry import ClientRegistry
+   from transferarr.clients.download_client import DownloadClientBase
+   from transferarr.clients.config import ClientConfig
+
+   @ClientRegistry.register("newclient")
+   class NewClient(DownloadClientBase):
+       def __init__(self, config: ClientConfig): ...
        def ensure_connected(self) -> bool: ...
        def has_torrent(self, torrent) -> bool: ...
        def get_torrent_info(self, torrent) -> dict: ...
        def get_torrent_state(self, torrent) -> TorrentState: ...
        def add_torrent_file(self, path, data, options): ...
        def remove_torrent(self, torrent_id, remove_data=False): ...
+       def get_all_torrents(self) -> dict: ...
+       def test_connection(self) -> tuple: ...
    ```
 
-2. **Register in `clients/base.py`** `load_download_clients()`:
-   ```python
-   if download_client_config["type"] == "newclient":
-       download_clients[name] = NewClient(...)
-   ```
+2. **Import the module** in `clients/__init__.py` so the `@register` decorator runs at import time
 
 3. **Map client states** to `TorrentState` enum (HOME_* for source, TARGET_* for destination)
 
@@ -458,6 +613,7 @@ gh issue close 1
 - `testing.ipynb` - Development/debugging notebook
 - `docs/integration-tests.md` - Integration test documentation (test coverage, test names, patterns)
 - `docs/ui-tests.md` - UI test documentation (Playwright, page objects, fixtures)
+- `docs/plans/005-torrent-based-transfer.md` - Torrent-based transfer implementation plan (10 phases)
 
 ## Testing Infrastructure
 
@@ -516,8 +672,10 @@ curl http://localhost:9696/torrents
 - `docker/services/mock-indexer/app.py` - Torznab API implementation
 - `docker/services/deluge/auth` - Shared RPC authentication file (same credentials for all Deluge instances)
 - `docker/services/deluge/web.conf` - Web UI password configuration
-- `docker/services/deluge/enable-remote.sh` - Init script to enable RPC remote connections
+- `docker/services/deluge/configure-deluge.sh` - Init script to enable RPC remote connections and pin BitTorrent listen port
 - `docker/fixtures/config.local.json` - Config for running transferarr locally against Docker services
+- `docker/fixtures/config.torrent-transfer.json` - Config for torrent-based transfer tests (uses tracker, no SFTP)
+- `docker/fixtures/config.sftp-to-sftp-no-tracker.json` - SFTP config with tracker explicitly disabled (for testing no-handler error paths)
 
 ### Running Transferarr with Test Environment
 ```bash
@@ -640,7 +798,7 @@ The conftest uses internal helper functions (prefixed with `_`) to reduce duplic
 - `deluge_source`, `deluge_target` - RPC clients for Deluge instances
 - `deluge_target_2` - RPC client for second target Deluge (skip if not running)
 - `create_torrent` - Factory to create test torrents via torrent-creator container (supports `size_mb` and `multi_file` params)
-- `transferarr` - Manager to start/stop/restart transferarr container (supports `config_type` and `history_config` params)
+- `transferarr` - Manager to start/stop/restart transferarr container (supports `config_type` and `history_config` params). Config types: `sftp-to-local`, `local-to-sftp`, `sftp-to-sftp`, `sftp-to-sftp-no-tracker`, `local-to-local`, `multi-target`, `torrent-transfer`. Defaults to `sftp-to-sftp`.
 - `clean_test_environment` - Standard setup/teardown fixture for all integration tests
 - `lifecycle_runner` - Unified runner for standardized migration tests (Radarr/Sonarr)
 
@@ -678,6 +836,8 @@ The test utilities use internal helper functions (prefixed with `_`) to reduce d
 - `decode_bytes()` - Recursively decode bytes from Deluge RPC responses
 - `corrupt_state_file()` - Corrupt transferarr's state.json for testing recovery
 - `delete_state_file()` - Delete transferarr's state.json for testing recovery
+- `force_torrent_state_in_file(transferarr, torrent_name, new_state)` - Force a torrent's state in state.json via Docker volume (in `tests/integration/edge/test_torrent_transfer_edge.py`). Uses temp alpine container to read/modify/write state.json with base64 encoding. Transferarr must be stopped when calling this.
+- `STATE_VOLUME` - Docker volume name (`transferarr_test_transferarr-state`) for direct state.json access via temp containers
 
 **Integration Test Pattern**:
 Standardized migration tests should use the `lifecycle_runner` fixture to avoid boilerplate.
@@ -767,6 +927,8 @@ TIMEOUTS = {
 }
 ```
 
+**Torrent transfers complete fast on Docker network**: Small torrent transfers (10MB) between Docker containers complete almost instantly, making it impossible to reliably catch torrents in mid-transfer states (e.g., `TORRENT_DOWNLOADING`). Never write tests that depend on stopping transferarr while a torrent is in a transient `TORRENT_*` state. Instead, use `force_torrent_state_in_file()` to deterministically set the desired state in `state.json` while the container is stopped, then restart.
+
 ### UI Testing
 
 **📖 Full documentation: [docs/ui-tests.md](../docs/ui-tests.md)**
@@ -788,6 +950,7 @@ tests/ui/
         test_dashboard.py
         test_torrents.py
         test_settings.py
+        test_settings_tracker.py
         test_history.py
     crud/                   # CRUD operations (~8 min)
         test_client_crud.py
@@ -795,6 +958,7 @@ tests/ui/
     e2e/                    # Real transfers (~15 min)
         test_e2e_workflows.py
         test_smoke.py
+        test_torrent_transfer_ui.py
         test_transfer_types.py
     pages/                  # Page objects
     conftest.py
@@ -838,6 +1002,10 @@ tests/ui/
 - **Assertions**: Use `expect()` from `playwright.sync_api` for auto-retry assertions
 - **Regex in assertions**: Use `re.compile(r"pattern")` not JavaScript `/pattern/` syntax
 - **Locators**: Prefer `page.locator()` over `page.query_selector()` for auto-waiting
+- **Toggle switches**: Hidden checkbox inputs inside `.toggle-switch` wrappers — click the wrapper, not the input. See Frontend Settings Patterns above.
+- **Number inputs**: Use `clear()` before `fill()` on pre-populated number fields. See Frontend Settings Patterns above.
+- **Notification selectors**: Toast notifications have class `notification notification-{type}` (from notifications.js). Use `.notification-success`, `.notification-error`, etc. — not `.toast-success` or `.notification.success`.
+- **Wait for API data**: Use `page.wait_for_load_state("networkidle")` after navigating to pages/tabs that load data from APIs before interacting with form fields.
 
 **Docker Caching**:
 - Pip packages cached in `test-runner-pip-cache` volume

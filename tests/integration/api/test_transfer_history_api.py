@@ -20,6 +20,11 @@ def get_api_url():
 class TestTransfersListEndpoint:
     """Tests for GET /api/v1/transfers endpoint."""
     
+    @pytest.fixture(autouse=True)
+    def setup(self, clean_test_environment, transferarr):
+        """Use shared test environment setup and ensure transferarr is running."""
+        transferarr.start(wait_healthy=True)
+    
     def test_get_transfers_returns_list(self):
         """GET /transfers should return a paginated list structure."""
         url = f"{get_api_url()}/transfers"
@@ -167,6 +172,11 @@ class TestTransfersListEndpoint:
 class TestActiveTransfersEndpoint:
     """Tests for GET /api/v1/transfers/active endpoint."""
     
+    @pytest.fixture(autouse=True)
+    def setup(self, clean_test_environment, transferarr):
+        """Use shared test environment setup and ensure transferarr is running."""
+        transferarr.start(wait_healthy=True)
+    
     def test_get_active_transfers(self):
         """GET /transfers/active should return list of active transfers."""
         url = f"{get_api_url()}/transfers/active"
@@ -185,6 +195,11 @@ class TestActiveTransfersEndpoint:
 
 class TestTransferStatsEndpoint:
     """Tests for GET /api/v1/transfers/stats endpoint."""
+    
+    @pytest.fixture(autouse=True)
+    def setup(self, clean_test_environment, transferarr):
+        """Use shared test environment setup and ensure transferarr is running."""
+        transferarr.start(wait_healthy=True)
     
     def test_get_stats(self):
         """GET /transfers/stats should return aggregate statistics."""
@@ -216,6 +231,11 @@ class TestTransferStatsEndpoint:
 
 class TestSingleTransferEndpoint:
     """Tests for GET /api/v1/transfers/<id> endpoint."""
+    
+    @pytest.fixture(autouse=True)
+    def setup(self, clean_test_environment, transferarr):
+        """Use shared test environment setup and ensure transferarr is running."""
+        transferarr.start(wait_healthy=True)
     
     def test_get_transfer_not_found(self):
         """GET /transfers/<id> should return 404 for non-existent ID."""

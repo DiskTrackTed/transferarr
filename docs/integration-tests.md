@@ -73,6 +73,34 @@ Verifies state survives container restarts and file corruption.
 | `test_state_file_delete_recovery` | Delete state.json, verify recovery |
 | `test_multiple_torrents_state_persistence` | 3 torrents at different states, verify all restored |
 
+#### [test_torrent_transfer_restart.py](../tests/integration/persistence/test_torrent_transfer_restart.py)
+Restart scenarios for torrent-based transfers (tracker re-registration, state recovery).
+
+| Test | Description |
+|------|-------------|
+| `test_restart_during_creating_with_transfer_on_source` | Restart after transfer torrent created on source. Verify: re-registers with tracker, advances to TARGET_ADDING, completes. |
+| `test_restart_during_creating_without_transfer` | Restart before create_torrent() call. Verify: creates new transfer torrent, completes normally. |
+| `test_restart_during_target_adding` | Restart after transfer on source but before adding to target. Verify: re-registers, adds to target, completes. |
+| `test_restart_during_downloading` | Restart while target downloading. **Critical**: tracker lost all peers. Verify: re-registers hash, forces re-announce, download resumes. |
+| `test_restart_during_seeding_before_original_added` | Restart after download complete but before original added to target. Verify: adds original via magnet, transitions to COPIED. |
+| `test_restart_during_seeding_after_original_added` | Restart after original_on_target=True persisted. Verify: skips re-adding, transitions to COPIED. |
+| `test_restart_at_copied_state` | Restart after TORRENT_SEEDING → COPIED. Verify: target reports state, transitions to TARGET_SEEDING, cleanup runs. |
+| `test_restart_at_target_seeding_before_cleanup` | Restart at TARGET_SEEDING with cleaned_up=False. Verify: cleanup runs, removes transfer torrents. |
+| `test_restart_at_target_seeding_after_cleanup` | Restart at TARGET_SEEDING with cleaned_up=True. Verify: skips cleanup, proceeds to removal. |
+| `test_transfer_data_persisted_across_restart` | Verify all transfer dict fields survive restart via state.json. |
+| `test_transfer_id_persisted_across_restart` | Verify _transfer_id (history service) survives restart. |
+
+#### [test_torrent_transfer_large_restart.py](../tests/integration/persistence/test_torrent_transfer_large_restart.py)
+Large-file (2.5GB) restart scenarios for torrent-based transfers. Uses large files to reliably catch `TORRENT_DOWNLOADING` mid-transfer, unlike small-file tests where transfers complete near-instantly on Docker networks.
+
+| Test | Description |
+|------|-------------|
+| `test_restart_during_active_download_resumes` | Restart during active 2.5GB download. Verify: tracker re-registers, download resumes, transfer completes, cleanup runs. |
+| `test_restart_preserves_progress` | Verify bytes_downloaded does not reset to 0 after restart. Deluge retains pieces on disk. |
+| `test_transfer_dict_survives_restart_during_active_download` | Verify all transfer dict fields (hash, id, name, started_at, etc.) survive restart during active download. |
+| `test_history_tracking_survives_restart_during_download` | Verify _transfer_id persists across restart so history records are not orphaned. |
+| `test_multiple_restarts_during_download_still_completes` | Restart 3 times during TORRENT_DOWNLOADING. Stress-tests retry and re-announce logic. |
+
 ### transfers/
 
 #### [test_concurrent_transfers.py](../tests/integration/transfers/test_concurrent_transfers.py)
@@ -120,6 +148,18 @@ Unusual filenames, large files, and boundary conditions.
 | `test_2_5gb_torrent_transfer` | Large file with speed tracking |
 | `test_multi_file_torrent_transfer` | 5 files in one torrent |
 | `test_torrent_already_on_target_skips_copy` | Duplicate detection, skips COPYING phase |
+
+#### [test_torrent_transfer_edge.py](../tests/integration/edge/test_torrent_transfer_edge.py)
+Torrent-based transfer edge cases: error recovery, deduplication, config changes.
+
+| Test | Description |
+|------|-------------|
+| `test_already_on_target_skips_torrent_transfer` | Torrent already on target with torrent connection, skips TORRENT_* states |
+| `test_max_retries_cleans_up_and_resets` | Force failures, verify cleanup after 3 retries, reset to HOME_SEEDING |
+| `test_torrent_transfer_with_no_handler_goes_to_error` | TORRENT_* state but config changed to SFTP (no handler). Verify: ERROR state |
+| `test_torrent_transfer_with_no_connection_goes_to_error` | TORRENT_* state but matching connection removed. Verify: ERROR state |
+| `test_transfer_torrent_not_duplicated_in_tracking` | Verify transfer torrent not tracked as separate torrent by media manager |
+| `test_stall_detection_triggers_reannounce` | Verify reannounce_count tracked correctly, transfer completes normally |
 
 ### config/
 

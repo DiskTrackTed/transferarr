@@ -64,6 +64,13 @@ def validate_config(config):
     api_config = config.setdefault("api", {})
     api_config.setdefault("key_required", False)
 
+    # Tracker configuration defaults
+    # enabled defaults to True - tracker starts on startup so it's ready
+    tracker_config = config.setdefault("tracker", {})
+    tracker_config.setdefault("enabled", True)
+    tracker_config.setdefault("port", 6969)
+    # external_url has no default - must be set if torrent connections are used
+
     return config
 
 def parse_args():

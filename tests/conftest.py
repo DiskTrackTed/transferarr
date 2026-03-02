@@ -29,8 +29,10 @@ TRANSFER_TYPE_CONFIGS = {
     'sftp-to-local': FIXTURES_DIR / "config.sftp-to-local.json",
     'local-to-sftp': FIXTURES_DIR / "config.local-to-sftp.json",
     'sftp-to-sftp': FIXTURES_DIR / "config.sftp-to-sftp.json",
+    'sftp-to-sftp-no-tracker': FIXTURES_DIR / "config.sftp-to-sftp-no-tracker.json",
     'local-to-local': FIXTURES_DIR / "config.local-to-local.json",
     'multi-target': FIXTURES_DIR / "config.multi-target.json",
+    'torrent-transfer': FIXTURES_DIR / "config.torrent-transfer.json",
 }
 
 # History config overrides (merged with base config)
@@ -45,7 +47,7 @@ TIMEOUTS = {
     'torrent_transfer': 300,     # 5 minutes for file transfer
     'state_transition': 120,     # 2 minutes for state machine transitions
     'api_response': 30,          # 30 seconds for API calls
-    'api_response_slow': 90,     # 90 seconds for slow API calls (adding series/movies fetches metadata)
+    'api_response_slow': 120,    # 120 seconds for slow API calls (adding series/movies fetches metadata from TMDB)
     'torrent_seeding': 60,       # 1 minute for torrent to start seeding
 }
 
@@ -80,7 +82,7 @@ SERVICES = {
     },
     'transferarr': {
         'host': os.environ.get('TRANSFERARR_HOST', 'transferarr'),
-        'port': int(os.environ.get('TRANSFERARR_PORT', '10444')),
+        'port': int(os.environ.get('TRANSFERARR_PORT', '10445')),
     },
 }
 
@@ -761,8 +763,11 @@ def transferarr(docker_client, docker_services, radarr_api_key, sonarr_api_key):
             # Determine config key for caching
             config_key = (config_type or 'default', history_config)
             
+            # Track if config changed (need restart to pick up changes)
+            config_changed = config_key != self._current_config_type
+            
             # If config changed from current, update config
-            if config_key != self._current_config_type:
+            if config_changed:
                 base_config = config_type or 'sftp-to-sftp'
                 if base_config not in TRANSFER_TYPE_CONFIGS:
                     pytest.fail(f"Unknown config type: {base_config}. Available: {list(TRANSFER_TYPE_CONFIGS.keys())}")
@@ -788,6 +793,9 @@ def transferarr(docker_client, docker_services, radarr_api_key, sonarr_api_key):
                 container = self.docker.containers.get(self.container_name)
                 if container.status != "running":
                     container.start()
+                elif config_changed:
+                    # Config changed but container already running - need restart to pick up new config
+                    container.restart()
             except docker.errors.NotFound:
                 # Container doesn't exist
                 pytest.fail(
@@ -859,16 +867,26 @@ def transferarr(docker_client, docker_services, radarr_api_key, sonarr_api_key):
             return data.get('data', data) if isinstance(data, dict) else data
         
         def clear_state(self):
-            """Clear the state file and history database in the container."""
+            """Clear the state file and history database.
+            
+            Uses a temporary container to access the state volume since
+            the main container may be stopped.
+            """
             try:
-                container = self.docker.containers.get(self.container_name)
-                if container.status == "running":
-                    container.exec_run("rm -f /state/state.json")
-                    container.exec_run("rm -f /state/history.db")
-            except docker.errors.NotFound:
-                pass
+                # Use a temp container to clear state (works even if main container is stopped)
+                # Volume name matches docker-compose.test.yml: transferarr-state
+                # With project prefix: transferarr_test_transferarr-state
+                temp_container = self.docker.containers.run(
+                    image="alpine:latest",
+                    command="sh -c 'rm -f /state/state.json /state/history.db'",
+                    volumes={
+                        "transferarr_test_transferarr-state": {"bind": "/state", "mode": "rw"},
+                    },
+                    network="transferarr_test_test-network",
+                    remove=True,  # Auto-remove when done
+                )
             except docker.errors.APIError:
-                pass  # Container may not be running
+                pass  # Volume may not exist yet
         
         def exec_in_container(self, command, running: bool = True) -> str:
             """Execute a command in the transferarr container.
@@ -1127,10 +1145,10 @@ def clean_test_environment(radarr_client, sonarr_client, deluge_source, deluge_t
     Standard setup and teardown for integration tests.
     
     This fixture:
+    - Stops transferarr FIRST (so it doesn't write state during cleanup)
     - Clears all state before the test
-    - Stops transferarr if running
     - Yields control to the test
-    - Cleans up after the test
+    - Cleans up after the test (stops transferarr and clears state)
     
     Use this instead of duplicating setup_and_teardown in each test class.
     
@@ -1140,7 +1158,11 @@ def clean_test_environment(radarr_client, sonarr_client, deluge_source, deluge_t
     """
     from tests.utils import clear_radarr_state, clear_sonarr_state, clear_deluge_torrents, clear_mock_indexer_torrents
     
-    # Pre-test cleanup
+    # Stop transferarr FIRST (prevents it from writing state during cleanup)
+    if transferarr.is_running():
+        transferarr.stop()
+    
+    # Pre-test cleanup (with transferarr stopped)
     clear_radarr_state(radarr_client)
     clear_sonarr_state(sonarr_client)
     clear_deluge_torrents(deluge_source)
@@ -1148,11 +1170,17 @@ def clean_test_environment(radarr_client, sonarr_client, deluge_source, deluge_t
     clear_mock_indexer_torrents()
     transferarr.clear_state()
     
-    # Stop transferarr if running (tests will start it when needed)
+    # Reset config type tracking so next start() uses correct config
+    transferarr._current_config_type = None
+    
+    yield
+    
+    # Post-test cleanup (stop transferarr so next test starts fresh)
     if transferarr.is_running():
         transferarr.stop()
     
-    yield
+    # Clear state files after test completes
+    transferarr.clear_state()
 
 @pytest.fixture
 def lifecycle_runner(create_torrent, deluge_source, deluge_target, transferarr, radarr_client, sonarr_client):

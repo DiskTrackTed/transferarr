@@ -2,11 +2,111 @@ import os
 import subprocess
 import logging
 import time
+import secrets
+import string
 from pathlib import Path
+from urllib.parse import quote, unquote, urlparse, parse_qs
 from flask import jsonify
-from transferarr.clients.ftp import SFTPClient
 
 logger = logging.getLogger(__name__)
+
+# Transfer ID generation constants
+TRANSFER_ID_LENGTH = 6
+TRANSFER_ID_CHARS = string.ascii_lowercase + string.digits
+
+
+def generate_transfer_id() -> str:
+    """Generate a unique 6-character transfer ID.
+    
+    Returns:
+        Random alphanumeric string (e.g., 'f7e2a1')
+    """
+    return ''.join(secrets.choice(TRANSFER_ID_CHARS) for _ in range(TRANSFER_ID_LENGTH))
+
+
+def build_transfer_torrent_name(original_name: str, transfer_id: str = None) -> str:
+    """Build the transfer torrent name from original torrent name.
+    
+    Args:
+        original_name: Original torrent name
+        transfer_id: Optional transfer ID (generated if not provided)
+        
+    Returns:
+        Transfer torrent name (e.g., '[TR-f7e2a1] Movie.2024.1080p')
+    """
+    if transfer_id is None:
+        transfer_id = generate_transfer_id()
+    return f"[TR-{transfer_id}] {original_name}"
+
+
+def parse_magnet_uri(magnet_uri: str) -> dict:
+    """Parse a magnet URI into its components.
+    
+    Args:
+        magnet_uri: Magnet URI string
+        
+    Returns:
+        Dict with keys: hash, name, trackers
+        
+    Raises:
+        ValueError: If the URI is not a valid magnet link
+    """
+    if not magnet_uri.startswith("magnet:?"):
+        raise ValueError("Invalid magnet URI: must start with 'magnet:?'")
+    
+    # Parse query string
+    query = magnet_uri[8:]  # Remove 'magnet:?'
+    params = parse_qs(query)
+    
+    result = {
+        "hash": None,
+        "name": None,
+        "trackers": []
+    }
+    
+    # Extract info hash from xt (exact topic)
+    if "xt" in params:
+        for xt in params["xt"]:
+            if xt.startswith("urn:btih:"):
+                result["hash"] = xt[9:].lower()  # Remove 'urn:btih:' prefix
+                break
+    
+    # Extract display name
+    if "dn" in params:
+        result["name"] = unquote(params["dn"][0])
+    
+    # Extract trackers
+    if "tr" in params:
+        result["trackers"] = [unquote(tr) for tr in params["tr"]]
+    
+    return result
+
+
+def build_magnet_uri(
+    info_hash: str,
+    name: str = None,
+    trackers: list[str] = None
+) -> str:
+    """Build a magnet URI from components.
+    
+    Args:
+        info_hash: 40-character hex info hash
+        name: Optional display name
+        trackers: Optional list of tracker URLs
+        
+    Returns:
+        Magnet URI string
+    """
+    parts = [f"magnet:?xt=urn:btih:{info_hash.lower()}"]
+    
+    if name:
+        parts.append(f"dn={quote(name)}")
+    
+    if trackers:
+        for tracker in trackers:
+            parts.append(f"tr={quote(tracker)}")
+    
+    return "&".join(parts)
 
 def transfer_file_scp_cli(source, server, destination):
     """Transfer file using system SCP command with SSH config"""
@@ -121,6 +221,9 @@ def browse_local(path):
         }), 500
     
 def browse_sftp(path, sftp_config):
+    # Import here to avoid circular import
+    from transferarr.clients.ftp import SFTPClient
+    
     # Check if using SSH config
     try:
         start = time.time()

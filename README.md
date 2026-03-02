@@ -13,6 +13,7 @@ Transferarr monitors your Radarr/Sonarr queues and automatically transfers compl
 
 - 🔄 **Automatic Migration** — Monitors media manager queues and transfers torrents when seeding completes
 - 🌐 **Multi-Server Support** — Transfer between local storage, SFTP, or any combination
+- 🧲 **BitTorrent Transfer** — Transfer via P2P with a built-in tracker — no SFTP or filesystem access needed
 - 🔐 **Optional Authentication** — Protect your web UI with username/password login or API keys for scripts
 - 📊 **Web Dashboard** — Real-time status and manual controls
 - 📜 **Transfer History** — Track completed/failed transfers with stats, filtering, and retention policies
@@ -42,8 +43,7 @@ Current version: See [VERSION](VERSION) file.
 # Create config and state directories
 mkdir -p config state
 
-# Create config file (see Configuration section)
-cp config.example.json config/config.json
+# Create config file (see CONFIGURATION.md for full reference)
 # Edit config/config.json with your settings
 
 # Run with Docker
@@ -119,9 +119,11 @@ See **[CONFIGURATION.md](CONFIGURATION.md)** for the complete configuration guid
 1. **Queue** — Radarr/Sonarr sends torrent to source download client
 2. **Download & Seed** — Source client downloads and starts seeding
 3. **Monitor** — Transferarr detects torrent is seeding
-4. **Transfer** — Copies files and `.torrent` to destination via SFTP/local
+4. **Transfer** — Files are moved to the destination using one of two methods:
+   - **SFTP/Local** — Copies files and `.torrent` to destination via SFTP or local storage
+   - **Torrent** — Creates a transfer torrent on source; target downloads via BitTorrent P2P through a built-in tracker (no filesystem access required)
 5. **Verify & Seed** — Destination client verifies files and starts seeding
-6. **Cleanup** — Transferarr removes torrent from source client
+6. **Cleanup** — Transferarr removes torrent and data from source client
 
 ---
 
@@ -144,6 +146,7 @@ services:
     container_name: transferarr
     ports:
       - "10444:10444"
+      - "6969:6969"    # Tracker port (for torrent-based transfers)
     volumes:
       - ./config:/config
       - ./state:/state
@@ -193,6 +196,9 @@ transferarr/
 ├── main.py                 # Entry point
 ├── config.py               # Configuration loading
 ├── clients/
+│   ├── download_client.py  # Abstract base class
+│   ├── registry.py         # Decorator-based client registry
+│   ├── config.py           # Client configuration dataclass
 │   ├── deluge.py           # Deluge RPC/Web client
 │   ├── ftp.py              # SFTP client wrapper
 │   └── transfer_client.py  # Transfer abstractions
@@ -201,6 +207,8 @@ transferarr/
 ├── services/
 │   ├── torrent_service.py  # Central orchestrator
 │   ├── transfer_connection.py  # File transfer handling
+│   ├── torrent_transfer.py # Torrent-based transfer handler
+│   ├── tracker.py          # Built-in BitTorrent tracker
 │   ├── history_service.py  # Transfer history (SQLite)
 │   └── media_managers.py   # Radarr/Sonarr integration
 └── web/
