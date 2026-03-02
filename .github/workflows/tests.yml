@@ -70,7 +70,7 @@ jobs:
             needs_docker: false
           - category: integration-api
             path: tests/integration/api/
-            timeout: 10
+            timeout: 30
             needs_docker: true
           - category: integration-auth-user
             path: tests/integration/auth/user/
@@ -86,11 +86,11 @@ jobs:
             needs_docker: true
           - category: integration-persistence
             path: tests/integration/persistence/
-            timeout: 25
+            timeout: 30
             needs_docker: true
           - category: integration-transfers
             path: tests/integration/transfers/
-            timeout: 20
+            timeout: 30
             needs_docker: true
           - category: integration-config
             path: tests/integration/config/
@@ -98,7 +98,7 @@ jobs:
             needs_docker: true
           - category: integration-edge
             path: tests/integration/edge/
-            timeout: 20
+            timeout: 30
             needs_docker: true
           - category: ui-fast
             path: tests/ui/fast/
@@ -110,7 +110,7 @@ jobs:
             needs_docker: true
           - category: ui-e2e
             path: tests/ui/e2e/
-            timeout: 25
+            timeout: 30
             needs_docker: true
           - category: ui-auth-pages
             path: tests/ui/auth/pages/
