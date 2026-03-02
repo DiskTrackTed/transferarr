@@ -97,7 +97,7 @@ class DelugeClient(DownloadClientBase):
                 return self.web_authenticated
             elif self.connection_type == "rpc":
                 if not self.rpc_client or not self.is_connected():
-                    logger.info(f"Reconnecting to {self.name} deluge...")
+                    logger.debug(f"Reconnecting to {self.name} deluge...")
                     self._connect()
                 return self.is_connected()
             else:

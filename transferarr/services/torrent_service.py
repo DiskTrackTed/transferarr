@@ -469,13 +469,20 @@ class TorrentManager:
                     # (Don't wait for ready_to_remove - transfer torrent is no longer needed)
                     if torrent.transfer and torrent.transfer.get("hash") and not torrent.transfer.get("cleaned_up"):
                         transfer_hash = torrent.transfer["hash"]
-                        logger.info(f"Cleaning up transfer torrent {transfer_hash[:8]}...")
                         if self.torrent_transfer_handler:
+                            logger.debug(f"Cleaning up transfer torrent {transfer_hash[:8]}...")
                             self.torrent_transfer_handler.cleanup_transfer_torrents(
                                 torrent,
                                 source_client=torrent.home_client,
                                 target_client=torrent.target_client,
                             )
+                            logger.info(f"Transfer torrent cleaned up for {torrent.name}")
+                        else:
+                            logger.warning(
+                                f"Cannot clean up transfer torrent {transfer_hash[:8]} for {torrent.name}: "
+                                f"no transfer handler (tracker disabled). Transfer torrent may remain on clients."
+                            )
+                            torrent.transfer["cleaned_up"] = True
                     
                     # Check if ready to remove - if media_manager is None (not in queue anymore),
                     # assume it's safe to remove since Radarr/Sonarr already finished with it

@@ -55,7 +55,6 @@ class Torrent:
         self.current_file = ""
         self.current_file_count = 0
         self.total_files = 0
-        # Torrent-based transfer data
         self.transfer = transfer  # dict with hash, name, retry_count, etc.
         self._transfer_id = _transfer_id  # History service transfer ID
 
