@@ -532,12 +532,14 @@ class DelugeClient(DownloadClientBase):
     ) -> str:
         """Create a new torrent from existing files.
         
-        Creates torrent metadata directly (not using Deluge's async create_torrent)
-        and adds it to the session synchronously.
+        Uses Deluge's core.create_torrent with add_to_session=True, then polls
+        for the new torrent to appear in the session. Deluge 2.1.x returns None
+        from create_torrent (no return value), so we must discover the hash by
+        comparing torrent lists before and after creation.
         
         Args:
             path: Path to the file or directory to create torrent from
-            name: Name for the torrent (used in the info dict, affects hash)
+            name: Name for the torrent (used for logging, does not affect hash)
             trackers: List of tracker URLs
             private: Whether to create a private torrent (disables DHT/PEX)
             add_to_session: Whether to add the created torrent to Deluge
@@ -550,49 +552,22 @@ class DelugeClient(DownloadClientBase):
             ConnectionError: If not connected to Deluge
             Exception: If torrent creation fails
         """
-        from base64 import b64encode
+        import os
+        import time
         
         with self._lock:
             if not self.ensure_connected():
                 raise ConnectionError(f"Not connected to {self.name} deluge")
             
             try:
-                # Build torrent metadata manually
-                # This avoids Deluge's async create_torrent which doesn't return the hash
-                
-                piece_length = 16384  # 16KB pieces
-                
-                # Check if path is file or directory
-                if self.connection_type == "web":
-                    # For web, we need to use RPC to check path
-                    # This is a limitation - we'll assume it's a directory for now
-                    is_dir = True
-                else:
-                    # Use RPC to check if path exists and get file info
-                    # Deluge daemon runs on remote machine, so we can't use local os.path
-                    pass
-                
-                # Get files info via Deluge
-                # For now, use a simpler approach: query torrent info to get the file list
-                # Actually, the path is the data on disk, not an existing torrent
-                
-                # We need to read file contents to compute pieces
-                # But we can't do that remotely. The proper solution is to have Deluge
-                # create the torrent and poll for it.
-                
-                # Alternative: Use Deluge's create_torrent with a temp target file,
-                # wait for it to complete, then get the hash
+                piece_length = 262144  # 256KB pieces
                 tracker = trackers[0] if trackers else ""
-                
-                # Create a temp target path inside Deluge's config dir
-                import time
                 target = f"/config/transfer_{int(time.time() * 1000)}.torrent"
                 
-                # Get list of existing torrents BEFORE creating
-                # (so we can find the NEW one later, even if name matches existing)
-                import os
+                # The torrent name in Deluge will be the basename of the path
                 expected_name = os.path.basename(path.rstrip('/'))
                 
+                # Snapshot existing torrent hashes BEFORE creating the new one
                 if self.connection_type == "web":
                     result = self._send_web_request(
                         "web.update_ui",
@@ -605,6 +580,13 @@ class DelugeClient(DownloadClientBase):
                         decode_bytes(self.rpc_client.core.get_torrents_status({}, ['name'])).keys()
                     )
                 
+                logger.info(
+                    f"Creating transfer torrent for '{expected_name}' on {self.name} "
+                    f"({len(existing)} existing torrents)"
+                )
+                
+                # Call create_torrent with add_to_session=True
+                # Deluge 2.1.x returns None (no return value from _create_torrent_thread)
                 if self.connection_type == "web":
                     self._send_web_request(
                         "core.create_torrent",
@@ -636,11 +618,12 @@ class DelugeClient(DownloadClientBase):
                         add_to_session  # add_to_session
                     )
                 
-                # Poll for the NEW torrent to appear in the session
-                # The torrent name will be based on the path's basename
-                max_attempts = 30  # 30 seconds max
-                for attempt in range(max_attempts):
-                    time.sleep(1)
+                # Poll for the new torrent to appear in the session.
+                # We compare against the pre-existing snapshot to find the new hash.
+                max_wait = 60  # seconds
+                poll_interval = 1
+                for attempt in range(max_wait // poll_interval):
+                    time.sleep(poll_interval)
                     
                     if self.connection_type == "web":
                         result = self._send_web_request(
@@ -654,17 +637,28 @@ class DelugeClient(DownloadClientBase):
                             self.rpc_client.core.get_torrents_status({}, ['name'])
                         )
                     
-                    # Find the newly created torrent - must be NEW (not in existing) and match name
+                    # Find a NEW torrent (not in snapshot) whose name matches
                     for torrent_hash, info in torrents.items():
                         torrent_name = info.get('name', '')
                         if torrent_name == expected_name and torrent_hash not in existing:
-                            logger.info(f"Created torrent found: {expected_name} (hash: {torrent_hash[:8]}...)")
-                            # Apply label if requested
+                            logger.info(
+                                f"Created torrent found: {expected_name} "
+                                f"(hash: {torrent_hash[:8]}..., poll {attempt + 1}s)"
+                            )
                             if label:
                                 self._apply_label(torrent_hash, label)
                             return torrent_hash
+                    
+                    if attempt > 0 and (attempt + 1) % 10 == 0:
+                        logger.debug(
+                            f"Still waiting for torrent '{expected_name}' "
+                            f"({attempt + 1}s, {len(torrents)} torrents seen)"
+                        )
                 
-                raise Exception(f"Torrent creation timed out - torrent '{expected_name}' not found after {max_attempts}s")
+                raise Exception(
+                    f"Torrent creation timed out - '{expected_name}' not found "
+                    f"after {max_wait}s polling"
+                )
                 
             except Exception as e:
                 logger.error(f"Error creating torrent on {self.name}: {e}")

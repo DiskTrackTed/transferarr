@@ -68,7 +68,7 @@ class TestCreateTorrent:
             mock_rpc.core.create_torrent.assert_called_once_with(
                 "/downloads/movie.mkv",       # path
                 "http://localhost:6969/announce",  # tracker (primary)
-                16384,                         # piece_length
+                262144,                        # piece_length (256KB)
                 "",                            # comment
                 ANY,                           # target (dynamic timestamp)
                 [],                            # webseeds
