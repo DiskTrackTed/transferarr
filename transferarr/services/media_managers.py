@@ -57,6 +57,16 @@ class RadarrManager:
                                     match = torrent
                                     break
                             if match is None:
+                                # Skip transfer torrents that Radarr picked up from Deluge
+                                item_hash = item.download_id.lower()
+                                is_our_transfer = any(
+                                    t.transfer and t.transfer.get("hash", "").lower() == item_hash
+                                    for t in torrents
+                                )
+                                if is_our_transfer:
+                                    self.logger.debug(f"Skipping transfer torrent picked up by Radarr: {item.title}")
+                                    continue
+
                                 new_torrent = Torrent(
                                     name=item.title,
                                     id = item.download_id.lower(),
@@ -175,6 +185,16 @@ class SonarrManager:
                                     match = torrent
                                     break
                             if match is None:
+                                # Skip transfer torrents that Sonarr picked up from Deluge
+                                item_hash = item.download_id.lower()
+                                is_our_transfer = any(
+                                    t.transfer and t.transfer.get("hash", "").lower() == item_hash
+                                    for t in torrents
+                                )
+                                if is_our_transfer:
+                                    self.logger.debug(f"Skipping transfer torrent picked up by Sonarr: {item.title}")
+                                    continue
+
                                 new_torrent = Torrent(
                                     name=item.title,
                                     id = item.download_id.lower(),

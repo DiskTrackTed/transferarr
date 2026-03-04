@@ -1,5 +1,6 @@
 """Transfer history service using SQLite for persistence."""
 
+import logging
 import sqlite3
 import threading
 import time
@@ -7,6 +8,8 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
+
+logger = logging.getLogger("transferarr")
 
 
 def _utc_now() -> datetime:
@@ -71,6 +74,7 @@ class HistoryService:
                 bytes_transferred INTEGER DEFAULT 0,
                 status TEXT NOT NULL DEFAULT 'pending',
                 error_message TEXT,
+                transfer_method TEXT,
                 created_at TEXT NOT NULL,
                 started_at TEXT,
                 completed_at TEXT
@@ -83,6 +87,23 @@ class HistoryService:
             CREATE INDEX IF NOT EXISTS idx_transfers_hash ON transfers(torrent_hash);
         """)
         conn.commit()
+        
+        # Run migrations for existing databases
+        self._migrate_db(conn)
+    
+    def _migrate_db(self, conn):
+        """Run database migrations for schema changes.
+        
+        Adds columns that may not exist in older databases.
+        """
+        cursor = conn.execute("PRAGMA table_info(transfers)")
+        columns = {row[1] for row in cursor.fetchall()}
+        
+        # Migration: add transfer_method column (added in v0.x)
+        if 'transfer_method' not in columns:
+            conn.execute("ALTER TABLE transfers ADD COLUMN transfer_method TEXT")
+            conn.commit()
+            logger.info("Migration: added transfer_method column to transfers table")
     
     def _mark_interrupted_transfers(self):
         """Mark any pending/transferring records as failed on startup."""
@@ -105,7 +126,8 @@ class HistoryService:
         torrent,
         source_client: str,
         target_client: str,
-        connection_name: str
+        connection_name: str,
+        transfer_method: Optional[str] = None
     ) -> str:
         """Create a new transfer record.
         
@@ -114,6 +136,7 @@ class HistoryService:
             source_client: Name of source download client
             target_client: Name of target download client
             connection_name: Name of the transfer connection
+            transfer_method: Transfer method ('sftp', 'local', or 'torrent')
             
         Returns:
             Generated UUID for the transfer record
@@ -121,16 +144,10 @@ class HistoryService:
         transfer_id = str(uuid.uuid4())
         
         # Extract media info from torrent
-        media_manager = None
-        media_type = 'unknown'
-        if torrent.media_manager:
-            manager_type = type(torrent.media_manager).__name__
-            if 'Radarr' in manager_type:
-                media_manager = 'radarr'
-                media_type = 'movie'
-            elif 'Sonarr' in manager_type:
-                media_manager = 'sonarr'
-                media_type = 'episode'
+        manager_type = torrent.media_manager_type  # 'radarr', 'sonarr', or None
+        media_manager = manager_type
+        media_type_map = {'radarr': 'movie', 'sonarr': 'episode'}
+        media_type = media_type_map.get(manager_type, 'unknown')
         
         conn = self._get_connection()
         conn.execute(
@@ -138,8 +155,8 @@ class HistoryService:
             INSERT INTO transfers (
                 id, torrent_name, torrent_hash, source_client, target_client,
                 connection_name, media_type, media_manager, size_bytes,
-                bytes_transferred, status, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'pending', ?)
+                bytes_transferred, status, transfer_method, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'pending', ?, ?)
             """,
             (
                 transfer_id,
@@ -151,6 +168,7 @@ class HistoryService:
                 media_type,
                 media_manager,
                 getattr(torrent, 'size', None),
+                transfer_method,
                 _utc_now().isoformat()
             )
         )
@@ -215,21 +233,35 @@ class HistoryService:
         )
         conn.commit()
     
-    def complete_transfer(self, transfer_id: str):
+    def complete_transfer(self, transfer_id: str, final_bytes: Optional[int] = None):
         """Mark transfer as completed.
         
         Args:
             transfer_id: UUID of the transfer
+            final_bytes: If provided, update bytes_transferred with this
+                final value before marking complete
         """
         conn = self._get_connection()
-        conn.execute(
-            """
-            UPDATE transfers 
-            SET status = 'completed', completed_at = ?
-            WHERE id = ?
-            """,
-            (_utc_now().isoformat(), transfer_id)
-        )
+        
+        if final_bytes is not None:
+            # Update final byte count and mark complete in one operation
+            conn.execute(
+                """
+                UPDATE transfers 
+                SET status = 'completed', bytes_transferred = ?, completed_at = ?
+                WHERE id = ?
+                """,
+                (final_bytes, _utc_now().isoformat(), transfer_id)
+            )
+        else:
+            conn.execute(
+                """
+                UPDATE transfers 
+                SET status = 'completed', completed_at = ?
+                WHERE id = ?
+                """,
+                (_utc_now().isoformat(), transfer_id)
+            )
         conn.commit()
         
         # Clean up throttle tracking
@@ -283,6 +315,7 @@ class HistoryService:
         search: Optional[str] = None,
         start_date: Optional[str] = None,
         end_date: Optional[str] = None,
+        transfer_method: Optional[str] = None,
         page: int = 1,
         per_page: int = 25,
         sort: str = 'created_at',
@@ -297,6 +330,7 @@ class HistoryService:
             search: Search in torrent name
             start_date: Filter by created_at >= date (ISO format)
             end_date: Filter by created_at <= date (ISO format)
+            transfer_method: Filter by transfer method ('sftp', 'local', 'torrent')
             page: Page number (1-indexed)
             per_page: Items per page
             sort: Sort field (created_at, completed_at, size_bytes)
@@ -323,6 +357,10 @@ class HistoryService:
         if search:
             conditions.append("torrent_name LIKE ?")
             params.append(f"%{search}%")
+        
+        if transfer_method:
+            conditions.append("transfer_method = ?")
+            params.append(transfer_method)
         
         if start_date:
             conditions.append("created_at >= ?")

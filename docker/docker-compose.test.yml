@@ -2,12 +2,19 @@
 # - Tracker for torrent communication
 # - SFTP for file transfers
 # - Two Deluge instances (source and target)
+#
+# Image versions are pinned via env var defaults for deterministic CI.
+# To test with latest images, override the *_TAG env vars:
+#   DELUGE_TAG=latest RADARR_TAG=latest SONARR_TAG=latest \
+#     OPENSSH_TAG=latest ALPINE_TAG=latest \
+#     docker compose -f docker/docker-compose.test.yml up -d
 
 services:
   # ============== INFRASTRUCTURE ==============
   
   tracker:
-    image: lednerb/opentracker-docker
+    # Note: only 'latest' and 'pre-update' tags exist; no versioned tags available
+    image: lednerb/opentracker-docker:latest
     container_name: test-tracker
     ports:
       - "6969:6969/udp"
@@ -23,7 +30,7 @@ services:
       start_period: 5s
 
   sftp-server:
-    image: lscr.io/linuxserver/openssh-server:latest
+    image: lscr.io/linuxserver/openssh-server:${OPENSSH_TAG:-10.2_p1-r0-ls218}
     container_name: test-sftp
     environment:
       - PUID=1000
@@ -50,7 +57,8 @@ services:
   # ============== DOWNLOAD CLIENTS ==============
 
   deluge-source:
-    image: lscr.io/linuxserver/deluge:latest
+    # Pinned to 2.1.1 — Deluge 2.2.0 has a create_torrent bug (see docs/plans/006)
+    image: lscr.io/linuxserver/deluge:${DELUGE_TAG:-2.1.1-r10-ls324}
     container_name: test-deluge-source
     environment:
       - PUID=1000
@@ -63,10 +71,11 @@ services:
       - source-state:/config/state
       - ./services/deluge/auth:/config/auth
       - ./services/deluge/web.conf:/config/web.conf:ro
-      - ./services/deluge/enable-remote.sh:/custom-cont-init.d/enable-remote.sh:ro
+      - ./services/deluge/configure-deluge.sh:/custom-cont-init.d/configure-deluge.sh:ro
     ports:
       - "18112:8112"   # Web UI
       - "18846:58846"  # RPC
+      - "16881:6881"   # BitTorrent (for torrent-based transfers)
     networks:
       - test-network
     healthcheck:
@@ -77,7 +86,7 @@ services:
       start_period: 30s
 
   deluge-target:
-    image: lscr.io/linuxserver/deluge:latest
+    image: lscr.io/linuxserver/deluge:${DELUGE_TAG:-2.1.1-r10-ls324}
     container_name: test-deluge-target
     environment:
       - PUID=1000
@@ -89,10 +98,11 @@ services:
       - target-downloads:/downloads
       - ./services/deluge/auth:/config/auth
       - ./services/deluge/web.conf:/config/web.conf:ro
-      - ./services/deluge/enable-remote.sh:/custom-cont-init.d/enable-remote.sh:ro
+      - ./services/deluge/configure-deluge.sh:/custom-cont-init.d/configure-deluge.sh:ro
     ports:
       - "18113:8112"   # Web UI (mapped to different host port)
       - "18847:58846"  # RPC (mapped to different host port)
+      - "16882:6881"   # BitTorrent (for torrent-based transfers)
     networks:
       - test-network
     healthcheck:
@@ -103,7 +113,7 @@ services:
       start_period: 30s
 
   deluge-target-2:
-    image: lscr.io/linuxserver/deluge:latest
+    image: lscr.io/linuxserver/deluge:${DELUGE_TAG:-2.1.1-r10-ls324}
     container_name: test-deluge-target-2
     environment:
       - PUID=1000
@@ -115,10 +125,11 @@ services:
       - target2-downloads:/downloads
       - ./services/deluge/auth:/config/auth
       - ./services/deluge/web.conf:/config/web.conf:ro
-      - ./services/deluge/enable-remote.sh:/custom-cont-init.d/enable-remote.sh:ro
+      - ./services/deluge/configure-deluge.sh:/custom-cont-init.d/configure-deluge.sh:ro
     ports:
       - "18114:8112"   # Web UI (mapped to different host port)
       - "18848:58846"  # RPC (mapped to different host port)
+      - "16883:6881"   # BitTorrent (for torrent-based transfers)
     networks:
       - test-network
     healthcheck:
@@ -131,7 +142,7 @@ services:
   # ============== MEDIA MANAGERS ==============
 
   radarr:
-    image: lscr.io/linuxserver/radarr:latest
+    image: lscr.io/linuxserver/radarr:${RADARR_TAG:-6.0.4.10291-ls294}
     container_name: test-radarr
     environment:
       - PUID=1000
@@ -155,7 +166,7 @@ services:
       start_period: 60s
 
   sonarr:
-    image: lscr.io/linuxserver/sonarr:latest
+    image: lscr.io/linuxserver/sonarr:${SONARR_TAG:-4.0.16.2944-ls303}
     container_name: test-sonarr
     environment:
       - PUID=1000
@@ -228,7 +239,7 @@ services:
   # ============== SETUP CONTAINERS ==============
 
   fix-permissions:
-    image: alpine
+    image: alpine:${ALPINE_TAG:-3.21}
     container_name: test-fix-permissions
     volumes:
       - source-downloads:/source
@@ -285,6 +296,7 @@ services:
       - target2-downloads:/target2-downloads    # For local destination access (target 2)
     ports:
       - "10445:10444"  # Web UI (different host port to avoid conflicts)
+      - "16969:6969"   # Tracker (for torrent-based transfers)
     networks:
       - test-network
     depends_on:
@@ -337,6 +349,8 @@ services:
       - TRANSFERARR_PORT=10444
       - MOCK_INDEXER_HOST=mock-indexer
       - MOCK_INDEXER_PORT=9696
+      - TRACKER_HOST=transferarr
+      - TRACKER_PORT=6969
     volumes:
       - radarr-config:/radarr-config:ro
       - sonarr-config:/sonarr-config:ro

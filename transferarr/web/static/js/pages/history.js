@@ -13,7 +13,8 @@ const state = {
         target: '',
         search: '',
         from_date: '',
-        to_date: ''
+        to_date: '',
+        transfer_method: ''
     },
     pagination: {
         page: 1,
@@ -72,6 +73,13 @@ function initializeFilters() {
     // Target filter
     document.getElementById('filter-target').addEventListener('change', (e) => {
         state.filters.target = e.target.value;
+        state.pagination.page = 1;
+        fetchTransfers();
+    });
+    
+    // Transfer method filter
+    document.getElementById('filter-method').addEventListener('change', (e) => {
+        state.filters.transfer_method = e.target.value;
         state.pagination.page = 1;
         fetchTransfers();
     });
@@ -309,7 +317,8 @@ function clearFilters() {
         target: '',
         search: '',
         from_date: '',
-        to_date: ''
+        to_date: '',
+        transfer_method: ''
     };
     state.pagination.page = 1;
     
@@ -317,6 +326,7 @@ function clearFilters() {
     document.getElementById('filter-status').value = '';
     document.getElementById('filter-source').value = '';
     document.getElementById('filter-target').value = '';
+    document.getElementById('filter-method').value = '';
     document.getElementById('filter-search').value = '';
     document.getElementById('filter-from-date').value = '';
     document.getElementById('filter-to-date').value = '';
@@ -452,6 +462,7 @@ async function fetchTransfers(isBackgroundRefresh = false) {
         if (state.filters.search) params.append('search', state.filters.search);
         if (state.filters.from_date) params.append('from_date', state.filters.from_date);
         if (state.filters.to_date) params.append('to_date', state.filters.to_date);
+        if (state.filters.transfer_method) params.append('transfer_method', state.filters.transfer_method);
         
         const response = await fetch(`/api/v1/transfers?${params}`);
         const data = await response.json();
@@ -501,7 +512,7 @@ function showError(message) {
     const tbody = document.getElementById('history-tbody');
     tbody.innerHTML = `
         <tr class="error-row">
-            <td colspan="7">
+            <td colspan="8">
                 <i class="fas fa-exclamation-triangle"></i> ${message}
             </td>
         </tr>
@@ -536,6 +547,7 @@ function updateTable() {
                 <span class="route-arrow">→</span>
                 <span class="client-name">${escapeHtml(transfer.target_client)}</span>
             </td>
+            <td class="type-cell">${formatTransferMethod(transfer.transfer_method)}</td>
             <td class="size-cell">${formatBytes(transfer.bytes_transferred)}</td>
             <td class="duration-cell">${formatDuration(transfer.started_at, transfer.completed_at, transfer.status)}</td>
             <td>${formatStatus(transfer.status)}</td>
@@ -668,6 +680,28 @@ function formatDate(dateString) {
         hour: '2-digit',
         minute: '2-digit'
     });
+}
+
+/**
+ * Format transfer method as badge
+ */
+function formatTransferMethod(method) {
+    const methodConfig = {
+        'sftp': { icon: 'fa-server', label: 'SFTP', className: 'method-sftp' },
+        'local': { icon: 'fa-hdd', label: 'Local', className: 'method-local' },
+        'torrent': { icon: 'fa-magnet', label: 'Torrent', className: 'method-torrent' }
+    };
+    
+    if (!method) {
+        return '<span class="method-badge method-unknown">—</span>';
+    }
+    
+    const config = methodConfig[method] || { icon: 'fa-question', label: method, className: 'method-unknown' };
+    
+    return `<span class="method-badge ${config.className}">
+        <i class="fas ${config.icon}"></i>
+        ${config.label}
+    </span>`;
 }
 
 /**

@@ -92,11 +92,12 @@ class TestHistoryPageElements:
         headers = page.locator("#history-table thead th")
         expect(headers.nth(0)).to_contain_text("Name")
         expect(headers.nth(1)).to_contain_text("From")
-        expect(headers.nth(2)).to_contain_text("Transferred")
-        expect(headers.nth(3)).to_contain_text("Duration")
-        expect(headers.nth(4)).to_contain_text("Status")
-        expect(headers.nth(5)).to_contain_text("Date")
-        expect(headers.nth(6)).to_contain_text("Actions")
+        expect(headers.nth(2)).to_contain_text("Type")
+        expect(headers.nth(3)).to_contain_text("Transferred")
+        expect(headers.nth(4)).to_contain_text("Duration")
+        expect(headers.nth(5)).to_contain_text("Status")
+        expect(headers.nth(6)).to_contain_text("Date")
+        expect(headers.nth(7)).to_contain_text("Actions")
     
     def test_history_pagination_controls(self, page: Page, base_url: str):
         """Test that pagination controls are visible."""

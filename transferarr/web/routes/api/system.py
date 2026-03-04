@@ -36,15 +36,33 @@ def register_routes(bp):
                     version:
                       type: string
                       example: "0.1.0"
+                    tracker:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                        running:
+                          type: boolean
+                        port:
+                          type: integer
+                        active_transfers:
+                          type: integer
           500:
             description: Service is unhealthy
         """
         try:
             torrent_manager = current_app.config.get('TORRENT_MANAGER')
+            
+            # Get tracker status
+            tracker_status = {"enabled": False}
+            if torrent_manager and hasattr(torrent_manager, 'tracker') and torrent_manager.tracker:
+                tracker_status = torrent_manager.tracker.get_status()
+            
             return success_response({
                 "status": "healthy",
                 "torrent_manager": torrent_manager is not None,
-                "version": __version__
+                "version": __version__,
+                "tracker": tracker_status
             })
         except Exception as e:
             return error_response("UNHEALTHY", str(e), status_code=500)

@@ -4,10 +4,13 @@ import radarr
 import json
 import os
 from threading import Thread
+from typing import Optional
 from transferarr.clients.base import load_download_clients
 from transferarr.services.transfer_connection import TransferConnection
 from transferarr.models.torrent import Torrent, TorrentState
 from transferarr.services.media_managers import RadarrManager, SonarrManager
+from transferarr.services.tracker import BitTorrentTracker, create_tracker_from_config
+from transferarr.services.torrent_transfer import TorrentTransferHandler
 from time import sleep
 
 logger = logging.getLogger("transferarr")
@@ -26,13 +29,22 @@ class TorrentManager:
         self.history_service = history_service
         self.history_config = history_config or {}
         self.running = False
+        
+        # Tracker and torrent transfer handler
+        self.tracker: Optional[BitTorrentTracker] = None
+        self.torrent_transfer_handler: Optional[TorrentTransferHandler] = None
+        
         self.setup_media_managers(config)
         self.load_download_clients(config)
         # Migrate connections config if needed (array to dict)
         self._migrate_connections_config()
         self.load_connections(config)
+        # Set up tracker if enabled
+        self._setup_tracker(config)
         # Load saved torrent state (must be after media_managers and download_clients are loaded)
         self.torrents = self.load_torrents_state()
+        # Re-register any pending transfer hashes with tracker (tracker state is in-memory only)
+        self._reregister_pending_transfers()
 
     def setup_media_managers(self, config):
         """Set up the media managers."""
@@ -77,6 +89,108 @@ class TorrentManager:
             except KeyError as e:
                 logger.error(f"Failed to load connection '{name}': missing client {e}")
     
+    def _setup_tracker(self, config):
+        """Set up BitTorrent tracker and transfer handler if enabled.
+        
+        The tracker starts whenever enabled, even if no torrent connections
+        exist yet. This avoids a chicken-and-egg problem where adding the
+        first torrent connection would fail the test because the tracker
+        isn't running.
+        
+        Args:
+            config: Application configuration dict
+        """
+        tracker_config = config.get("tracker", {})
+        if not tracker_config.get("enabled", False):
+            logger.debug("BitTorrent tracker not enabled")
+            return
+        
+        try:
+            self.tracker = create_tracker_from_config(config)
+            if self.tracker:
+                self.tracker.start()
+                self.torrent_transfer_handler = TorrentTransferHandler(
+                    tracker=self.tracker,
+                    history_service=self.history_service,
+                    history_config=self.history_config
+                )
+                logger.info("BitTorrent tracker and transfer handler initialized")
+        except Exception as e:
+            logger.error(f"Failed to start tracker: {e}")
+            self.tracker = None
+            self.torrent_transfer_handler = None
+
+    def _reregister_pending_transfers(self):
+        """Re-register pending transfer hashes with tracker on startup.
+        
+        Tracker state is in-memory only, so after a restart all registered
+        hashes are lost. This method scans loaded torrents for any in TORRENT_*
+        states (or COPIED/TARGET_* with un-cleaned transfer data) and
+        re-registers their transfer hashes with the tracker.
+        
+        Also forces re-announce on both source and target clients so the
+        tracker learns the peers again.
+        """
+        if not self.tracker or not self.torrent_transfer_handler:
+            return
+        
+        torrent_states = {
+            TorrentState.TORRENT_CREATING,
+            TorrentState.TORRENT_TARGET_ADDING,
+            TorrentState.TORRENT_DOWNLOADING,
+            TorrentState.TORRENT_SEEDING,
+        }
+        
+        reregistered = 0
+        for torrent in self.torrents:
+            if not torrent.transfer or not torrent.transfer.get("hash"):
+                continue
+            
+            transfer_hash = torrent.transfer["hash"]
+            needs_registration = False
+            
+            # Torrents in active TORRENT_* states always need re-registration
+            if torrent.state in torrent_states:
+                needs_registration = True
+            # COPIED or TARGET_* with un-cleaned transfer data need registration
+            # so cleanup at TARGET_SEEDING can unregister properly
+            elif (torrent.state and 
+                  (torrent.state == TorrentState.COPIED or 
+                   str(torrent.state.name).startswith("TARGET")) and
+                  not torrent.transfer.get("cleaned_up")):
+                needs_registration = True
+            
+            if needs_registration:
+                try:
+                    info_hash_bytes = bytes.fromhex(transfer_hash)
+                    self.tracker.register_transfer(info_hash_bytes)
+                    reregistered += 1
+                    logger.debug(
+                        f"Re-registered transfer hash {transfer_hash[:8]}... "
+                        f"for {torrent.name} (state: {torrent.state.name})"
+                    )
+                    
+                    # Force re-announce on source and target so tracker learns peers
+                    if torrent.transfer.get("on_source") and torrent.home_client:
+                        try:
+                            torrent.home_client.force_reannounce(transfer_hash)
+                        except Exception as e:
+                            logger.debug(f"Failed to re-announce on source: {e}")
+                    
+                    if torrent.transfer.get("on_target") and torrent.target_client:
+                        try:
+                            torrent.target_client.force_reannounce(transfer_hash)
+                        except Exception as e:
+                            logger.debug(f"Failed to re-announce on target: {e}")
+                    
+                except Exception as e:
+                    logger.error(
+                        f"Failed to re-register transfer hash for {torrent.name}: {e}"
+                    )
+        
+        if reregistered > 0:
+            logger.info(f"Re-registered {reregistered} pending transfer(s) with tracker")
+
     def _migrate_connections_config(self):
         """Migrate connections from array format to dict format if needed.
         
@@ -169,6 +283,11 @@ class TorrentManager:
 
         for connection in self.connections.values():
             connection.shutdown()
+        
+        # Stop tracker if running
+        if self.tracker:
+            self.tracker.stop()
+            self.tracker = None
     
     def _run_loop(self):
         """Main loop for the torrent manager"""
@@ -196,6 +315,19 @@ class TorrentManager:
         for torrent in self.torrents:
             ### First case is a torrent that was just added to the radarr queue, state is RADARR_QUEUE
             if torrent.state in [TorrentState.MANAGER_QUEUED, TorrentState.UNCLAIMED, TorrentState.ERROR]:
+                ### Check if this is one of our transfer torrents (picked up by Radarr/Sonarr)
+                is_transfer = False
+                for other in self.torrents:
+                    if other is torrent:
+                        continue
+                    if other.transfer and other.transfer.get("hash", "").lower() == torrent.id.lower():
+                        logger.debug(f"Torrent {torrent.name} is a transfer torrent for {other.name}, skipping")
+                        is_transfer = True
+                        break
+                if is_transfer:
+                    torrents_to_remove.append(torrent)
+                    continue
+                
                 ### We need to find the home client for this torrent
                 found = False
                 for _, client in self.download_clients.items():
@@ -254,8 +386,20 @@ class TorrentManager:
                                     torrent.set_target_client_info(torrent.target_client.get_torrent_info(torrent))
                                     logger.debug(f"Torrent {torrent.name} already exists on {torrent.target_client.name}")
                                 else:
-                                    logger.debug(f"Torrent {torrent.name} not found on {torrent.target_client.name}, ready to copy")
-                                    connection.enqueue_copy_torrent(torrent)
+                                    logger.debug(f"Torrent {torrent.name} not found on {torrent.target_client.name}, ready to transfer")
+                                    # Check if this is a torrent-based transfer
+                                    if connection.is_torrent_transfer:
+                                        if self.torrent_transfer_handler:
+                                            torrent.state = TorrentState.TORRENT_CREATING
+                                            self.torrent_transfer_handler.handle_creating(torrent, connection)
+                                        else:
+                                            logger.error(
+                                                f"Torrent {torrent.name} needs torrent transfer but tracker is disabled. "
+                                                f"Enable the tracker or change connection '{connection.name}' to a file-based transfer."
+                                            )
+                                    else:
+                                        # SFTP/local file transfer
+                                        connection.enqueue_copy_torrent(torrent)
             ### If the torrent is in COPYING state, check if it's in the connection queue
             elif torrent.state == TorrentState.COPYING:
                 # Check if the torrent is in any connection's active transfers
@@ -278,6 +422,36 @@ class TorrentManager:
                     
                     if not connection_found:
                         logger.warning(f"Could not find appropriate connection for torrent {torrent.name} from {torrent.home_client.name} to {torrent.target_client.name}")
+            ### Handle torrent-based transfer states
+            elif torrent.state in [TorrentState.TORRENT_CREATING, TorrentState.TORRENT_TARGET_ADDING,
+                                   TorrentState.TORRENT_DOWNLOADING, TorrentState.TORRENT_SEEDING]:
+                if not self.torrent_transfer_handler:
+                    logger.error(f"Torrent {torrent.name} in {torrent.state.name} but no transfer handler available")
+                    torrent.state = TorrentState.ERROR
+                    continue
+                
+                # Find the connection for this torrent
+                connection = None
+                for conn in self.connections.values():
+                    if (conn.from_client.name == torrent.home_client.name and 
+                        conn.to_client.name == torrent.target_client.name):
+                        connection = conn
+                        break
+                
+                if not connection:
+                    logger.error(f"No connection found for torrent {torrent.name}")
+                    torrent.state = TorrentState.ERROR
+                    continue
+                
+                # Handle current state
+                if torrent.state == TorrentState.TORRENT_CREATING:
+                    self.torrent_transfer_handler.handle_creating(torrent, connection)
+                elif torrent.state == TorrentState.TORRENT_TARGET_ADDING:
+                    self.torrent_transfer_handler.handle_target_adding(torrent, connection)
+                elif torrent.state == TorrentState.TORRENT_DOWNLOADING:
+                    self.torrent_transfer_handler.handle_downloading(torrent, connection)
+                elif torrent.state == TorrentState.TORRENT_SEEDING:
+                    self.torrent_transfer_handler.handle_seeding(torrent, connection)
             ### If state begins with TARGET
             elif str(torrent.state.name).startswith("TARGET") or torrent.state == TorrentState.COPIED:
                 ### Gotta update its state first:
@@ -291,6 +465,25 @@ class TorrentManager:
                 logger.debug(f"Torrent {torrent.name} has target client {torrent.target_client.name}, state: {torrent.state.name}")
                 ### If it's seeding on the target, we can remove it from the home and list
                 if torrent.state == TorrentState.TARGET_SEEDING:
+                    # Clean up transfer torrent immediately once original is seeding on target
+                    # (Don't wait for ready_to_remove - transfer torrent is no longer needed)
+                    if torrent.transfer and torrent.transfer.get("hash") and not torrent.transfer.get("cleaned_up"):
+                        transfer_hash = torrent.transfer["hash"]
+                        if self.torrent_transfer_handler:
+                            logger.debug(f"Cleaning up transfer torrent {transfer_hash[:8]}...")
+                            self.torrent_transfer_handler.cleanup_transfer_torrents(
+                                torrent,
+                                source_client=torrent.home_client,
+                                target_client=torrent.target_client,
+                            )
+                            logger.info(f"Transfer torrent cleaned up for {torrent.name}")
+                        else:
+                            logger.warning(
+                                f"Cannot clean up transfer torrent {transfer_hash[:8]} for {torrent.name}: "
+                                f"no transfer handler (tracker disabled). Transfer torrent may remain on clients."
+                            )
+                            torrent.transfer["cleaned_up"] = True
+                    
                     # Check if ready to remove - if media_manager is None (not in queue anymore),
                     # assume it's safe to remove since Radarr/Sonarr already finished with it
                     ready_to_remove = True

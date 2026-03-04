@@ -45,6 +45,18 @@ class TestSettingsPageLoading:
         
         expect(settings_page.get_connections_tab()).to_be_attached()
 
+    def test_tracker_tab_exists(self, settings_page):
+        """Test that Tracker tab exists."""
+        settings_page.goto()
+        
+        expect(settings_page.get_tracker_tab()).to_be_attached()
+
+    def test_auth_tab_exists(self, settings_page):
+        """Test that Auth tab exists."""
+        settings_page.goto()
+        
+        expect(settings_page.get_auth_tab()).to_be_attached()
+
 
 class TestSettingsTabs:
     """Tests for settings tab functionality."""
@@ -113,6 +125,23 @@ class TestTabSwitching:
         settings_page.switch_to_connections_tab()
         
         expect(settings_page.page.locator(settings_page.CLIENTS_CONTENT)).to_be_hidden()
+
+    def test_switch_to_tracker_tab(self, settings_page):
+        """Test switching to tracker tab."""
+        settings_page.goto()
+        
+        settings_page.switch_to_tracker_tab()
+        
+        tracker_tab = settings_page.get_tracker_tab()
+        expect(tracker_tab).to_have_class(re.compile(r"active"))
+
+    def test_tracker_content_visible_after_switch(self, settings_page):
+        """Test that tracker content is visible after switching."""
+        settings_page.goto()
+        
+        settings_page.switch_to_tracker_tab()
+        
+        expect(settings_page.page.locator(settings_page.TAB_CONTENT_TRACKER)).to_be_visible()
 
 
 class TestClientsList:

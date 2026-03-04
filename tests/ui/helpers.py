@@ -246,6 +246,98 @@ def add_connection_via_ui(
     logger.debug(f"Added connection: {connection_name}")
 
 
+def add_torrent_connection_via_ui(
+    settings_page,
+    page,
+    connection_name: str,
+    from_client: str,
+    to_client: str,
+    destination_path: str | None = None,
+):
+    """Add a torrent-type connection via the UI.
+
+    This helper selects the Torrent transfer method, fills in the from/to clients,
+    optionally sets a destination path (expanding Advanced Options if provided),
+    tests the connection, and saves.
+    """
+    from playwright.sync_api import expect
+
+    settings_page.switch_to_connections_tab()
+    settings_page.wait_for_connections_loaded()
+    settings_page.open_add_connection_modal()
+
+    page.wait_for_timeout(UI_TIMEOUTS['dropdown_load'])
+
+    # Fill connection name
+    page.fill(settings_page.CONNECTION_NAME, connection_name)
+
+    # Select torrent transfer method
+    page.select_option(settings_page.TRANSFER_METHOD, "torrent")
+    page.wait_for_timeout(UI_TIMEOUTS['js_processing'])
+
+    # Select clients
+    page.select_option(settings_page.CONNECTION_FROM_SELECT, from_client)
+    page.select_option(settings_page.CONNECTION_TO_SELECT, to_client)
+
+    # Fill destination path if provided (expand advanced options first)
+    if destination_path:
+        page.click(settings_page.TORRENT_ADVANCED_TOGGLE)
+        page.wait_for_timeout(UI_TIMEOUTS['modal_animation'])
+        page.fill(settings_page.TORRENT_DESTINATION_PATH, destination_path)
+
+    # Test connection
+    with page.expect_response(
+        lambda r: "/api/v1/connections/test" in r.url,
+        timeout=UI_TIMEOUTS['api_response_slow']
+    ) as response_info:
+        settings_page.test_connection()
+
+    test_response = response_info.value.json()
+    test_result = test_response.get('data', test_response) if isinstance(test_response, dict) and 'data' in test_response else test_response
+    assert test_result.get("success"), f"Torrent connection test failed: {test_response}"
+    logger.debug("Torrent connection test passed")
+
+    # Save should be enabled after successful test
+    save_btn = page.locator(settings_page.SAVE_CONNECTION_BTN)
+    expect(save_btn).to_be_enabled(timeout=UI_TIMEOUTS['element_visible'])
+
+    # Save connection
+    with page.expect_response(
+        lambda r: "/api/v1/connections" in r.url and r.request.method == "POST",
+        timeout=UI_TIMEOUTS['api_response']
+    ) as response_info:
+        settings_page.save_connection()
+
+    save_response = response_info.value
+    assert save_response.status in (200, 201), f"Save torrent connection failed: {save_response.status}"
+
+    expect(page.locator(settings_page.CONNECTION_MODAL)).not_to_be_visible()
+    settings_page.wait_for_connections_loaded()
+
+    page.wait_for_selector(settings_page.CONNECTION_CARD, timeout=UI_TIMEOUTS['api_response'])
+    logger.debug(f"Added torrent connection: {connection_name}")
+
+
+def get_connection_config_via_api(connection_name: str) -> dict | None:
+    """Get a connection's config directly via API."""
+    try:
+        response = requests.get(
+            f"{TRANSFERARR_BASE_URL}/api/v1/connections",
+            timeout=10
+        )
+        if response.status_code != 200:
+            return None
+        data = unwrap_api_response(response.json())
+        if isinstance(data, list):
+            for conn in data:
+                if conn.get("name") == connection_name:
+                    return conn
+        return None
+    except Exception as e:
+        logger.error(f"Exception getting connection config for '{connection_name}': {e}")
+        return None
+
+
 def delete_connection_via_api(connection_name: str) -> bool:
     """Delete a connection directly via API for cleanup.
     

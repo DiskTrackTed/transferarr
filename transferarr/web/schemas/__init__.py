@@ -5,6 +5,7 @@ These schemas are used by the @validate_json decorator to validate
 incoming request data before it reaches the route handlers.
 """
 from marshmallow import Schema, fields, validate, validates_schema, ValidationError
+from transferarr.services.transfer_connection import is_torrent_transfer
 
 
 # =============================================================================
@@ -81,16 +82,73 @@ class TransferConfigSideSchema(Schema):
 
 
 class TransferConfigSchema(Schema):
-    """Schema for the transfer_config object."""
+    """Schema for the transfer_config object (file-transfer type).
+    
+    Validates the from/to nested structure used by SFTP/Local file transfers.
+    """
     # Use data_key to map Python's 'from_' to JSON's 'from'
     from_ = fields.Nested(TransferConfigSideSchema, required=True, data_key="from")
     to = fields.Nested(TransferConfigSideSchema, required=True)
 
 
+class TorrentTransferConfigSchema(Schema):
+    """Schema for torrent transfer configuration.
+    
+    Validates {type: "torrent", destination_path: "..."} structure.
+    destination_path is optional — defaults at runtime to the download client's path.
+    """
+    type = fields.Str(required=True, validate=validate.Equal("torrent"))
+    destination_path = fields.Str(load_default=None)
+
+
+def _validate_transfer_config(transfer_config: dict, require_paths: bool = True, path_data: dict = None):
+    """Validate transfer_config based on its type (torrent vs file transfer).
+    
+    Args:
+        transfer_config: The raw transfer_config dict
+        require_paths: Whether to require path fields (False for test schema)
+        path_data: Dict with path field values (for requiring them on file transfer)
+        
+    Raises:
+        ValidationError: If validation fails
+    """
+    if is_torrent_transfer(transfer_config):
+        # Validate torrent config shape
+        schema = TorrentTransferConfigSchema()
+        errors = schema.validate(transfer_config)
+        if errors:
+            raise ValidationError({"transfer_config": errors})
+    else:
+        # Validate file transfer config shape (from/to nesting)
+        schema = TransferConfigSchema()
+        errors = schema.validate(transfer_config)
+        if errors:
+            raise ValidationError({"transfer_config": errors})
+        
+        # For file transfers, path fields are required
+        if require_paths and path_data is not None:
+            missing = []
+            for field_name in [
+                "source_dot_torrent_path",
+                "source_torrent_download_path",
+                "destination_dot_torrent_tmp_dir",
+                "destination_torrent_download_path",
+            ]:
+                if not path_data.get(field_name):
+                    missing.append(field_name)
+            if missing:
+                raise ValidationError({
+                    f: ["Missing data for required field."]
+                    for f in missing
+                })
+
+
 class ConnectionSchema(Schema):
     """Schema for POST /api/v1/connections
     
-    Phase 4: name is required and used as unique identifier.
+    Supports both file-transfer (SFTP/Local) and torrent (P2P) config shapes.
+    The discriminator is transfer_config.type: if "torrent", path fields are ignored.
+    Otherwise, the existing from/to nested structure is validated with required path fields.
     """
     name = fields.Str(
         required=True, 
@@ -102,11 +160,22 @@ class ConnectionSchema(Schema):
     # Use data_key to map Python's 'from_' to JSON's 'from'
     from_ = fields.Str(required=True, data_key="from")
     to = fields.Str(required=True)
-    transfer_config = fields.Nested(TransferConfigSchema, required=True)
-    source_dot_torrent_path = fields.Str(required=True)
-    source_torrent_download_path = fields.Str(required=True)
-    destination_dot_torrent_tmp_dir = fields.Str(required=True)
-    destination_torrent_download_path = fields.Str(required=True)
+    transfer_config = fields.Dict(required=True)
+    # Path fields: required for file transfers, ignored for torrent transfers
+    source_dot_torrent_path = fields.Str(load_default=None)
+    source_torrent_download_path = fields.Str(load_default=None)
+    destination_dot_torrent_tmp_dir = fields.Str(load_default=None)
+    destination_torrent_download_path = fields.Str(load_default=None)
+
+    @validates_schema
+    def validate_transfer_config(self, data, **kwargs):
+        """Conditionally validate transfer_config and path fields based on transfer type."""
+        transfer_config = data.get("transfer_config", {})
+        _validate_transfer_config(
+            transfer_config,
+            require_paths=True,
+            path_data=data,
+        )
 
 
 class ConnectionUpdateSchema(Schema):
@@ -115,6 +184,8 @@ class ConnectionUpdateSchema(Schema):
     Similar to ConnectionSchema but:
     - name is optional (only provided for renaming)
     - Connection identified by URL path parameter
+    
+    Supports both file-transfer and torrent config shapes.
     """
     name = fields.Str(
         load_default=None,
@@ -126,22 +197,43 @@ class ConnectionUpdateSchema(Schema):
     # Use data_key to map Python's 'from_' to JSON's 'from'
     from_ = fields.Str(required=True, data_key="from")
     to = fields.Str(required=True)
-    transfer_config = fields.Nested(TransferConfigSchema, required=True)
-    source_dot_torrent_path = fields.Str(required=True)
-    source_torrent_download_path = fields.Str(required=True)
-    destination_dot_torrent_tmp_dir = fields.Str(required=True)
-    destination_torrent_download_path = fields.Str(required=True)
+    transfer_config = fields.Dict(required=True)
+    # Path fields: required for file transfers, ignored for torrent transfers
+    source_dot_torrent_path = fields.Str(load_default=None)
+    source_torrent_download_path = fields.Str(load_default=None)
+    destination_dot_torrent_tmp_dir = fields.Str(load_default=None)
+    destination_torrent_download_path = fields.Str(load_default=None)
+
+    @validates_schema
+    def validate_transfer_config(self, data, **kwargs):
+        """Conditionally validate transfer_config and path fields based on transfer type."""
+        transfer_config = data.get("transfer_config", {})
+        _validate_transfer_config(
+            transfer_config,
+            require_paths=True,
+            path_data=data,
+        )
 
 
 class ConnectionTestSchema(Schema):
     """Schema for POST /api/v1/connections/test
     
-    Phase 4.5: connection_name is optional for stored password lookup when editing.
+    Supports both file-transfer and torrent config shapes.
+    Path fields are NOT required for test (not needed to test connectivity).
     """
     connection_name = fields.Str(load_default=None)  # Optional - for stored password lookup
     from_ = fields.Str(required=True, data_key="from")
     to = fields.Str(required=True)
-    transfer_config = fields.Nested(TransferConfigSchema, required=True)
+    transfer_config = fields.Dict(required=True)
+
+    @validates_schema
+    def validate_transfer_config(self, data, **kwargs):
+        """Validate transfer_config shape without requiring path fields."""
+        transfer_config = data.get("transfer_config", {})
+        _validate_transfer_config(
+            transfer_config,
+            require_paths=False,
+        )
 
 
 # =============================================================================

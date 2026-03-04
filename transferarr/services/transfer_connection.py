@@ -10,6 +10,65 @@ import threading
 
 logger = logging.getLogger(__name__)
 
+# Transfer type constants
+TRANSFER_TYPE_SFTP = "sftp"
+TRANSFER_TYPE_TORRENT = "torrent"
+DEFAULT_TRANSFER_TYPE = TRANSFER_TYPE_SFTP
+
+
+def test_torrent_client_connectivity(from_client, to_client) -> list:
+    """Test that both download clients are reachable for a torrent transfer.
+    
+    Shared helper used by both TransferConnection.test_connection() (runtime)
+    and ConnectionService.test_connection() (settings UI).
+    
+    Args:
+        from_client: Source download client instance
+        to_client: Target download client instance
+        
+    Returns:
+        List of dicts with component, success, and message for each client.
+    """
+    details = []
+    
+    for role, client in [("Source", from_client), ("Target", to_client)]:
+        try:
+            if client.ensure_connected():
+                details.append({"component": f"{role}: {client.name}", "success": True, "message": "Connected"})
+            else:
+                details.append({"component": f"{role}: {client.name}", "success": False, "message": "Could not connect — check host, port, and credentials"})
+        except Exception as e:
+            details.append({"component": f"{role}: {client.name}", "success": False, "message": str(e)})
+    
+    return details
+
+
+def get_transfer_type(transfer_config: dict) -> str:
+    """Get the transfer type from config, defaulting to SFTP for backward compatibility.
+    
+    Args:
+        transfer_config: The transfer_config dict from connection config
+        
+    Returns:
+        Transfer type string ("sftp" or "torrent")
+    """
+    if not transfer_config:
+        return DEFAULT_TRANSFER_TYPE
+    return transfer_config.get("type", DEFAULT_TRANSFER_TYPE)
+
+
+def is_torrent_transfer(transfer_config: dict) -> bool:
+    """Check if the transfer config specifies torrent-based transfer.
+    
+    Args:
+        transfer_config: The transfer_config dict from connection config
+        
+    Returns:
+        True if torrent-based transfer, False for SFTP
+    """
+    return get_transfer_type(transfer_config) == TRANSFER_TYPE_TORRENT
+
+
 class TransferConnection:
     max_transfers = 3
     
@@ -27,17 +86,56 @@ class TransferConnection:
         self.history_config = history_config or {}
         self.track_progress = self.history_config.get("track_progress", True)
         
+        # Transfer type (sftp or torrent)
+        self.transfer_type = get_transfer_type(self.transfer_config)
+        logger.debug(f"Connection '{name}' transfer_config={self.transfer_config}, transfer_type={self.transfer_type}")
+        
+        # For torrent transfers, read destination_path from transfer_config
+        if self.is_torrent_transfer and self.transfer_config:
+            torrent_dest = self.transfer_config.get("destination_path")
+            if torrent_dest:
+                self.destination_torrent_download_path = torrent_dest
+        
         # Create instance-level thread pool and tracking variables
         self._transfer_executor = ThreadPoolExecutor(max_workers=self.max_transfers)
         self._active_transfers = {}
         self._lock = threading.Lock()
     
-    def setup_transfer_clients(self):
-        # This method is now a no-op, but kept for compatibility
-        pass
+    @property
+    def is_torrent_transfer(self) -> bool:
+        """Check if this connection uses torrent-based transfer."""
+        return self.transfer_type == TRANSFER_TYPE_TORRENT
+    
+    def get_history_transfer_method(self) -> str:
+        """Get the transfer method string for history records.
+        
+        Returns:
+            'torrent' for torrent transfers, 'sftp' if any side uses SFTP,
+            'local' if both sides are local.
+        """
+        if self.is_torrent_transfer:
+            return 'torrent'
+        
+        # File transfer: check from/to types
+        if self.transfer_config:
+            from_type = self.transfer_config.get('from', {}).get('type', 'local')
+            to_type = self.transfer_config.get('to', {}).get('type', 'local')
+            if from_type == 'sftp' or to_type == 'sftp':
+                return 'sftp'
+        
+        return 'local'
     
     def get_transfer_client(self):
-        """Create and return a new transfer client instance"""
+        """Create and return a new transfer client instance.
+        
+        Raises:
+            RuntimeError: If called on a torrent-type connection (no filesystem access)
+        """
+        if self.is_torrent_transfer:
+            raise RuntimeError(
+                f"Cannot create transfer client for torrent connection '{self.name}'. "
+                "Torrent transfers use BitTorrent P2P, not filesystem access."
+            )
         from_config = self.config["transfer_config"]["from"]
         to_config = self.config["transfer_config"]["to"]
         return get_transfer_client(from_config, to_config)
@@ -58,7 +156,8 @@ class TransferConnection:
                     torrent=torrent,
                     source_client=self.from_client.name,
                     target_client=self.to_client.name,
-                    connection_name=self.name
+                    connection_name=self.name,
+                    transfer_method=self.get_history_transfer_method()
                 )
                 torrent._transfer_id = transfer_id  # Attach for later updates
             
@@ -81,7 +180,7 @@ class TransferConnection:
         dot_torrent_file_path = str(Path(self.source_dot_torrent_path).joinpath(f"{torrent.id}.torrent"))
         
         # Get transfer_id for history tracking
-        transfer_id = getattr(torrent, '_transfer_id', None)
+        transfer_id = torrent._transfer_id
 
         # Create a new transfer client for this thread
         transfer_client = self.get_transfer_client()
@@ -177,7 +276,14 @@ class TransferConnection:
         return total_count
     
     def test_connection(self):
-        """Test the connection to the transfer client"""
+        """Test the connection to the transfer client.
+        
+        For torrent connections: tests that both download clients are reachable.
+        For file connections: tests SFTP/local filesystem connectivity.
+        """
+        if self.is_torrent_transfer:
+            return self._test_torrent_connection()
+        
         try:
             transfer_client = self.get_transfer_client()
             transfer_client.test_connection()
@@ -189,3 +295,14 @@ class TransferConnection:
         except Exception as e:
             logger.debug(f"Connection test failed for {self.from_client.name} to {self.to_client.name}: {e}")
             return {"success": False, "message": str(e)}
+    
+    def _test_torrent_connection(self):
+        """Test a torrent-type connection by verifying both clients are reachable."""
+        details = test_torrent_client_connectivity(self.from_client, self.to_client)
+        
+        failed = [d for d in details if not d["success"]]
+        if failed:
+            summary = "; ".join(f"{d['component']}: {d['message']}" for d in failed)
+            return {"success": False, "message": summary, "details": details}
+        
+        return {"success": True, "message": "Clients reachable", "details": details}

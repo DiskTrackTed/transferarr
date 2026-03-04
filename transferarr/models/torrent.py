@@ -23,6 +23,10 @@ class TorrentState(Enum):
     TARGET_ERROR = 19
     ERROR = 20
     MISSING = 21
+    TORRENT_CREATING = 30
+    TORRENT_TARGET_ADDING = 31
+    TORRENT_DOWNLOADING = 32
+    TORRENT_SEEDING = 33
 
 class Torrent:
     _state = None
@@ -32,7 +36,8 @@ class Torrent:
     def __init__(self, name=None, id=None, state=None, 
                  home_client=None, target_client=None,
                  home_client_info=None, home_client_name=None, target_client_info=None, 
-                 target_client_name=None, save_callback=None, media_manager=None):
+                 target_client_name=None, save_callback=None, media_manager=None,
+                 transfer=None, _transfer_id=None):
         self.name = name
         self.id = id
         self.state = state
@@ -50,6 +55,8 @@ class Torrent:
         self.current_file = ""
         self.current_file_count = 0
         self.total_files = 0
+        self.transfer = transfer  # dict with hash, name, retry_count, etc.
+        self._transfer_id = _transfer_id  # History service transfer ID
 
     def set_home_client_info(self, home_client_info):
         self.home_client_info = home_client_info
@@ -76,6 +83,23 @@ class Torrent:
         return f"{self.name} - {self.id}: - {self.state.name if self.state else None}"
 
     @property
+    def _is_torrent_transfer_state(self) -> bool:
+        """Whether the torrent is currently in a torrent-based transfer state."""
+        return self.state is not None and self.state.name.startswith("TORRENT_")
+
+    @property
+    def media_manager_type(self):
+        """Get the media manager type string ('radarr', 'sonarr', or None)."""
+        if not self.media_manager:
+            return None
+        manager_class = type(self.media_manager).__name__
+        if 'Radarr' in manager_class:
+            return 'radarr'
+        elif 'Sonarr' in manager_class:
+            return 'sonarr'
+        return None
+
+    @property
     def state(self):
         return self._state
 
@@ -87,16 +111,7 @@ class Torrent:
 
     def to_dict(self):
         """Convert the Torrent object to a dictionary."""
-        # Determine media_manager_type from the media_manager instance
-        media_manager_type = None
-        if self.media_manager:
-            manager_class = type(self.media_manager).__name__
-            if 'Radarr' in manager_class:
-                media_manager_type = 'radarr'
-            elif 'Sonarr' in manager_class:
-                media_manager_type = 'sonarr'
-        
-        return {
+        result = {
             "name": self.name,
             "id": self.id,
             "state": self.state.name if self.state else None,
@@ -104,14 +119,61 @@ class Torrent:
             "home_client_info": self.home_client_info,
             "target_client_info": self.target_client_info,
             "target_client_name": self.target_client_name,
-            "progress": self.progress,
-            "size": self.size,
-            "transfer_speed": self.transfer_speed,
+            "progress": self._get_display_progress(),
+            "size": self._get_display_size(),
+            "transfer_speed": self._get_display_transfer_speed(),
             "current_file": self.current_file,
             "current_file_count": self.current_file_count,
             "total_files": self.total_files,
-            "media_manager_type": media_manager_type,
+            "media_manager_type": self.media_manager_type,
         }
+        
+        # Include transfer data if present (for torrent-based transfers)
+        if self.transfer:
+            result["transfer"] = self.transfer
+        
+        # Include history transfer ID if present (survives restarts)
+        if self._transfer_id is not None:
+            result["_transfer_id"] = self._transfer_id
+        
+        return result
+    
+    def _get_display_progress(self) -> int:
+        """Get the progress value to display in the API.
+        
+        For torrent-based transfers (TORRENT_* states), use transfer progress.
+        Otherwise, use home client progress.
+        """
+        if self._is_torrent_transfer_state:
+            if self.transfer:
+                bytes_downloaded = self.transfer.get("bytes_downloaded", 0)
+                total_size = self.transfer.get("total_size", 0)
+                if total_size > 0:
+                    return int((bytes_downloaded / total_size) * 100)
+                return 0
+        return self.progress
+    
+    def _get_display_size(self) -> int:
+        """Get the size value to display in the API.
+        
+        For torrent-based transfers (TORRENT_* states), use transfer total_size.
+        Otherwise, use home client size.
+        """
+        if self._is_torrent_transfer_state:
+            if self.transfer and self.transfer.get("total_size"):
+                return self.transfer.get("total_size", 0)
+        return self.size
+    
+    def _get_display_transfer_speed(self) -> float:
+        """Get the transfer speed to display in the API.
+        
+        For torrent-based transfers (TORRENT_* states), use transfer download_rate.
+        Otherwise, use SFTP transfer speed.
+        """
+        if self._is_torrent_transfer_state:
+            if self.transfer:
+                return self.transfer.get("download_rate", 0)
+        return self.transfer_speed
 
     @classmethod
     def from_dict(cls, data, download_clients, media_managers=None, save_callback=None):
@@ -148,6 +210,8 @@ class Torrent:
             target_client_name=data.get("target_client_name"),
             save_callback=save_callback,
             media_manager=media_manager,
+            transfer=data.get("transfer"),  # Restore transfer data if present
+            _transfer_id=data.get("_transfer_id"),  # Restore history transfer ID
         )
         torrent.transfer_speed = data.get("transfer_speed", 0)
         torrent.progress = data.get("progress", 0)

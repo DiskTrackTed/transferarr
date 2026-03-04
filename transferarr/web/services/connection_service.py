@@ -1,14 +1,19 @@
 """
 Service for transfer connection CRUD operations.
 """
-from transferarr.services.transfer_connection import TransferConnection
+from transferarr.services.transfer_connection import TransferConnection, test_torrent_client_connectivity, is_torrent_transfer
 from . import NotFoundError, ConflictError, ConfigSaveError
 import copy
 
 
 def _mask_sftp_passwords(transfer_config: dict) -> dict:
-    """Deep copy transfer_config and mask any SFTP passwords."""
+    """Deep copy transfer_config and mask any SFTP passwords.
+    
+    Torrent configs have no from/to keys and no passwords to mask.
+    """
     safe_config = copy.deepcopy(transfer_config)
+    if "from" not in safe_config:
+        return safe_config
     if (safe_config.get("from", {}).get("sftp") or {}).get("password"):
         safe_config["from"]["sftp"]["password"] = "***"
     if (safe_config.get("to", {}).get("sftp") or {}).get("password"):
@@ -38,20 +43,31 @@ class ConnectionService:
         """Get all connections with masked passwords and runtime stats."""
         connections_data = []
         for name, connection in self.torrent_manager.connections.items():
-            connections_data.append({
+            # Determine transfer_type for API response:
+            # runtime transfer_type is "sftp" for all file transfers, "torrent" for torrent
+            # normalize "sftp" -> "file" for the API since SFTP/local is a config detail
+            transfer_type = "torrent" if connection.is_torrent_transfer else "file"
+            
+            conn_data = {
                 "name": name,
                 "from": connection.from_client.name,
                 "to": connection.to_client.name,
-                "source_dot_torrent_path": connection.source_dot_torrent_path,
-                "source_torrent_download_path": connection.source_torrent_download_path,
-                "destination_dot_torrent_tmp_dir": connection.destination_dot_torrent_tmp_dir,
-                "destination_torrent_download_path": connection.destination_torrent_download_path,
                 "transfer_config": _mask_sftp_passwords(connection.transfer_config),
+                "transfer_type": transfer_type,
                 "active_transfers": connection.get_active_transfers_count(),
                 "max_transfers": connection.max_transfers,
                 "total_transfers": connection.get_total_transfers_count(),
                 "status": "active"
-            })
+            }
+            
+            # Include path fields only for file transfers
+            if not connection.is_torrent_transfer:
+                conn_data["source_dot_torrent_path"] = connection.source_dot_torrent_path
+                conn_data["source_torrent_download_path"] = connection.source_torrent_download_path
+                conn_data["destination_dot_torrent_tmp_dir"] = connection.destination_dot_torrent_tmp_dir
+                conn_data["destination_torrent_download_path"] = connection.destination_torrent_download_path
+            
+            connections_data.append(conn_data)
         return connections_data
     
     def add_connection(self, data: dict) -> dict:
@@ -89,11 +105,14 @@ class ConnectionService:
             "from": from_client,
             "to": to_client,
             "transfer_config": transfer_config,
-            "source_dot_torrent_path": data["source_dot_torrent_path"],
-            "source_torrent_download_path": data["source_torrent_download_path"],
-            "destination_dot_torrent_tmp_dir": data["destination_dot_torrent_tmp_dir"],
-            "destination_torrent_download_path": data["destination_torrent_download_path"]
         }
+        
+        # Include path fields only for file transfers
+        if not is_torrent_transfer(transfer_config):
+            connection_config["source_dot_torrent_path"] = data["source_dot_torrent_path"]
+            connection_config["source_torrent_download_path"] = data["source_torrent_download_path"]
+            connection_config["destination_dot_torrent_tmp_dir"] = data["destination_dot_torrent_tmp_dir"]
+            connection_config["destination_torrent_download_path"] = data["destination_torrent_download_path"]
         
         # Update config
         updated_config = dict(self.torrent_manager.config)
@@ -155,19 +174,23 @@ class ConnectionService:
         updated_config = dict(self.torrent_manager.config)
         existing_conn_config = updated_config.get("connections", {}).get(actual_name, {})
         
-        # Preserve SFTP passwords if masked/empty
-        transfer_config = self._preserve_sftp_passwords(transfer_config, existing_conn_config)
+        # Preserve SFTP passwords if masked/empty (only for file transfers)
+        if not is_torrent_transfer(transfer_config):
+            transfer_config = self._preserve_sftp_passwords(transfer_config, existing_conn_config)
         
         # Build config
         connection_config = {
             "from": from_client,
             "to": to_client,
             "transfer_config": transfer_config,
-            "source_dot_torrent_path": data["source_dot_torrent_path"],
-            "source_torrent_download_path": data["source_torrent_download_path"],
-            "destination_dot_torrent_tmp_dir": data["destination_dot_torrent_tmp_dir"],
-            "destination_torrent_download_path": data["destination_torrent_download_path"]
         }
+        
+        # Include path fields only for file transfers
+        if not is_torrent_transfer(transfer_config):
+            connection_config["source_dot_torrent_path"] = data["source_dot_torrent_path"]
+            connection_config["source_torrent_download_path"] = data["source_torrent_download_path"]
+            connection_config["destination_dot_torrent_tmp_dir"] = data["destination_dot_torrent_tmp_dir"]
+            connection_config["destination_torrent_download_path"] = data["destination_torrent_download_path"]
         
         # Handle rename
         if actual_name != final_name:
@@ -219,6 +242,9 @@ class ConnectionService:
     def test_connection(self, data: dict) -> dict:
         """Test a connection without saving.
         
+        For file transfers: creates a temporary TransferConnection and tests SFTP/local connectivity.
+        For torrent transfers: verifies both clients are reachable and tracker is configured/running.
+        
         Args:
             data: Dict containing from, to, transfer_config, and optional connection_name
             
@@ -238,6 +264,14 @@ class ConnectionService:
         if to_client not in self.torrent_manager.download_clients:
             raise NotFoundError("Client", to_client)
         
+        from_client_obj = self.torrent_manager.download_clients[from_client]
+        to_client_obj = self.torrent_manager.download_clients[to_client]
+        
+        # Torrent transfer: check clients + tracker (no filesystem access needed)
+        if is_torrent_transfer(transfer_config):
+            return self._test_torrent_connection(from_client_obj, to_client_obj)
+        
+        # File transfer: create temp TransferConnection and test SFTP/local connectivity
         # Look up stored passwords if editing
         if existing_name:
             actual_name, _ = _find_connection_by_name(self.torrent_manager.connections, existing_name)
@@ -245,13 +279,50 @@ class ConnectionService:
                 stored_config = self.torrent_manager.config.get("connections", {}).get(actual_name, {})
                 transfer_config = self._preserve_sftp_passwords(transfer_config, stored_config)
         
-        from_client_obj = self.torrent_manager.download_clients[from_client]
-        to_client_obj = self.torrent_manager.download_clients[to_client]
-        
         test_config = {"from": from_client, "to": to_client, "transfer_config": transfer_config}
         temp_connection = TransferConnection("test-connection", test_config, from_client_obj, to_client_obj)
         
         return temp_connection.test_connection()
+    
+    def _test_torrent_connection(self, from_client, to_client) -> dict:
+        """Test a torrent-type connection by checking clients and tracker.
+        
+        Uses the shared client connectivity helper, then appends the
+        tracker status check (only available in the service layer).
+        
+        Returns:
+            Dict with success (bool), message (str), and details (list of component results)
+        """
+        # Check both download clients (shared with TransferConnection)
+        details = test_torrent_client_connectivity(from_client, to_client)
+        
+        # Check tracker (service-layer only — TransferConnection doesn't have tracker access)
+        tracker = getattr(self.torrent_manager, 'tracker', None)
+        if not tracker:
+            details.append({
+                "component": "Tracker",
+                "success": False,
+                "message": "Not configured — enable the tracker in Settings"
+            })
+        elif not tracker.is_running:
+            details.append({
+                "component": "Tracker",
+                "success": False,
+                "message": f"Configured on port {tracker.port} but not running"
+            })
+        else:
+            details.append({
+                "component": "Tracker",
+                "success": True,
+                "message": f"Running on port {tracker.port}"
+            })
+        
+        failed = [d for d in details if not d["success"]]
+        if failed:
+            summary = "; ".join(f"{d['component']}: {d['message']}" for d in failed)
+            return {"success": False, "message": summary, "details": details}
+        
+        return {"success": True, "message": "All components reachable", "details": details}
     
     def _preserve_sftp_passwords(self, transfer_config: dict, existing_config: dict) -> dict:
         """Preserve SFTP passwords if new value is masked or empty."""

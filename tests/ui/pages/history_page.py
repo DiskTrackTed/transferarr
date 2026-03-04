@@ -25,6 +25,7 @@ class HistoryPage(BasePage):
     # Filter selectors
     FILTERS_CARD = ".filters-card"
     FILTER_STATUS = "#filter-status"
+    FILTER_METHOD = "#filter-method"
     FILTER_SOURCE = "#filter-source"
     FILTER_TARGET = "#filter-target"
     FILTER_SEARCH = "#filter-search"
@@ -126,6 +127,10 @@ class HistoryPage(BasePage):
         """Set the status filter dropdown."""
         self.page.locator(self.FILTER_STATUS).select_option(status)
     
+    def set_method_filter(self, method: str) -> None:
+        """Set the transfer method filter dropdown."""
+        self.page.locator(self.FILTER_METHOD).select_option(method)
+    
     def set_source_filter(self, source: str) -> None:
         """Set the source client filter dropdown."""
         self.page.locator(self.FILTER_SOURCE).select_option(source)
@@ -154,6 +159,7 @@ class HistoryPage(BasePage):
         """Get current filter values."""
         return {
             "status": self.page.locator(self.FILTER_STATUS).input_value(),
+            "method": self.page.locator(self.FILTER_METHOD).input_value(),
             "source": self.page.locator(self.FILTER_SOURCE).input_value(),
             "target": self.page.locator(self.FILTER_TARGET).input_value(),
             "search": self.page.locator(self.FILTER_SEARCH).input_value(),

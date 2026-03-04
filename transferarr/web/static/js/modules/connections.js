@@ -177,10 +177,13 @@ function createConnectionCard(connection) {
     connectionInfo.className = 'connection-info';
     
     // Add connection details
+    const transferType = connection.transfer_config?.type === 'torrent' ? 'Torrent' : 'File';
+    const transferTypeClass = connection.transfer_config?.type === 'torrent' ? 'badge bg-info' : 'badge bg-secondary';
     connectionInfo.innerHTML = `
         <p><strong>Status:</strong> <span class="status-badge ${connection.status.toLowerCase()}">${connection.status}</span></p>
         <p><strong>From Client:</strong> ${connection.from}</p>
         <p><strong>To Client:</strong> ${connection.to}</p>
+        <p><strong>Transfer Type:</strong> <span class="${transferTypeClass}">${transferType}</span></p>
         <p><strong>Active Transfers:</strong> ${connection.active_transfers} / ${connection.max_transfers}</p>
         <p><strong>Total Transfers:</strong> ${connection.total_transfers}</p>
     `;
@@ -271,80 +274,101 @@ function editConnection(connection) {
         // Populate the connection name field
         document.getElementById('connectionName').value = connection.name;
         
-        // Set selected values after clients are loaded
+        // Set selected client values after clients are loaded
         document.getElementById('fromClient').value = connection.from;
         document.getElementById('toClient').value = connection.to;
         
-        // Set transfer types and show appropriate config sections
-        const fromType = connection.transfer_config?.from?.type || 'sftp';
-        const toType = connection.transfer_config?.to?.type || 'sftp';
+        // Determine transfer method from config
+        const isTorrent = connection.transfer_config?.type === 'torrent';
+        document.getElementById('transferMethod').value = isTorrent ? 'torrent' : 'file';
+        toggleTransferMethod(isTorrent ? 'torrent' : 'file');
         
-        document.getElementById('fromType').value = fromType;
-        document.getElementById('toType').value = toType;
-        
-        toggleConfigSection('from', fromType);
-        toggleConfigSection('to', toType);
-        
-        // Populate SFTP config if available
-        if (fromType === 'sftp' && connection.transfer_config?.from?.sftp) {
-            const fromSftp = connection.transfer_config.from.sftp;
+        if (isTorrent) {
+            // Populate torrent-specific fields
+            const destPath = connection.transfer_config?.destination_path || '';
+            document.getElementById('torrentDestinationPath').value = destPath;
             
-            // Determine if using SSH config or direct credentials
-            if (fromSftp.ssh_config_file) {
-                document.getElementById('fromUseSshConfig').checked = true;
-                document.getElementById('fromSshConfigFile').value = fromSftp.ssh_config_file;
-                document.getElementById('fromSshConfigHost').value = fromSftp.ssh_config_host;
-                document.getElementById('fromSshConfigSection').style.display = 'block';
-                
-                // Hide direct SFTP fields
-                const directFields = document.querySelectorAll('#fromSftpConfig input:not([id^="fromSshConfig"])');
-                for (let i = 0; i < directFields.length; i++) {
-                    if (directFields[i].id !== 'fromUseSshConfig') {
-                        directFields[i].parentElement.style.display = 'none';
-                    }
+            // Auto-expand advanced options if destination path is set
+            if (destPath) {
+                const advancedCollapse = document.getElementById('torrentAdvancedOptions');
+                if (advancedCollapse) {
+                    advancedCollapse.style.display = 'block';
+                    const toggle = document.getElementById('torrentAdvancedToggle');
+                    if (toggle) toggle.setAttribute('aria-expanded', 'true');
                 }
-            } else {
-                document.getElementById('fromSftpHost').value = fromSftp.host || '';
-                document.getElementById('fromSftpPort').value = fromSftp.port || 22;
-                document.getElementById('fromSftpUsername').value = fromSftp.username || '';
-                // Leave password blank - API returns masked "***" value
-                document.getElementById('fromSftpPassword').value = '';
-                document.getElementById('fromSftpPassword').placeholder = 'Leave blank to keep current';
             }
-        }
-        
-        if (toType === 'sftp' && connection.transfer_config?.to?.sftp) {
-            const toSftp = connection.transfer_config.to.sftp;
+        } else {
+            // Set transfer types and show appropriate config sections
+            const fromType = connection.transfer_config?.from?.type || 'sftp';
+            const toType = connection.transfer_config?.to?.type || 'sftp';
             
-            // Determine if using SSH config or direct credentials
-            if (toSftp.ssh_config_file) {
-                document.getElementById('toUseSshConfig').checked = true;
-                document.getElementById('toSshConfigFile').value = toSftp.ssh_config_file;
-                document.getElementById('toSshConfigHost').value = toSftp.ssh_config_host;
-                document.getElementById('toSshConfigSection').style.display = 'block';
+            document.getElementById('fromType').value = fromType;
+            document.getElementById('toType').value = toType;
+            
+            toggleConfigSection('from', fromType);
+            toggleConfigSection('to', toType);
+        
+            // Populate SFTP config if available
+            if (fromType === 'sftp' && connection.transfer_config?.from?.sftp) {
+                const fromSftp = connection.transfer_config.from.sftp;
                 
-                // Hide direct SFTP fields
-                const directFields = document.querySelectorAll('#toSftpConfig input:not([id^="toSshConfig"])');
-                for (let i = 0; i < directFields.length; i++) {
-                    if (directFields[i].id !== 'toUseSshConfig') {
-                        directFields[i].parentElement.style.display = 'none';
+                // Determine if using SSH config or direct credentials
+                if (fromSftp.ssh_config_file) {
+                    document.getElementById('fromUseSshConfig').checked = true;
+                    document.getElementById('fromSshConfigFile').value = fromSftp.ssh_config_file;
+                    document.getElementById('fromSshConfigHost').value = fromSftp.ssh_config_host;
+                    document.getElementById('fromSshConfigSection').style.display = 'block';
+                    
+                    // Hide direct SFTP fields
+                    const directFields = document.querySelectorAll('#fromSftpConfig input:not([id^="fromSshConfig"])');
+                    for (let i = 0; i < directFields.length; i++) {
+                        if (directFields[i].id !== 'fromUseSshConfig') {
+                            directFields[i].parentElement.style.display = 'none';
+                        }
                     }
+                } else {
+                    document.getElementById('fromSftpHost').value = fromSftp.host || '';
+                    document.getElementById('fromSftpPort').value = fromSftp.port || 22;
+                    document.getElementById('fromSftpUsername').value = fromSftp.username || '';
+                    // Leave password blank - API returns masked "***" value
+                    document.getElementById('fromSftpPassword').value = '';
+                    document.getElementById('fromSftpPassword').placeholder = 'Leave blank to keep current';
                 }
-            } else {
-                document.getElementById('toSftpHost').value = toSftp.host || '';
-                document.getElementById('toSftpPort').value = toSftp.port || 22;
-                document.getElementById('toSftpUsername').value = toSftp.username || '';
-                // Leave password blank - API returns masked "***" value
-                document.getElementById('toSftpPassword').value = '';
-                document.getElementById('toSftpPassword').placeholder = 'Leave blank to keep current';
             }
-        }
+            
+            if (toType === 'sftp' && connection.transfer_config?.to?.sftp) {
+                const toSftp = connection.transfer_config.to.sftp;
+                
+                // Determine if using SSH config or direct credentials
+                if (toSftp.ssh_config_file) {
+                    document.getElementById('toUseSshConfig').checked = true;
+                    document.getElementById('toSshConfigFile').value = toSftp.ssh_config_file;
+                    document.getElementById('toSshConfigHost').value = toSftp.ssh_config_host;
+                    document.getElementById('toSshConfigSection').style.display = 'block';
+                    
+                    // Hide direct SFTP fields
+                    const directFields = document.querySelectorAll('#toSftpConfig input:not([id^="toSshConfig"])');
+                    for (let i = 0; i < directFields.length; i++) {
+                        if (directFields[i].id !== 'toUseSshConfig') {
+                            directFields[i].parentElement.style.display = 'none';
+                        }
+                    }
+                } else {
+                    document.getElementById('toSftpHost').value = toSftp.host || '';
+                    document.getElementById('toSftpPort').value = toSftp.port || 22;
+                    document.getElementById('toSftpUsername').value = toSftp.username || '';
+                    // Leave password blank - API returns masked "***" value
+                    document.getElementById('toSftpPassword').value = '';
+                    document.getElementById('toSftpPassword').placeholder = 'Leave blank to keep current';
+                }
+            }
 
-        // Populate path configuration
-        document.getElementById('sourceDotTorrentPath').value = connection.source_dot_torrent_path || '';
-        document.getElementById('sourceTorrentDownloadPath').value = connection.source_torrent_download_path || '';
-        document.getElementById('destinationDotTorrentTmpDir').value = connection.destination_dot_torrent_tmp_dir || '';
-        document.getElementById('destinationTorrentDownloadPath').value = connection.destination_torrent_download_path || '';
+            // Populate path configuration
+            document.getElementById('sourceDotTorrentPath').value = connection.source_dot_torrent_path || '';
+            document.getElementById('sourceTorrentDownloadPath').value = connection.source_torrent_download_path || '';
+            document.getElementById('destinationDotTorrentTmpDir').value = connection.destination_dot_torrent_tmp_dir || '';
+            document.getElementById('destinationTorrentDownloadPath').value = connection.destination_torrent_download_path || '';
+        }
         
         // Initially disable path configuration but test connection to possibly enable it
         disablePathConfiguration();
@@ -408,6 +432,10 @@ function resetConnectionForm() {
     document.getElementById('saveConnectionBtn').disabled = true;
     resetTestConnectionBtn();
     
+    // Reset transfer method to file
+    document.getElementById('transferMethod').value = 'file';
+    toggleTransferMethod('file');
+    
     // Reset SFTP password placeholders for add mode
     document.getElementById('fromSftpPassword').placeholder = '';
     document.getElementById('toSftpPassword').placeholder = '';
@@ -440,6 +468,17 @@ function resetConnectionForm() {
     document.getElementById('sourceTorrentDownloadPath').value = "";
     document.getElementById('destinationDotTorrentTmpDir').value = "";
     document.getElementById('destinationTorrentDownloadPath').valu = "";
+    
+    // Reset torrent transfer config
+    document.getElementById('torrentDestinationPath').value = "";
+    
+    // Collapse advanced options if expanded
+    const advancedCollapse = document.getElementById('torrentAdvancedOptions');
+    if (advancedCollapse) {
+        advancedCollapse.style.display = 'none';
+        const toggle = document.getElementById('torrentAdvancedToggle');
+        if (toggle) toggle.setAttribute('aria-expanded', 'false');
+    }
 }
 
 // Reset test connection button state
@@ -495,6 +534,7 @@ function testConnection() {
     const toClient = document.getElementById('toClient').value;
     const fromType = document.getElementById('fromType').value;
     const toType = document.getElementById('toType').value;
+    const transferMethod = document.getElementById('transferMethod').value;
     
     // Validate selection
     if (!fromClient || !toClient) {
@@ -515,15 +555,17 @@ function testConnection() {
     const connectionData = {
         from: fromClient,
         to: toClient,
-        transfer_config: {
-            from: {
-                type: fromType
-            },
-            to: {
-                type: toType
-            }
-        }
+        transfer_config: {}
     };
+    
+    if (transferMethod === 'torrent') {
+        // Torrent transfers only need the type
+        connectionData.transfer_config.type = 'torrent';
+    } else {
+        // File transfers use from/to config
+        connectionData.transfer_config.from = { type: fromType };
+        connectionData.transfer_config.to = { type: toType };
+    }
     
     // If editing an existing connection, include the name for stored password lookup
     const connectionId = document.getElementById('connectionId').value;
@@ -531,8 +573,8 @@ function testConnection() {
         connectionData.connection_name = connectionId;
     }
     
-    // Add SFTP configuration if selected
-    if (fromType === 'sftp') {
+    // Add SFTP configuration if selected (file transfer only)
+    if (transferMethod !== 'torrent' && fromType === 'sftp') {
         const useFromSshConfig = document.getElementById('fromUseSshConfig').checked;
         
         if (useFromSshConfig) {
@@ -550,7 +592,7 @@ function testConnection() {
         }
     }
     
-    if (toType === 'sftp') {
+    if (transferMethod !== 'torrent' && toType === 'sftp') {
         const useToSshConfig = document.getElementById('toUseSshConfig').checked;
         
         if (useToSshConfig) {
@@ -600,13 +642,21 @@ function testConnection() {
             // Enable the save button on successful connection
             document.getElementById('saveConnectionBtn').disabled = false;
             
-            // Enable path configuration
-            enablePathConfiguration();
+            // Enable path configuration (file transfer only)
+            if (transferMethod !== 'torrent') {
+                enablePathConfiguration();
+            }
             
             // Show success notification
+            let successMsg = `Successfully connected from ${fromClient} to ${toClient}.`;
+            if (data.details) {
+                successMsg = data.details.map(d => 
+                    `<i class="fas fa-check-circle" style="color: #28a745;"></i> ${d.component}: ${d.message}`
+                ).join('<br>');
+            }
             TransferarrNotifications.success(
                 'Connection Successful',
-                `Successfully connected from ${fromClient} to ${toClient}.`
+                successMsg
             );
         } else {
             // Error state
@@ -622,9 +672,18 @@ function testConnection() {
             disablePathConfiguration();
             
             // Show error notification
+            let errorMsg = data.message || 'Failed to establish connection';
+            if (data.details) {
+                errorMsg = data.details.map(d => {
+                    const icon = d.success 
+                        ? '<i class="fas fa-check-circle" style="color: #28a745;"></i>' 
+                        : '<i class="fas fa-times-circle" style="color: #dc3545;"></i>';
+                    return `${icon} ${d.component}: ${d.message}`;
+                }).join('<br>');
+            }
             TransferarrNotifications.error(
                 'Connection Failed',
-                data.message || 'Failed to establish connection'
+                errorMsg
             );
         }
     })
@@ -672,6 +731,7 @@ function saveConnection() {
     const toClient = document.getElementById('toClient').value;
     const fromType = document.getElementById('fromType').value;
     const toType = document.getElementById('toType').value;
+    const transferMethod = document.getElementById('transferMethod').value;
     
     // Validate connection name
     if (!connectionName) {
@@ -703,23 +763,28 @@ function saveConnection() {
         name: connectionName,
         from: fromClient,
         to: toClient,
-        transfer_config: {
-            from: {
-                type: fromType
-            },
-            to: {
-                type: toType
-            }
-        },
-        // Add path configuration
-        source_dot_torrent_path: document.getElementById('sourceDotTorrentPath').value,
-        source_torrent_download_path: document.getElementById('sourceTorrentDownloadPath').value,
-        destination_dot_torrent_tmp_dir: document.getElementById('destinationDotTorrentTmpDir').value,
-        destination_torrent_download_path: document.getElementById('destinationTorrentDownloadPath').value
+        transfer_config: {}
     };
     
-    // Add SFTP configuration if selected
-    if (fromType === 'sftp') {
+    if (transferMethod === 'torrent') {
+        // Torrent transfer config
+        connectionData.transfer_config.type = 'torrent';
+        const destPath = document.getElementById('torrentDestinationPath').value.trim();
+        if (destPath) {
+            connectionData.transfer_config.destination_path = destPath;
+        }
+    } else {
+        // File transfer config with from/to and path configuration
+        connectionData.transfer_config.from = { type: fromType };
+        connectionData.transfer_config.to = { type: toType };
+        connectionData.source_dot_torrent_path = document.getElementById('sourceDotTorrentPath').value;
+        connectionData.source_torrent_download_path = document.getElementById('sourceTorrentDownloadPath').value;
+        connectionData.destination_dot_torrent_tmp_dir = document.getElementById('destinationDotTorrentTmpDir').value;
+        connectionData.destination_torrent_download_path = document.getElementById('destinationTorrentDownloadPath').value;
+    }
+    
+    // Add SFTP configuration if selected (file transfer only)
+    if (transferMethod !== 'torrent' && fromType === 'sftp') {
         const useFromSshConfig = document.getElementById('fromUseSshConfig').checked;
         
         if (useFromSshConfig) {
@@ -737,7 +802,7 @@ function saveConnection() {
         }
     }
     
-    if (toType === 'sftp') {
+    if (transferMethod !== 'torrent' && toType === 'sftp') {
         const useToSshConfig = document.getElementById('toUseSshConfig').checked;
         
         if (useToSshConfig) {
@@ -814,7 +879,7 @@ function setupConnectionFormListeners() {
     }
     
     // Main dropdowns
-    const connectionDropdowns = ['fromClient', 'toClient', 'fromType', 'toType'];
+    const connectionDropdowns = ['fromClient', 'toClient', 'fromType', 'toType', 'transferMethod'];
     connectionDropdowns.forEach(fieldId => {
         const field = document.getElementById(fieldId);
         if (field) {
@@ -850,6 +915,11 @@ function setupConnectionFormListeners() {
 
 // Initialize connection form with event listeners
 function initConnectionForm() {
+    // Transfer method toggle
+    document.getElementById('transferMethod').addEventListener('change', function() {
+        toggleTransferMethod(this.value);
+    });
+
     // Show/hide SFTP config sections based on selected type
     document.getElementById('fromType').addEventListener('change', function() {
         toggleConfigSection('from', this.value);
@@ -899,6 +969,30 @@ function toggleConfigSection(direction, type) {
     // Show the selected type's config section
     if (type === 'sftp') {
         document.getElementById(sftpConfigId).style.display = 'block';
+    }
+}
+
+// Toggle between file transfer and torrent transfer modes
+function toggleTransferMethod(method) {
+    const fileTransferElements = document.querySelectorAll('.file-transfer-only');
+    const torrentConfig = document.getElementById('torrentTransferConfig');
+    const pathConfigSection = document.querySelector('.path-config-section');
+
+    if (method === 'torrent') {
+        // Hide file-transfer-only elements (type selectors, SFTP config, path config)
+        fileTransferElements.forEach(el => el.style.display = 'none');
+        if (pathConfigSection) pathConfigSection.style.display = 'none';
+        // Show torrent config
+        if (torrentConfig) torrentConfig.style.display = 'block';
+    } else {
+        // Show file-transfer-only elements
+        fileTransferElements.forEach(el => el.style.display = '');
+        if (pathConfigSection) pathConfigSection.style.display = '';
+        // Hide torrent config
+        if (torrentConfig) torrentConfig.style.display = 'none';
+        // Re-apply current from/to type visibility
+        toggleConfigSection('from', document.getElementById('fromType').value);
+        toggleConfigSection('to', document.getElementById('toType').value);
     }
 }
 

@@ -8,7 +8,7 @@
 # Dependencies (pip packages and Playwright browsers) are cached in a volume
 # to speed up subsequent test runs. See entrypoint.sh for caching logic.
 
-FROM python:3.12-slim
+FROM python:3.12-slim-bookworm
 
 WORKDIR /app
 

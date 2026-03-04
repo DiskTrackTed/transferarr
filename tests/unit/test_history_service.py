@@ -23,6 +23,18 @@ class MockTorrent:
         self.size = size
         self.media_manager = media_manager
 
+    @property
+    def media_manager_type(self):
+        """Match the real Torrent.media_manager_type property."""
+        if not self.media_manager:
+            return None
+        manager_class = type(self.media_manager).__name__
+        if 'Radarr' in manager_class:
+            return 'radarr'
+        elif 'Sonarr' in manager_class:
+            return 'sonarr'
+        return None
+
 
 class MockRadarrManager:
     """Mock Radarr manager for testing media type detection."""
@@ -101,6 +113,116 @@ class TestDatabaseInitialization:
             'idx_transfers_target'
         }
         assert expected_indexes.issubset(indexes)
+    
+    def test_schema_includes_transfer_method_column(self, history_service, db_path):
+        """transfers table should include transfer_method column."""
+        conn = sqlite3.connect(db_path)
+        cursor = conn.execute("PRAGMA table_info(transfers)")
+        columns = {row[1] for row in cursor.fetchall()}
+        conn.close()
+        
+        assert 'transfer_method' in columns
+
+
+class TestDatabaseMigration:
+    """Tests for database schema migration."""
+    
+    def test_migrate_adds_transfer_method_to_old_schema(self, db_path):
+        """Migration should add transfer_method column to an old database missing it."""
+        # Create a database with the old schema (no transfer_method)
+        conn = sqlite3.connect(db_path)
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS transfers (
+                id TEXT PRIMARY KEY,
+                torrent_name TEXT NOT NULL,
+                torrent_hash TEXT,
+                source_client TEXT NOT NULL,
+                target_client TEXT NOT NULL,
+                connection_name TEXT,
+                media_type TEXT,
+                media_manager TEXT,
+                size_bytes INTEGER,
+                bytes_transferred INTEGER DEFAULT 0,
+                status TEXT NOT NULL DEFAULT 'pending',
+                error_message TEXT,
+                created_at TEXT NOT NULL,
+                started_at TEXT,
+                completed_at TEXT
+            );
+        """)
+        conn.commit()
+        
+        # Verify transfer_method does NOT exist yet
+        cursor = conn.execute("PRAGMA table_info(transfers)")
+        columns = {row[1] for row in cursor.fetchall()}
+        assert 'transfer_method' not in columns
+        conn.close()
+        
+        # Now open with HistoryService which should run migration
+        service = HistoryService(db_path)
+        
+        # Verify transfer_method now exists
+        conn2 = sqlite3.connect(db_path)
+        cursor = conn2.execute("PRAGMA table_info(transfers)")
+        columns = {row[1] for row in cursor.fetchall()}
+        conn2.close()
+        
+        assert 'transfer_method' in columns
+        service.close()
+    
+    def test_migrate_preserves_existing_data(self, db_path):
+        """Migration should not lose existing transfer records."""
+        # Create a database with old schema and insert a record
+        conn = sqlite3.connect(db_path)
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS transfers (
+                id TEXT PRIMARY KEY,
+                torrent_name TEXT NOT NULL,
+                torrent_hash TEXT,
+                source_client TEXT NOT NULL,
+                target_client TEXT NOT NULL,
+                connection_name TEXT,
+                media_type TEXT,
+                media_manager TEXT,
+                size_bytes INTEGER,
+                bytes_transferred INTEGER DEFAULT 0,
+                status TEXT NOT NULL DEFAULT 'pending',
+                error_message TEXT,
+                created_at TEXT NOT NULL,
+                started_at TEXT,
+                completed_at TEXT
+            );
+        """)
+        conn.execute(
+            """
+            INSERT INTO transfers (id, torrent_name, source_client, target_client, 
+                                   connection_name, status, created_at)
+            VALUES ('test-id', 'Old.Torrent', 'src', 'tgt', 'conn', 'completed', '2024-01-01T00:00:00')
+            """
+        )
+        conn.commit()
+        conn.close()
+        
+        # Open with HistoryService (triggers migration)
+        service = HistoryService(db_path)
+        
+        # Existing record should still be there with transfer_method=NULL
+        transfer = service.get_transfer('test-id')
+        assert transfer is not None
+        assert transfer['torrent_name'] == 'Old.Torrent'
+        assert transfer['transfer_method'] is None
+        service.close()
+    
+    def test_migrate_no_error_when_column_already_exists(self, history_service, db_path):
+        """Migration should be idempotent — no error if column exists."""
+        # history_service fixture already created schema with transfer_method
+        # Running migration again should be harmless
+        conn = sqlite3.connect(db_path)
+        cursor = conn.execute("PRAGMA table_info(transfers)")
+        columns = {row[1] for row in cursor.fetchall()}
+        conn.close()
+        
+        assert 'transfer_method' in columns
 
 
 class TestCreateTransfer:
@@ -191,6 +313,57 @@ class TestCreateTransfer:
         transfer = history_service.get_transfer(transfer_id)
         assert transfer['media_type'] == 'unknown'
         assert transfer['media_manager'] is None
+    
+    def test_create_transfer_with_transfer_method_sftp(self, history_service, torrent):
+        """create_transfer should store transfer_method='sftp'."""
+        transfer_id = history_service.create_transfer(
+            torrent=torrent,
+            source_client='source',
+            target_client='target',
+            connection_name='test',
+            transfer_method='sftp'
+        )
+        
+        transfer = history_service.get_transfer(transfer_id)
+        assert transfer['transfer_method'] == 'sftp'
+    
+    def test_create_transfer_with_transfer_method_local(self, history_service, torrent):
+        """create_transfer should store transfer_method='local'."""
+        transfer_id = history_service.create_transfer(
+            torrent=torrent,
+            source_client='source',
+            target_client='target',
+            connection_name='test',
+            transfer_method='local'
+        )
+        
+        transfer = history_service.get_transfer(transfer_id)
+        assert transfer['transfer_method'] == 'local'
+    
+    def test_create_transfer_with_transfer_method_torrent(self, history_service, torrent):
+        """create_transfer should store transfer_method='torrent'."""
+        transfer_id = history_service.create_transfer(
+            torrent=torrent,
+            source_client='source',
+            target_client='target',
+            connection_name='test',
+            transfer_method='torrent'
+        )
+        
+        transfer = history_service.get_transfer(transfer_id)
+        assert transfer['transfer_method'] == 'torrent'
+    
+    def test_create_transfer_default_transfer_method_none(self, history_service, torrent):
+        """create_transfer without transfer_method should default to None."""
+        transfer_id = history_service.create_transfer(
+            torrent=torrent,
+            source_client='source',
+            target_client='target',
+            connection_name='test'
+        )
+        
+        transfer = history_service.get_transfer(transfer_id)
+        assert transfer['transfer_method'] is None
 
 
 class TestStartTransfer:
@@ -229,6 +402,44 @@ class TestCompleteTransfer:
         transfer = history_service.get_transfer(transfer_id)
         assert transfer['status'] == 'completed'
         assert transfer['completed_at'] is not None
+    
+    def test_complete_transfer_with_final_bytes(self, history_service, torrent):
+        """complete_transfer with final_bytes should set bytes_transferred and status."""
+        transfer_id = history_service.create_transfer(
+            torrent=torrent,
+            source_client='source',
+            target_client='target',
+            connection_name='test'
+        )
+        history_service.start_transfer(transfer_id)
+        
+        final_size = 1024 * 1024 * 50  # 50MB
+        history_service.complete_transfer(transfer_id, final_bytes=final_size)
+        
+        transfer = history_service.get_transfer(transfer_id)
+        assert transfer['status'] == 'completed'
+        assert transfer['bytes_transferred'] == final_size
+        assert transfer['completed_at'] is not None
+    
+    def test_complete_transfer_without_final_bytes_preserves_progress(self, history_service, torrent):
+        """complete_transfer without final_bytes should keep existing bytes_transferred."""
+        transfer_id = history_service.create_transfer(
+            torrent=torrent,
+            source_client='source',
+            target_client='target',
+            connection_name='test'
+        )
+        history_service.start_transfer(transfer_id)
+        
+        # Update progress first
+        history_service.update_progress(transfer_id, 5000000, force=True)
+        
+        # Complete without final_bytes
+        history_service.complete_transfer(transfer_id)
+        
+        transfer = history_service.get_transfer(transfer_id)
+        assert transfer['status'] == 'completed'
+        assert transfer['bytes_transferred'] == 5000000  # Should preserve
 
 
 class TestFailTransfer:
@@ -599,6 +810,28 @@ class TestListTransfers:
         
         transfers, _ = history_service.list_transfers(sort='size_bytes', order='desc')
         assert transfers[0]['size_bytes'] == 300
+    
+    def test_list_transfers_filter_by_transfer_method(self, history_service):
+        """list_transfers should filter by transfer_method."""
+        methods = ['sftp', 'sftp', 'local', 'torrent']
+        for method in methods:
+            torrent = MockTorrent()
+            history_service.create_transfer(
+                torrent=torrent,
+                source_client='source',
+                target_client='target',
+                connection_name='test',
+                transfer_method=method
+            )
+        
+        transfers, total = history_service.list_transfers(transfer_method='sftp')
+        assert total == 2
+        
+        transfers, total = history_service.list_transfers(transfer_method='torrent')
+        assert total == 1
+        
+        transfers, total = history_service.list_transfers(transfer_method='local')
+        assert total == 1
 
 
 class TestGetActiveTransfers:

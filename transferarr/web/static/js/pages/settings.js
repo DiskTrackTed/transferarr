@@ -13,6 +13,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     let connectionsLoaded = false;
     let authLoaded = false;
+    let trackerLoaded = false;
     
     // Import required modules
     import('../modules/modals.js').then(modalsModule => {
@@ -72,6 +73,25 @@ document.addEventListener('DOMContentLoaded', function() {
             // Non-fatal error, auth tab just won't work
         });
 
+        // Load tracker settings module
+        import('../modules/settings-tracker.js').then(trackerModule => {
+            // Initialize tracker module
+            trackerModule.initTrackerSettings();
+            
+            // Only load tracker settings if the tracker tab is active on page load
+            if (window.location.hash === '#tracker' || 
+                document.querySelector('#settings-tabs .client-tab[data-tab="tracker"]')?.classList.contains('active')) {
+                trackerModule.loadTrackerSettings();
+                trackerLoaded = true;
+            }
+            
+            // Store module for later use
+            window.trackerModule = trackerModule;
+        }).catch(error => {
+            console.error('Error loading tracker module:', error);
+            // Non-fatal error, tracker tab just won't work
+        });
+
         // Initialize tab switching
         initTabs();
         
@@ -113,6 +133,14 @@ document.addEventListener('DOMContentLoaded', function() {
                         if (window.authModule) {
                             window.authModule.loadAuthSettings();
                             authLoaded = true;
+                        }
+                    }
+                    
+                    // Load tracker settings when tracker tab is selected
+                    if (tabId === 'tracker' && !trackerLoaded) {
+                        if (window.trackerModule) {
+                            window.trackerModule.loadTrackerSettings();
+                            trackerLoaded = true;
                         }
                     }
                 });

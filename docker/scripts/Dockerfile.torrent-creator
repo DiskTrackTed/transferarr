@@ -1,7 +1,7 @@
 # Dockerfile for running torrent creation script
 # Provides Python environment with torf library for creating .torrent files
 
-FROM python:3.11-slim
+FROM python:3.11-slim-bookworm
 
 WORKDIR /app
 

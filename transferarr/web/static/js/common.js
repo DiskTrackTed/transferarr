@@ -4,6 +4,7 @@
 
 // Helper function to get state indicator class
 function getStateIndicatorClass(state) {
+    if (state.includes('TORRENT_CREATING') || state.includes('TORRENT_TARGET_ADDING') || state.includes('TORRENT_DOWNLOADING')) return 'state-copying';
     if (state.includes('COPYING')) return 'state-copying';
     if (state.includes('SEEDING')) return 'state-seeding';
     if (state.includes('ERROR')) return 'state-error';
@@ -120,8 +121,9 @@ function createInfoRow(label, value, stateClass = null) {
 function updateCardContent(card, torrent) {
     // Update file count if needed
     const fileCountDiv = card.querySelector('.file-count');
-    if (torrent.state === 'COPYING' && torrent.total_files > 0) {
-        fileCountDiv.textContent = `Copying file ${torrent.current_file_count} / ${torrent.total_files}`;
+    const showFileStates = ['COPYING', 'TORRENT_DOWNLOADING'];
+    if (showFileStates.includes(torrent.state) && torrent.total_files > 0) {
+        fileCountDiv.textContent = `Transferring file ${torrent.current_file_count} / ${torrent.total_files}`;
         fileCountDiv.style.display = 'block';
     } else {
         fileCountDiv.textContent = '';

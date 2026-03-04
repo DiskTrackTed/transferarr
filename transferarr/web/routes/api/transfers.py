@@ -67,6 +67,11 @@ def register_routes(bp):
             enum: [asc, desc]
             default: desc
             description: Sort order
+          - in: query
+            name: transfer_method
+            type: string
+            enum: [sftp, local, torrent]
+            description: Filter by transfer method
         responses:
           200:
             description: Paginated list of transfers
@@ -115,6 +120,7 @@ def register_routes(bp):
             search = request.args.get('search')
             from_date = request.args.get('from_date')
             to_date = request.args.get('to_date')
+            transfer_method = request.args.get('transfer_method')
             sort = request.args.get('sort', 'created_at')
             order = request.args.get('order', 'desc')
             
@@ -127,6 +133,15 @@ def register_routes(bp):
                     status_code=400
                 )
             
+            # Validate transfer_method if provided
+            valid_methods = ('sftp', 'local', 'torrent')
+            if transfer_method and transfer_method not in valid_methods:
+                return error_response(
+                    "VALIDATION_ERROR",
+                    f"Invalid transfer_method '{transfer_method}'. Must be one of: {', '.join(valid_methods)}",
+                    status_code=400
+                )
+            
             transfers, total = history_service.list_transfers(
                 status=status,
                 source=source,
@@ -134,6 +149,7 @@ def register_routes(bp):
                 search=search,
                 start_date=from_date,
                 end_date=to_date,
+                transfer_method=transfer_method,
                 page=page,
                 per_page=per_page,
                 sort=sort,

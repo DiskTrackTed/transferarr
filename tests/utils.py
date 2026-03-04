@@ -479,7 +479,8 @@ def wait_for_transferarr_state(
     Args:
         transferarr: TransferarrManager instance
         torrent_name: Name (or substring) of the torrent
-        expected_state: State to wait for (e.g., 'TARGET_SEEDING', 'HOME_SEEDING', 'COPYING')
+        expected_state: State(s) to wait for. Can be a single string (e.g., 'TARGET_SEEDING')
+                       or a list of states (e.g., ['TORRENT_CREATING', 'TORRENT_TARGET_ADDING'])
         timeout: Maximum seconds to wait
     
     Returns:
@@ -488,12 +489,15 @@ def wait_for_transferarr_state(
     Raises:
         TimeoutError: If torrent doesn't reach expected state
     """
+    # Normalize expected_state to a list for consistent comparison
+    expected_states = expected_state if isinstance(expected_state, list) else [expected_state]
+    
     deadline = time.time() + timeout
     while time.time() < deadline:
         torrents = transferarr.get_torrents()
         for torrent in torrents:
             if torrent_name in torrent.get('name', ''):
-                if torrent.get('state') == expected_state:
+                if torrent.get('state') in expected_states:
                     return torrent
         time.sleep(2)
     
@@ -1816,3 +1820,204 @@ def delete_state_file(transferarr) -> bool:
     except Exception as e:
         print(f"Failed to delete state file: {e}")
         return False
+
+
+# ==============================================================================
+# Torrent Transfer Test Utilities
+# ==============================================================================
+
+def wait_for_torrent_transfer_state(
+    transferarr,
+    torrent_name: str,
+    expected_state: str,
+    timeout: int = 60
+) -> bool:
+    """
+    Wait for a torrent to reach a specific transfer state in Transferarr.
+    
+    Args:
+        transferarr: TransferarrManager instance
+        torrent_name: Name of the torrent to check
+        expected_state: Expected TorrentState name (e.g., "TORRENT_CREATING")
+        timeout: Maximum wait time in seconds
+        
+    Returns:
+        True if state was reached, False if timeout
+    """
+    def check_state():
+        try:
+            response = transferarr.api_client.get("/api/v1/torrents")
+            if response.status_code != 200:
+                return False
+            data = response.json().get("data", {})
+            torrents = data.get("torrents", [])
+            for torrent in torrents:
+                if torrent_name in torrent.get("name", ""):
+                    return torrent.get("state") == expected_state
+            return False
+        except Exception:
+            return False
+    
+    return wait_for_condition(check_state, timeout=timeout)
+
+
+def get_transfer_torrent_hash(transferarr, original_torrent_name: str) -> Optional[str]:
+    """
+    Get the transfer torrent hash for a torrent being transferred.
+    
+    Looks for the transfer data attached to the torrent in Transferarr's state.
+    
+    Args:
+        transferarr: TransferarrManager instance
+        original_torrent_name: Name of the original torrent
+        
+    Returns:
+        Transfer torrent hash, or None if not found
+    """
+    try:
+        response = transferarr.api_client.get("/api/v1/torrents")
+        if response.status_code != 200:
+            return None
+        data = response.json().get("data", {})
+        torrents = data.get("torrents", [])
+        for torrent in torrents:
+            if original_torrent_name in torrent.get("name", ""):
+                transfer = torrent.get("transfer", {})
+                return transfer.get("hash")
+        return None
+    except Exception:
+        return None
+
+
+def verify_torrent_on_client(deluge_client, torrent_hash: str) -> bool:
+    """
+    Verify that a torrent exists on a Deluge client.
+    
+    Args:
+        deluge_client: DelugeRPCClient instance
+        torrent_hash: Torrent hash to check
+        
+    Returns:
+        True if torrent exists, False otherwise
+    """
+    try:
+        status = deluge_client.core.get_torrent_status(torrent_hash, ["name"])
+        return bool(status and status.get("name"))
+    except Exception:
+        return False
+
+
+def verify_torrent_removed(
+    deluge_client,
+    torrent_hash: str,
+    timeout: int = 30
+) -> bool:
+    """
+    Wait for and verify that a torrent has been removed from a Deluge client.
+    
+    Args:
+        deluge_client: DelugeRPCClient instance
+        torrent_hash: Torrent hash to check
+        timeout: Maximum wait time in seconds
+        
+    Returns:
+        True if torrent was removed, False if timeout
+    """
+    def check_removed():
+        return not verify_torrent_on_client(deluge_client, torrent_hash)
+    
+    return wait_for_condition(check_removed, timeout=timeout)
+
+
+def verify_tracker_has_peer(
+    tracker_url: str,
+    info_hash: str,
+    expected_peer_ip: str,
+    timeout: int = 30
+) -> bool:
+    """
+    Verify that the tracker has a specific peer registered for a torrent.
+    
+    Note: This requires the tracker to have an API endpoint for peer inspection.
+    For testing, we typically verify peer registration by checking if the
+    transfer torrent download starts on the target client.
+    
+    Args:
+        tracker_url: Base URL of the tracker (e.g., "http://localhost:6969")
+        info_hash: Info hash of the torrent
+        expected_peer_ip: Expected peer IP address
+        timeout: Maximum wait time in seconds
+        
+    Returns:
+        True if peer found, False otherwise
+    """
+    import requests
+    
+    def check_peer():
+        try:
+            # Try to hit a stats/scrape endpoint if available
+            # Note: Our tracker may need a custom endpoint for this
+            response = requests.get(
+                f"{tracker_url}/stats",
+                params={"info_hash": info_hash},
+                timeout=5
+            )
+            if response.status_code == 200:
+                data = response.json()
+                peers = data.get("peers", [])
+                return any(p.get("ip") == expected_peer_ip for p in peers)
+            return False
+        except Exception:
+            return False
+    
+    return wait_for_condition(check_peer, timeout=timeout)
+
+
+def get_torrent_progress_bytes(deluge_client, torrent_hash: str) -> dict:
+    """
+    Get torrent download progress in bytes from a Deluge client.
+    
+    Args:
+        deluge_client: DelugeRPCClient instance
+        torrent_hash: Torrent hash to check
+        
+    Returns:
+        Dict with 'total_done' and 'total_size' in bytes
+    """
+    try:
+        status = deluge_client.core.get_torrent_status(
+            torrent_hash,
+            ["total_done", "total_size"]
+        )
+        return {
+            "total_done": status.get("total_done", 0),
+            "total_size": status.get("total_size", 0)
+        }
+    except Exception:
+        return {"total_done": 0, "total_size": 0}
+
+
+def wait_for_torrent_download_complete(
+    deluge_client,
+    torrent_hash: str,
+    timeout: int = 120
+) -> bool:
+    """
+    Wait for a torrent to complete downloading on a Deluge client.
+    
+    Args:
+        deluge_client: DelugeRPCClient instance
+        torrent_hash: Torrent hash to check
+        timeout: Maximum wait time in seconds
+        
+    Returns:
+        True if download completed, False if timeout
+    """
+    def check_complete():
+        progress = get_torrent_progress_bytes(deluge_client, torrent_hash)
+        total_done = progress.get("total_done", 0)
+        total_size = progress.get("total_size", 0)
+        return total_size > 0 and total_done >= total_size
+    
+    return wait_for_condition(check_complete, timeout=timeout)
+

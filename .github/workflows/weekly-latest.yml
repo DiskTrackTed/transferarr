@@ -1,0 +1,243 @@
+# Weekly compatibility test against :latest Docker images
+#
+# Purpose: Detect breaking changes in upstream dependencies BEFORE they hit CI.
+# The main tests.yml workflow uses pinned image versions for determinism.
+# This workflow overrides those pins with :latest to catch regressions early.
+#
+# Runs a slim test suite (not the full matrix) to balance coverage vs. speed:
+# - Unit tests: verify core logic still works
+# - Integration API: verify service communication
+# - Integration lifecycle: verify end-to-end torrent flow
+# - UI smoke: verify web UI still renders
+#
+# On failure, creates a GitHub issue for investigation.
+
+name: Weekly Latest Images
+
+on:
+  schedule:
+    # Every Sunday at 06:00 UTC
+    - cron: '0 6 * * 0'
+  workflow_dispatch:
+    inputs:
+      create_issue:
+        description: 'Create GitHub issue on failure'
+        required: false
+        default: true
+        type: boolean
+
+concurrency:
+  group: weekly-latest
+  cancel-in-progress: true
+
+env:
+  COMPOSE_FILE: docker/docker-compose.test.yml
+  COMPOSE_PROJECT_NAME: transferarr_test
+  # Override all pinned image tags with :latest
+  DELUGE_TAG: latest
+  RADARR_TAG: latest
+  SONARR_TAG: latest
+  OPENSSH_TAG: latest
+  ALPINE_TAG: latest
+
+jobs:
+  compatibility:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - category: unit
+            path: tests/unit/
+            timeout: 5
+            needs_docker: false
+          - category: integration-api
+            path: tests/integration/api/
+            timeout: 30
+            needs_docker: true
+          - category: integration-lifecycle
+            path: tests/integration/lifecycle/
+            timeout: 20
+            needs_docker: true
+          - category: ui-fast
+            path: tests/ui/fast/
+            timeout: 10
+            needs_docker: true
+
+    name: latest-${{ matrix.category }}
+    timeout-minutes: ${{ matrix.timeout }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Log image versions being tested
+        if: matrix.needs_docker == true
+        run: |
+          echo "Testing with :latest images"
+          echo "DELUGE_TAG=$DELUGE_TAG"
+          echo "RADARR_TAG=$RADARR_TAG"
+          echo "SONARR_TAG=$SONARR_TAG"
+          echo "OPENSSH_TAG=$OPENSSH_TAG"
+          echo "ALPINE_TAG=$ALPINE_TAG"
+
+      # Unit tests - no Docker needed
+      - name: Setup Python (unit tests only)
+        if: matrix.needs_docker == false
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies (unit tests only)
+        if: matrix.needs_docker == false
+        run: pip install -r requirements.txt pytest pytest-timeout
+
+      - name: Run unit tests
+        if: matrix.needs_docker == false
+        run: pytest ${{ matrix.path }} -v --tb=short
+
+      # Docker-based tests
+      - name: Free up disk space
+        if: matrix.needs_docker == true
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          docker system prune -af --volumes
+          df -h
+
+      - name: Build Transferarr image
+        if: matrix.needs_docker == true
+        run: ./build.sh
+
+      - name: Build test infrastructure
+        if: matrix.needs_docker == true
+        run: docker compose -f $COMPOSE_FILE --profile tools build
+
+      - name: Pull latest images
+        if: matrix.needs_docker == true
+        run: docker compose -f $COMPOSE_FILE pull --ignore-buildable
+
+      - name: Log pulled image versions
+        if: matrix.needs_docker == true
+        run: |
+          echo "=== Actual image versions pulled ==="
+          docker compose -f $COMPOSE_FILE config --images | while read img; do
+            echo "--- $img ---"
+            docker inspect "$img" --format='{{index .RepoDigests 0}}' 2>/dev/null || echo "  (locally built)"
+          done
+
+      - name: Start test services (with retry)
+        if: matrix.needs_docker == true
+        run: |
+          max_attempts=3
+          attempt=1
+          until docker compose -f $COMPOSE_FILE up -d --wait; do
+            if [ $attempt -ge $max_attempts ]; then
+              echo "Failed to start services after $max_attempts attempts"
+              exit 1
+            fi
+            echo "Attempt $attempt failed, retrying in 10 seconds..."
+            attempt=$((attempt + 1))
+            sleep 10
+          done
+          echo "All services started successfully"
+
+      - name: Log running service versions
+        if: matrix.needs_docker == true
+        run: |
+          echo "=== Running service versions ==="
+          docker compose -f $COMPOSE_FILE logs 2>&1 | grep -i "version" | head -20 || true
+
+      - name: Run tests
+        if: matrix.needs_docker == true
+        run: ./run_tests.sh ${{ matrix.path }} -v --tb=short
+
+      - name: Upload test artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: latest-${{ matrix.category }}-results
+          path: test-results/
+          retention-days: 7
+
+      - name: Collect logs on failure
+        if: failure() && matrix.needs_docker == true
+        run: |
+          mkdir -p logs
+          docker compose -f $COMPOSE_FILE logs > logs/docker-compose.log 2>&1
+        continue-on-error: true
+
+      - name: Upload logs
+        if: failure() && matrix.needs_docker == true
+        uses: actions/upload-artifact@v4
+        with:
+          name: latest-${{ matrix.category }}-logs
+          path: logs/
+          retention-days: 7
+
+      - name: Cleanup
+        if: always() && matrix.needs_docker == true
+        run: docker compose -f $COMPOSE_FILE down -v --remove-orphans
+
+  # Create issue on failure
+  notify:
+    name: notify-on-failure
+    runs-on: ubuntu-latest
+    needs: compatibility
+    if: failure() && (github.event_name == 'schedule' || github.event.inputs.create_issue == 'true')
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Create GitHub issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = `Weekly :latest compatibility test failed (${new Date().toISOString().split('T')[0]})`;
+            const body = [
+              '## Weekly Latest Image Compatibility Failure',
+              '',
+              `**Workflow run:** ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              '',
+              'One or more test categories failed when running against `:latest` Docker images.',
+              'This likely indicates a breaking change in an upstream dependency.',
+              '',
+              '### Action Required',
+              '1. Check the workflow run logs for which categories failed',
+              '2. Identify which image update caused the failure',
+              '3. Either:',
+              '   - Implement a workaround/fix in Transferarr',
+              '   - Or update the pinned version in `docker/docker-compose.test.yml` to skip the broken version',
+              '',
+              '### Pinned Versions (docker-compose.test.yml)',
+              'Check current pins and compare with latest available tags on Docker Hub.',
+            ].join('\n');
+
+            // Check for existing open issue to avoid duplicates
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'ci-compatibility',
+              per_page: 5,
+            });
+
+            if (issues.length > 0) {
+              // Add comment to existing issue
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issues[0].number,
+                body: `Another failure detected: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              });
+              console.log(`Commented on existing issue #${issues[0].number}`);
+            } else {
+              // Create new issue
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body,
+                labels: ['bug', 'ci-compatibility'],
+              });
+              console.log('Created new issue');
+            }

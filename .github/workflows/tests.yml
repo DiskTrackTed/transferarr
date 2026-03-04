@@ -37,8 +37,12 @@ on:
           - integration-auth-user
           - integration-auth-api-key
           - integration-lifecycle
-          - integration-persistence
-          - integration-transfers
+          - integration-persistence-sftp
+          - integration-persistence-torrent-restart
+          - integration-persistence-torrent-large
+          - integration-transfers-torrent-infra
+          - integration-transfers-torrent-lifecycle
+          - integration-transfers-concurrent
           - integration-config
           - integration-edge
           - ui-fast
@@ -70,7 +74,7 @@ jobs:
             needs_docker: false
           - category: integration-api
             path: tests/integration/api/
-            timeout: 10
+            timeout: 30
             needs_docker: true
           - category: integration-auth-user
             path: tests/integration/auth/user/
@@ -84,12 +88,28 @@ jobs:
             path: tests/integration/lifecycle/
             timeout: 20
             needs_docker: true
-          - category: integration-persistence
-            path: tests/integration/persistence/
-            timeout: 25
+          - category: integration-persistence-sftp
+            path: tests/integration/persistence/test_state_persistence.py
+            timeout: 30
             needs_docker: true
-          - category: integration-transfers
-            path: tests/integration/transfers/
+          - category: integration-persistence-torrent-restart
+            path: tests/integration/persistence/test_torrent_transfer_restart.py
+            timeout: 30
+            needs_docker: true
+          - category: integration-persistence-torrent-large
+            path: tests/integration/persistence/test_torrent_transfer_large_restart.py
+            timeout: 30
+            needs_docker: true
+          - category: integration-transfers-torrent-infra
+            path: tests/integration/transfers/test_torrent_infra.py tests/integration/transfers/test_torrent_transfer_setup.py
+            timeout: 20
+            needs_docker: true
+          - category: integration-transfers-torrent-lifecycle
+            path: tests/integration/transfers/test_torrent_transfer_download.py tests/integration/transfers/test_torrent_transfer_lifecycle.py
+            timeout: 30
+            needs_docker: true
+          - category: integration-transfers-concurrent
+            path: tests/integration/transfers/test_concurrent_transfers.py tests/integration/transfers/test_transfer_types.py
             timeout: 20
             needs_docker: true
           - category: integration-config
@@ -98,7 +118,7 @@ jobs:
             needs_docker: true
           - category: integration-edge
             path: tests/integration/edge/
-            timeout: 20
+            timeout: 30
             needs_docker: true
           - category: ui-fast
             path: tests/ui/fast/
@@ -110,7 +130,7 @@ jobs:
             needs_docker: true
           - category: ui-e2e
             path: tests/ui/e2e/
-            timeout: 25
+            timeout: 30
             needs_docker: true
           - category: ui-auth-pages
             path: tests/ui/auth/pages/

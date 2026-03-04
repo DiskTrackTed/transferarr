@@ -18,7 +18,8 @@ class DashboardPage(BasePage):
     STAT_CARD = ".stat-card"
     STAT_ACTIVE = "#active-torrents"
     STAT_COMPLETED = "#completed-torrents"
-    STAT_COPYING = "#copying-torrents"
+    STAT_TRANSFERRING = "#transferring-torrents"
+    STAT_COPYING = STAT_TRANSFERRING  # Backward compat alias
     
     # Torrent list selectors (from dashboard.js)
     RECENT_TORRENTS = "#recent-torrents-container"

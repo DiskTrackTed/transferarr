@@ -129,15 +129,17 @@ Connections are defined as an object where each key is a unique connection name:
 | *(key)* | string | Unique connection name (e.g., `"homelab-to-seedbox"`) |
 | `from` | string | Name of source download client |
 | `to` | string | Name of destination download client |
-| `transfer_config` | object | Transfer method configuration (see below) |
-| `source_dot_torrent_path` | string | Path to `.torrent` files on source (Deluge state dir) |
-| `source_torrent_download_path` | string | Download path on source client |
-| `destination_dot_torrent_tmp_dir` | string | Temp directory for `.torrent` files on destination |
-| `destination_torrent_download_path` | string | Download path on destination client |
+| `transfer_config` | object | Transfer method configuration (see [Transfer Config](#transfer-config)) |
+
+Additional path fields depend on the transfer method — see the Transfer Config section below.
 
 ### Transfer Config
 
-The `transfer_config` object defines how files are transferred between source and destination:
+The `transfer_config` object defines how files are transferred between source and destination. Two transfer methods are available:
+
+#### File Transfer (SFTP/Local)
+
+Copies files and `.torrent` to the destination via SFTP or local storage.
 
 ```json
 {
@@ -177,6 +179,44 @@ The `transfer_config` object defines how files are transferred between source an
 | `username` | string | SSH username |
 | `password` | string | SSH password (or use `private_key`) |
 | `private_key` | string | Path to SSH private key |
+
+**File transfer connections** use these additional connection fields:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `source_dot_torrent_path` | string | Path to `.torrent` files on source (Deluge state dir) |
+| `source_torrent_download_path` | string | Download path on source client |
+| `destination_dot_torrent_tmp_dir` | string | Temp directory for `.torrent` files on destination |
+| `destination_torrent_download_path` | string | Download path on destination client |
+
+#### Torrent Transfer (BitTorrent P2P)
+
+Transfers files via BitTorrent protocol using a built-in tracker. **No filesystem access required** — all operations happen through Deluge’s API.
+
+```json
+{
+  "type": "torrent",
+  "destination_path": "/downloads"
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `type` | string | Must be `"torrent"` |
+| `destination_path` | string | Download path on destination client |
+
+**Requirements:**
+- Both source and destination must be Deluge clients
+- The built-in tracker must be enabled (see [Tracker Configuration](#tracker-configuration))
+- `tracker.external_url` must be set to a URL reachable by both clients
+
+**How it works:**
+1. Transferarr creates a transfer torrent from the source files
+2. Registers the hash with the built-in tracker
+3. Adds the torrent to the target via magnet link
+4. Target downloads directly from source via BitTorrent P2P
+5. Original torrent is added to target (instant hash check since files already exist)
+6. Transfer torrents are cleaned up from both clients
 
 ---
 
@@ -300,16 +340,50 @@ curl "http://localhost:10444/api/v1/torrents?apikey=tr_abc123..."
 
 ---
 
+## Tracker Configuration
+
+The `tracker` section controls the built-in BitTorrent tracker used for torrent-based transfers:
+
+```json
+{
+  "tracker": {
+    "enabled": true,
+    "port": 6969,
+    "external_url": "http://transferarr:6969/announce",
+    "announce_interval": 60,
+    "peer_expiry": 120
+  }
+}
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | boolean | `true` | Enable/disable the tracker |
+| `port` | number | `6969` | Port for the tracker to listen on |
+| `external_url` | string | `null` | URL that download clients use to reach the tracker. **Required for torrent transfers** |
+| `announce_interval` | number | `60` | Seconds between peer re-announces |
+| `peer_expiry` | number | `120` | Seconds before a peer is considered expired |
+
+**Notes:**
+- The tracker is enabled by default. Disable it if you only use SFTP/local transfers.
+- `external_url` must be reachable by both source and target Deluge clients (e.g., `http://transferarr:6969/announce` in Docker networks).
+- Changing `port` or `enabled` requires a tracker restart (available via Settings → Tracker → "Save and Apply").
+- `announce_interval` and `peer_expiry` can be changed live without restarting the tracker.
+- Tracker state (registered hashes, peers) is in-memory only and is rebuilt from torrent state on restart.
+
+---
+
 ## Transfer Type Combinations
 
-Transferarr supports four transfer type combinations:
+Transferarr supports five transfer type combinations:
 
-| From | To | Use Case |
-|------|----|----------|
-| `local` | `sftp` | Homelab → Seedbox |
-| `sftp` | `local` | Seedbox → Homelab |
-| `sftp` | `sftp` | Between two remote servers |
-| `local` | `local` | Same server, different clients |
+| Method | From | To | Use Case |
+|--------|------|----|----------|
+| File Transfer | `local` | `sftp` | Homelab → Seedbox |
+| File Transfer | `sftp` | `local` | Seedbox → Homelab |
+| File Transfer | `sftp` | `sftp` | Between two remote servers |
+| File Transfer | `local` | `local` | Same server, different clients |
+| Torrent | — | — | P2P between two Deluge instances (no filesystem access needed) |
 
 ---
 
@@ -322,8 +396,8 @@ services:
     container_name: transferarr
     ports:
       - "10444:10444"
+      - "6969:6969"    # Tracker port (for torrent-based transfers)
     volumes:
-      - ./config:/config          # Contains config.json
       - ./state:/state            # Contains state.json and history.db
       - ~/.ssh:/home/appuser/.ssh:ro  # For SFTP key authentication
     restart: unless-stopped

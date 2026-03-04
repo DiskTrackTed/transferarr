@@ -22,6 +22,7 @@ tests/ui/
         test_dashboard.py
         test_torrents.py
         test_settings.py
+        test_settings_tracker.py
         test_history.py
     crud/                   # CRUD operations (~8 min)
         test_client_crud.py
@@ -29,6 +30,7 @@ tests/ui/
     e2e/                    # Real transfers (~15 min)
         test_e2e_workflows.py
         test_smoke.py
+        test_torrent_transfer_ui.py
         test_transfer_types.py
     pages/                  # Page objects
     conftest.py
@@ -312,7 +314,7 @@ Page loading and navigation via sidebar/logo.
 | `test_switch_back_to_clients_tab` | Can switch back to Clients tab |
 | `test_dashboard_loads_content` | Dashboard loads stats and content |
 | `test_torrents_page_shows_loading` | Torrents page shows loading state |
-| `test_settings_page_loads_tabs` | Settings page loads with both tabs |
+| `test_settings_page_loads_tabs` | Settings page loads all tabs |
 
 ### [test_dashboard.py](../tests/ui/test_dashboard.py)
 Dashboard stats cards, auto-polling, and torrent list.
@@ -321,10 +323,10 @@ Dashboard stats cards, auto-polling, and torrent list.
 |------|-------------|
 | `test_dashboard_loads_with_correct_title` | Page title is correct |
 | `test_dashboard_shows_page_heading` | Page heading is visible |
-| `test_stats_cards_are_visible` | All 4 stats cards are visible |
+| `test_stats_cards_are_visible` | All 3 stats cards are visible |
 | `test_recent_torrents_container_exists` | Torrent list container exists |
 | `test_stats_are_numeric` | Stats values are valid numbers |
-| `test_get_all_stats_returns_dict` | Stats helper returns all 4 values |
+| `test_get_all_stats_returns_dict` | Stats helper returns all 3 values |
 | `test_dashboard_polls_api` | Dashboard auto-refreshes via API polling |
 | `test_api_response_contains_expected_fields` | API response has required fields |
 | `test_torrent_card_count_matches_method` | Torrent count method works correctly |
@@ -359,15 +361,17 @@ Client tabs, tab switching, torrent listings, and polling.
 | `test_sidebar_visible_on_torrents` | Sidebar is visible on torrents page |
 
 #### [test_settings.py](../tests/ui/fast/test_settings.py)
-Settings page tabs (Clients/Connections), modal display, and list rendering.
+Settings page tabs (Clients/Connections/Tracker/Auth), modal display, and list rendering.
 
 | Test | Description |
 |------|-------------|
 | `test_settings_page_loads_with_correct_title` | Page title is correct |
 | `test_settings_page_shows_heading` | Page heading is visible |
-| `test_settings_tabs_exist` | Both tabs exist |
+| `test_settings_tabs_exist` | Tab container exists |
 | `test_clients_tab_exists` | Clients tab exists |
 | `test_connections_tab_exists` | Connections tab exists |
+| `test_tracker_tab_exists` | Tracker tab exists |
+| `test_auth_tab_exists` | Auth tab exists |
 | `test_clients_tab_active_by_default` | Clients tab is active by default |
 | `test_connections_tab_inactive_by_default` | Connections tab starts inactive |
 | `test_clients_content_visible_by_default` | Clients content is visible |
@@ -376,6 +380,8 @@ Settings page tabs (Clients/Connections), modal display, and list rendering.
 | `test_switch_to_clients_tab` | Can switch back to Clients tab |
 | `test_connections_content_visible_after_switch` | Connections visible after switch |
 | `test_clients_content_hidden_after_switch` | Clients hidden after switch |
+| `test_switch_to_tracker_tab` | Can switch to Tracker tab |
+| `test_tracker_content_visible_after_switch` | Tracker visible after switch |
 | `test_get_client_cards` | Can get client card elements |
 | `test_get_client_count` | Can count clients |
 | `test_get_client_names` | Can get client names |
@@ -384,6 +390,81 @@ Settings page tabs (Clients/Connections), modal display, and list rendering.
 | `test_get_connection_count` | Can count connections |
 | `test_add_connection_button_exists` | Add Connection button exists |
 | `test_open_add_client_modal` | Can open Add Client modal |
+
+#### [test_settings_tracker.py](../tests/ui/fast/test_settings_tracker.py)
+Tracker settings tab: status indicator, settings fields, advanced options, save/restart.
+
+**TestTrackerTabElements** - Tracker tab UI elements present:
+
+| Test | Description |
+|------|-------------|
+| `test_tracker_tab_exists` | Tracker tab exists with correct text |
+| `test_tracker_tab_can_be_selected` | Can switch to Tracker tab |
+| `test_tracker_tab_content_hidden_initially` | Content hidden when tab not active |
+| `test_tracker_tab_content_visible_after_switch` | Content visible after switching |
+| `test_status_indicator_visible` | Status indicator is visible |
+| `test_status_dot_visible` | Status dot is visible |
+| `test_status_text_visible` | Status text is visible |
+| `test_status_text_has_valid_value` | Status text is Running/Stopped/Disabled |
+| `test_active_transfers_visible` | Active transfers count is visible |
+| `test_running_port_visible` | Running port is visible |
+| `test_enabled_toggle_visible` | Enabled toggle is visible |
+| `test_port_input_visible` | Port input is visible |
+| `test_external_url_input_visible` | External URL input is visible |
+| `test_advanced_toggle_visible` | Advanced Options toggle is visible |
+| `test_advanced_options_hidden_by_default` | Advanced options hidden by default |
+| `test_save_button_visible` | Save Settings button visible |
+
+**TestTrackerTabInteractions** - Tracker tab form interactions:
+
+| Test | Description |
+|------|-------------|
+| `test_can_toggle_enabled` | Can toggle enabled switch |
+| `test_can_enter_port` | Can enter port value |
+| `test_can_enter_external_url` | Can enter external URL |
+| `test_expand_advanced_options` | Can expand advanced options |
+| `test_collapse_advanced_options` | Can collapse advanced options |
+| `test_announce_interval_visible_when_expanded` | Announce interval visible when expanded |
+| `test_peer_expiry_visible_when_expanded` | Peer expiry visible when expanded |
+| `test_can_enter_announce_interval` | Can enter announce interval |
+| `test_can_enter_peer_expiry` | Can enter peer expiry |
+| `test_port_field_has_loaded_value` | Port field populated from config |
+
+**TestTrackerSaveSettings** - Saving tracker settings:
+
+| Test | Description |
+|------|-------------|
+| `test_save_shows_success_notification` | Save shows success toast |
+| `test_save_settings_updates_config` | Settings persist across reload |
+| `test_save_and_apply_updates_status` | Save and Apply updates status indicator |
+| `test_save_and_apply_sends_apply_flag` | Changing port sends apply=true in request |
+
+**TestDynamicSaveButton** - Dynamic save button text based on field changes:
+
+| Test | Description |
+|------|-------------|
+| `test_button_shows_save_settings_by_default` | Button shows 'Save Settings' when no restart fields changed |
+| `test_button_changes_to_save_and_apply_on_port_change` | Changing port switches button to 'Save and Apply' |
+| `test_button_changes_to_save_and_apply_on_enabled_toggle` | Toggling enabled switches button to 'Save and Apply' |
+| `test_button_stays_save_settings_on_url_change` | Changing external URL keeps button as 'Save Settings' |
+| `test_button_stays_save_settings_on_advanced_change` | Changing advanced fields keeps button as 'Save Settings' |
+| `test_button_reverts_when_port_restored` | Restoring port to original value reverts button |
+| `test_button_resets_after_save` | Button resets to 'Save Settings' after successful save |
+
+**TestTrackerStatusDisplay** - Status indicator display:
+
+| Test | Description |
+|------|-------------|
+| `test_running_status_shows_green_dot` | Running shows green dot |
+| `test_active_transfers_shows_number` | Active transfers is numeric |
+| `test_running_port_shows_value_when_running` | Shows port when running, dash when stopped |
+
+**TestTrackerTabPersistence** - URL hash persistence:
+
+| Test | Description |
+|------|-------------|
+| `test_tracker_tab_via_url_hash` | settings#tracker activates tracker tab |
+| `test_switching_to_tracker_updates_url_hash` | Switching updates URL hash |
 
 #### [test_history.py](../tests/ui/fast/test_history.py)
 Transfer History page: stats, filters, table, pagination, status badges, delete functionality.
@@ -397,7 +478,7 @@ Transfer History page: stats, filters, table, pagination, status badges, delete 
 | `test_history_stats_banner_visible` | Stats banner shows all 5 stat cards |
 | `test_history_stats_labels` | Stats have correct labels |
 | `test_history_table_visible` | History table is visible |
-| `test_history_shows_correct_columns` | Table has Name, From→To, Size, Duration, Status, Date, Actions |
+| `test_history_shows_correct_columns` | Table has Name, From→To, Type, Transferred, Duration, Status, Date, Actions |
 | `test_history_pagination_controls` | Pagination controls are visible |
 | `test_filter_controls_visible` | Filter dropdowns and search visible |
 | `test_history_filter_by_status` | Status dropdown filters correctly |
@@ -411,7 +492,7 @@ Transfer History page: stats, filters, table, pagination, status badges, delete 
 | `test_pagination_info_displayed` | Shows "Showing X-Y of Z" |
 | `test_history_shows_transfer_records` | Table shows records or empty state |
 | `test_history_status_badge_colors` | Status badges have correct styling |
-| `test_history_table_sortable_columns` | 3 sortable columns (Name, Size, Date) |
+| `test_history_table_sortable_columns` | 3 sortable columns (Name, Transferred, Date) |
 | `test_history_column_sorting` | Clicking header triggers sorting |
 | `test_empty_state_message` | Empty state shows "No transfer history" |
 | `test_empty_state_icon` | Empty state has history icon |
@@ -476,6 +557,20 @@ Connection CRUD workflows: add, edit, delete, test connection.
 | `test_connection_card_shows_status` | Card shows connection status |
 | `test_connection_card_shows_transfer_stats` | Card shows transfer statistics |
 
+**TestTorrentConnectionForm** - Torrent transfer method in connection modal:
+
+| Test | Description |
+|------|-------------|
+| `test_transfer_method_selector_visible` | Transfer Method selector visible in Add Connection modal |
+| `test_transfer_method_defaults_to_file_transfer` | File Transfer is selected by default |
+| `test_switching_to_torrent_hides_sftp_config` | Selecting Torrent hides SFTP config and path sections |
+| `test_switching_to_file_transfer_shows_sftp_config` | Switching back to File Transfer restores SFTP config |
+| `test_torrent_type_shows_destination_path` | Torrent type shows destination path under Advanced Options |
+| `test_torrent_type_shows_tracker_info_note` | Torrent type shows tracker requirement note |
+| `test_torrent_test_connection_checks_clients_and_tracker` | Test Connection for torrent verifies clients + tracker |
+| `test_save_torrent_connection_creates_correct_config` | Saving torrent connection creates correct config structure |
+| `test_edit_torrent_connection_populates_form` | Editing existing torrent connection populates form correctly |
+
 ### e2e/
 
 #### [test_e2e_workflows.py](../tests/ui/e2e/test_e2e_workflows.py)
@@ -520,6 +615,24 @@ Transfer type combination tests: all 4 combinations of local/sftp source and tar
 | `test_both_sftp_fields_visible_for_sftp_to_sftp` | Both SFTP field sets visible for sftp → sftp |
 | `test_sftp_fields_toggle_on_type_change` | SFTP fields toggle correctly when type changes |
 
+#### [test_torrent_transfer_ui.py](../tests/ui/e2e/test_torrent_transfer_ui.py)
+Torrent transfer visibility in Dashboard and History pages.
+
+**TestTorrentTransferDashboard** - Dashboard display during torrent transfers:
+
+| Test | Description |
+|------|-------------|
+| `test_torrent_transfer_shows_in_dashboard` | Torrent transfer visible with status on dashboard |
+| `test_dashboard_transferring_stat_counts_torrent` | Transferring stat card counts torrent transfers |
+
+**TestTorrentTransferHistory** - History records for torrent transfers:
+
+| Test | Description |
+|------|-------------|
+| `test_history_shows_torrent_transfer` | Transfer recorded in history page |
+| `test_history_type_column_shows_torrent` | History table shows "Torrent" in type column |
+| `test_torrent_transfer_progress_displayed` | Transfer progress/state verified on dashboard |
+
 ## Helper Functions
 
 Located in `tests/ui/helpers.py`. These are shared utilities for UI tests:
@@ -527,6 +640,8 @@ Located in `tests/ui/helpers.py`. These are shared utilities for UI tests:
 | Function | Purpose |
 |----------|--------|
 | `add_connection_via_ui()` | Add a transfer connection via the Settings UI modal. Handles all transfer type combinations (local/sftp). |
+| `add_torrent_connection_via_ui()` | Add a torrent-type connection via the Settings UI modal. Selects torrent method, fills clients. Optionally expands Advanced Options to set destination path. |
+| `get_connection_config_via_api()` | Get a connection's config by name via the REST API. Used for verification. |
 | `delete_connection_via_api()` | Delete a connection by name via the REST API. Used for cleanup. |
 | `delete_client_via_api()` | Delete a download client by name via the REST API. Used for cleanup. |
 | `unwrap_api_response()` | Extract data from standardized API response wrapper. |
