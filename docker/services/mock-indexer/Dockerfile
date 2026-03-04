@@ -1,7 +1,7 @@
 # Mock Torznab Indexer for Testing
 # Provides a fake indexer API for Radarr/Sonarr to search and download test torrents
 
-FROM python:3.11-slim
+FROM python:3.11-slim-bookworm
 
 WORKDIR /app
 

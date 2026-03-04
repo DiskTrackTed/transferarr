@@ -409,6 +409,8 @@ gh pr create --base main --fill
 
 ## CI/CD
 
+**📖 Full documentation: [docs/ci.md](../docs/ci.md)**
+
 GitHub Actions workflow in `.github/workflows/tests.yml` runs the full test suite.
 
 **Triggers**:
@@ -449,6 +451,7 @@ GitHub Actions workflow in `.github/workflows/tests.yml` runs the full test suit
 ### Docker
 - Use `docker compose` (v2) not `docker-compose` (v1, deprecated)
 - Compose files should not include the deprecated `version` field
+- **Image pinning**: All images in `docker-compose.test.yml` must use pinned versions via env var defaults (e.g., `${DELUGE_TAG:-2.1.1-r10-ls324}`). Never use `:latest` as a hardcoded tag in compose files. See "Image Version Pinning" section for details.
 
 ### Error Handling
 - Custom exceptions in `exceptions.py` (note: typo `TrasnferClientException` is intentional/existing)
@@ -611,9 +614,11 @@ gh issue close 1
 - `build.sh` - Docker image build script
 - `run_tests.sh` - Docker-based test runner script
 - `testing.ipynb` - Development/debugging notebook
+- `docs/ci.md` - CI/CD documentation (workflows, image pinning, weekly latest tests)
 - `docs/integration-tests.md` - Integration test documentation (test coverage, test names, patterns)
 - `docs/ui-tests.md` - UI test documentation (Playwright, page objects, fixtures)
 - `docs/plans/005-torrent-based-transfer.md` - Torrent-based transfer implementation plan (10 phases)
+- `docs/plans/006-deluge-2.2.0-create-torrent-bug.md` - Deluge 2.2.0 bug analysis and CI pinning rationale
 
 ## Testing Infrastructure
 
@@ -630,6 +635,26 @@ docker compose -f docker/docker-compose.test.yml ps
 # Tear down and reset
 docker compose -f docker/docker-compose.test.yml down -v
 ```
+
+### Image Version Pinning
+All Docker images in `docker-compose.test.yml` are pinned to specific versions for deterministic CI. Images use env var substitution with pinned defaults so the weekly `:latest` workflow can override them.
+
+**Pinned images** (env var → default tag):
+| Env Var | Default Tag | Image |
+|---------|-------------|-------|
+| `DELUGE_TAG` | `2.1.1-r10-ls324` | `lscr.io/linuxserver/deluge` |
+| `RADARR_TAG` | `6.0.4.10291-ls294` | `lscr.io/linuxserver/radarr` |
+| `SONARR_TAG` | `4.0.16.2944-ls303` | `lscr.io/linuxserver/sonarr` |
+| `OPENSSH_TAG` | `10.2_p1-r0-ls218` | `lscr.io/linuxserver/openssh-server` |
+| `ALPINE_TAG` | `3.21` | `alpine` |
+
+- **opentracker**: Only `latest` and `pre-update` tags exist; no versioned tags available
+- **Locally-built images** (mock-indexer, test-runner, registrar, torrent-creator): Python base images pinned to `bookworm` Debian release in their Dockerfiles
+- **Deluge is pinned to 2.1.1** because 2.2.0 has a `create_torrent` bug (see `docs/plans/006-deluge-2.2.0-create-torrent-bug.md`)
+
+**Updating pinned versions**: When updating a pin, use the full linuxserver tag format: `{app_version}-ls{build_number}` (e.g., `2.1.1-r10-ls324`). Find available tags at `https://hub.docker.com/r/linuxserver/{image}/tags`.
+
+**Weekly `:latest` workflow** (`.github/workflows/weekly-latest.yml`): Runs every Sunday at 06:00 UTC against `:latest` images. Tests a slim subset (unit, integration-api, integration-lifecycle, ui-fast). On failure, creates a GitHub issue with `ci-compatibility` label. Can also be triggered manually via `workflow_dispatch`.
 
 ### Test Services (Host Ports)
 | Service | Host Port | Internal Port | Purpose |
