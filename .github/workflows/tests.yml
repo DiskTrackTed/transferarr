@@ -37,8 +37,12 @@ on:
           - integration-auth-user
           - integration-auth-api-key
           - integration-lifecycle
-          - integration-persistence
-          - integration-transfers
+          - integration-persistence-sftp
+          - integration-persistence-torrent-restart
+          - integration-persistence-torrent-large
+          - integration-transfers-torrent-infra
+          - integration-transfers-torrent-lifecycle
+          - integration-transfers-concurrent
           - integration-config
           - integration-edge
           - ui-fast
@@ -84,13 +88,29 @@ jobs:
             path: tests/integration/lifecycle/
             timeout: 20
             needs_docker: true
-          - category: integration-persistence
-            path: tests/integration/persistence/
+          - category: integration-persistence-sftp
+            path: tests/integration/persistence/test_state_persistence.py
             timeout: 30
             needs_docker: true
-          - category: integration-transfers
-            path: tests/integration/transfers/
+          - category: integration-persistence-torrent-restart
+            path: tests/integration/persistence/test_torrent_transfer_restart.py
             timeout: 30
+            needs_docker: true
+          - category: integration-persistence-torrent-large
+            path: tests/integration/persistence/test_torrent_transfer_large_restart.py
+            timeout: 30
+            needs_docker: true
+          - category: integration-transfers-torrent-infra
+            path: tests/integration/transfers/test_torrent_infra.py tests/integration/transfers/test_torrent_transfer_setup.py
+            timeout: 10
+            needs_docker: true
+          - category: integration-transfers-torrent-lifecycle
+            path: tests/integration/transfers/test_torrent_transfer_download.py tests/integration/transfers/test_torrent_transfer_lifecycle.py
+            timeout: 30
+            needs_docker: true
+          - category: integration-transfers-concurrent
+            path: tests/integration/transfers/test_concurrent_transfers.py tests/integration/transfers/test_transfer_types.py
+            timeout: 20
             needs_docker: true
           - category: integration-config
             path: tests/integration/config/

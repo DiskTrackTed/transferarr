@@ -432,8 +432,12 @@ GitHub Actions workflow in `.github/workflows/tests.yml` runs the full test suit
 - `integration-auth-user` - User authentication tests
 - `integration-auth-api-key` - API key authentication tests
 - `integration-lifecycle` - Torrent lifecycle tests
-- `integration-persistence` - State persistence tests
-- `integration-transfers` - Transfer type tests
+- `integration-persistence-sftp` - SFTP state persistence tests
+- `integration-persistence-torrent-restart` - Torrent transfer restart recovery tests
+- `integration-persistence-torrent-large` - Large file torrent restart tests
+- `integration-transfers-torrent-infra` - Torrent infra and setup tests
+- `integration-transfers-torrent-lifecycle` - Torrent download and lifecycle tests
+- `integration-transfers-concurrent` - Concurrent and transfer type tests
 - `integration-config` - Client routing tests
 - `integration-edge` - Edge case/error tests
 - `ui-fast` - Fast UI tests

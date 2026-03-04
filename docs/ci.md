@@ -44,8 +44,12 @@ All categories run in parallel with `fail-fast: false` (one failure doesn't canc
 | `integration-auth-user` | `tests/integration/auth/user/` | 30 min | Yes | User authentication flows |
 | `integration-auth-api-key` | `tests/integration/auth/api-key/` | 30 min | Yes | API key authentication |
 | `integration-lifecycle` | `tests/integration/lifecycle/` | 20 min | Yes | Torrent migration end-to-end |
-| `integration-persistence` | `tests/integration/persistence/` | 30 min | Yes | State recovery and restart |
-| `integration-transfers` | `tests/integration/transfers/` | 30 min | Yes | Transfer type variations |
+| `integration-persistence-sftp` | `tests/integration/persistence/test_state_persistence.py` | 30 min | Yes | SFTP state recovery and restart |
+| `integration-persistence-torrent-restart` | `tests/integration/persistence/test_torrent_transfer_restart.py` | 30 min | Yes | Torrent transfer restart recovery |
+| `integration-persistence-torrent-large` | `tests/integration/persistence/test_torrent_transfer_large_restart.py` | 30 min | Yes | Large file torrent restart |
+| `integration-transfers-torrent-infra` | `tests/integration/transfers/test_torrent_infra.py tests/integration/transfers/test_torrent_transfer_setup.py` | 10 min | Yes | Torrent infra checks and setup |
+| `integration-transfers-torrent-lifecycle` | `tests/integration/transfers/test_torrent_transfer_download.py tests/integration/transfers/test_torrent_transfer_lifecycle.py` | 30 min | Yes | Torrent download and lifecycle |
+| `integration-transfers-concurrent` | `tests/integration/transfers/test_concurrent_transfers.py tests/integration/transfers/test_transfer_types.py` | 20 min | Yes | Concurrent and transfer type variations |
 | `integration-config` | `tests/integration/config/` | 15 min | Yes | Client routing configs |
 | `integration-edge` | `tests/integration/edge/` | 30 min | Yes | Error handling, edge cases |
 | `ui-fast` | `tests/ui/fast/` | 10 min | Yes | UI rendering, navigation |
