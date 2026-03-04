@@ -718,7 +718,7 @@ class TestRestartAtTargetSeeding:
         # Wait for original to be removed from source
         wait_for_torrent_removed(
             deluge_source, original_hash,
-            timeout=TIMEOUTS['state_transition']
+            timeout=TIMEOUTS['torrent_transfer']
         )
 
         # Verify target still has original
