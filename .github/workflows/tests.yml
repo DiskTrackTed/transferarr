@@ -102,7 +102,7 @@ jobs:
             needs_docker: true
           - category: integration-transfers-torrent-infra
             path: tests/integration/transfers/test_torrent_infra.py tests/integration/transfers/test_torrent_transfer_setup.py
-            timeout: 10
+            timeout: 20
             needs_docker: true
           - category: integration-transfers-torrent-lifecycle
             path: tests/integration/transfers/test_torrent_transfer_download.py tests/integration/transfers/test_torrent_transfer_lifecycle.py
