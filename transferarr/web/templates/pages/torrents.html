@@ -9,6 +9,9 @@
 {% block content %}
 <div class="card-header">
     <h2 class="card-title">All Torrents</h2>
+    <button id="transfer-selected-btn" class="btn btn-primary transfer-selected-btn" disabled style="visibility: hidden; opacity: 0;">
+        <i class="fas fa-exchange-alt"></i> Transfer Selected (<span id="selected-count">0</span>)
+    </button>
 </div>
 <div class="card">
     <!-- Add loading indicator -->
@@ -22,6 +25,71 @@
     </div>
     <div id="client-tab-contents">
         <!-- Client tab contents will be populated by JavaScript -->
+    </div>
+</div>
+
+<!-- Transfer Destination Modal -->
+<div class="modal" id="transferModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Transfer Torrents</h5>
+                <button type="button" class="btn-close" id="transferModalClose" aria-label="Close">
+                    <i class="fas fa-times" style="font-size: 24px;"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <!-- Transfer summary -->
+                <div id="transfer-summary" class="transfer-summary">
+                    <p><strong>Selected torrents:</strong> <span id="modal-selected-count">0</span></p>
+                    <div id="cross-seed-notice" class="cross-seed-notice" style="display: none;">
+                        <i class="fas fa-link"></i>
+                        <span id="cross-seed-count">0</span> cross-seed(s) will be included
+                    </div>
+                </div>
+
+                <!-- Torrent list preview -->
+                <div id="transfer-torrent-list" class="transfer-torrent-list">
+                    <!-- Populated dynamically -->
+                </div>
+
+                <!-- Destination selection -->
+                <div class="form-group">
+                    <label for="destinationClient" class="form-label">Destination Client</label>
+                    <select class="form-control" id="destinationClient" required>
+                        <option value="">Select destination...</option>
+                    </select>
+                </div>
+
+                <!-- Cross-seed option -->
+                <div class="form-group">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="includeCrossSeeds" checked>
+                        <label class="form-check-label" for="includeCrossSeeds">
+                            Include cross-seeds
+                        </label>
+                        <small class="form-text">
+                            Automatically include torrents sharing the same data files
+                        </small>
+                    </div>
+                </div>
+
+                <!-- Cross-seed warning (shown when unchecked + siblings exist) -->
+                <div id="cross-seed-warning" class="alert alert-warning cross-seed-warning" style="display: none;">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    <span>Selected torrent(s) have cross-seeds. If you transfer without them, the original data will not be deleted from the source because other torrents still reference it.</span>
+                </div>
+
+                <!-- Error message -->
+                <div id="transfer-error" class="alert alert-danger" style="display: none;"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" id="transferModalCancel">Cancel</button>
+                <button type="button" class="btn btn-primary" id="confirmTransferBtn" disabled>
+                    <i class="fas fa-exchange-alt"></i> Start Transfer
+                </button>
+            </div>
+        </div>
     </div>
 </div>
 {% endblock %}

@@ -31,11 +31,14 @@ export function initConnections(modals) {
                 document.getElementById('connectionModalTitle').textContent = 'Add Connection';
                 connectionModal.show();
                 
-                // Set default types and show appropriate config sections
-                document.getElementById('fromType').value = 'sftp';
-                document.getElementById('toType').value = 'sftp';
-                toggleConfigSection('from', 'sftp');
-                toggleConfigSection('to', 'sftp');
+                // Set default types for file-transfer mode (only if file is selected)
+                const method = document.getElementById('transferMethod').value;
+                if (method !== 'torrent') {
+                    document.getElementById('fromType').value = 'sftp';
+                    document.getElementById('toType').value = 'sftp';
+                    toggleConfigSection('from', 'sftp');
+                    toggleConfigSection('to', 'sftp');
+                }
             });
         });
     }
@@ -432,9 +435,9 @@ function resetConnectionForm() {
     document.getElementById('saveConnectionBtn').disabled = true;
     resetTestConnectionBtn();
     
-    // Reset transfer method to file
-    document.getElementById('transferMethod').value = 'file';
-    toggleTransferMethod('file');
+    // Reset transfer method to torrent (default)
+    document.getElementById('transferMethod').value = 'torrent';
+    toggleTransferMethod('torrent');
     
     // Reset SFTP password placeholders for add mode
     document.getElementById('fromSftpPassword').placeholder = '';

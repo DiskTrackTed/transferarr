@@ -1,10 +1,10 @@
 # Integration Tests
 
-*Last Updated: 2026-01-25*
+*Last Updated: 2026-03-03*
 
 ## Overview
 
-Transferarr has 55+ integration tests organized into 6 categories, covering the complete torrent migration lifecycle for both Radarr and Sonarr, plus history tracking and API tests.
+Transferarr has 60+ integration tests organized into 6 categories, covering the complete torrent migration lifecycle for both Radarr and Sonarr, plus history tracking and API tests.
 
 ## Directory Structure
 
@@ -101,6 +101,14 @@ Large-file (2.5GB) restart scenarios for torrent-based transfers. Uses large fil
 | `test_history_tracking_survives_restart_during_download` | Verify _transfer_id persists across restart so history records are not orphaned. |
 | `test_multiple_restarts_during_download_still_completes` | Restart 3 times during TORRENT_DOWNLOADING. Stress-tests retry and re-announce logic. |
 
+#### [test_manual_transfer_restart.py](../tests/integration/persistence/test_manual_transfer_restart.py)
+Manual transfer state persistence across container restarts.
+
+| Test | Description |
+|------|-------------|
+| `test_manual_sftp_transfer_survives_restart` | Manual SFTP transfer survives container restart and completes |
+| `test_manual_torrent_transfer_survives_restart` | Manual torrent (P2P) transfer survives container restart and completes |
+
 ### transfers/
 
 #### [test_concurrent_transfers.py](../tests/integration/transfers/test_concurrent_transfers.py)
@@ -194,6 +202,19 @@ Transfer History API endpoint tests (23 tests).
 | `TestTransferHistoryIntegration` | End-to-end record creation during transfer |
 | `TestDeleteTransferEndpoint` | DELETE /transfers/<id> single record deletion |
 | `TestClearTransfersEndpoint` | DELETE /transfers batch clearing by status |
+
+#### [test_manual_transfer_api.py](../tests/integration/api/test_manual_transfer_api.py)
+Manual Transfer API endpoint tests (20 tests).
+
+| Test Class | Tests | Description |
+|------------|-------|-------------|
+| `TestDestinationsEndpoint` | 4 | GET /transfers/destinations — known source, missing param, unknown source, target with no connections |
+| `TestManualTransferValidation` | 7 | POST /transfers/manual validation — empty hashes, missing fields, unknown clients, same src/dest, nonexistent hash |
+| `TestManualTransferInitiation` | 4 | POST /transfers/manual happy path — single transfer lifecycle, multiple torrents, not-seeding rejection, all_torrents field verification |
+| `TestManualTransferCrossSeed` | 2 | Cross-seed expansion — selecting one torrent transfers sibling with same save_path; disabled flag prevents expansion |
+| `TestDestinationsWithTorrentConfig` | 1 | Destinations with torrent transfer config — transfer_type=torrent |
+| `TestManualTorrentTypeTransfer` | 1 | POST /transfers/manual — manual torrent (P2P) transfer completes end-to-end |
+| `TestManualTransferTorrentWithoutTracker` | 1 | POST /transfers/manual — rejects torrent transfer when tracker is disabled |
 
 ### auth/
 
@@ -381,11 +402,3 @@ def test_season_pack(self, lifecycle_runner):
 | API Smoke Tests | Lower priority; core functionality covered |
 
 ---
-
-## Planning Documents (Archive)
-
-Detailed planning and implementation notes:
-- [testing-infrastructure.md](plans/testing-infrastructure.md) – Original Phase 5 infrastructure setup
-- [integration-tests-expansion.md](plans/integration-tests-expansion.md) – Phase 5a/5b test specifications
-- [integration-tests-phase-6.md](plans/integration-tests-phase-6.md) – Phase 6 (Sonarr, concurrency, transfer types)
-- [transfer-type-testing.md](plans/transfer-type-testing.md) – Transfer type matrix design

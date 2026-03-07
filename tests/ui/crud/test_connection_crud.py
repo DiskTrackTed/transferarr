@@ -134,6 +134,10 @@ class TestConnectionForm:
         settings_page.switch_to_connections_tab()
         settings_page.open_add_connection_modal()
         
+        # Switch to file transfer mode (default is torrent, which hides type selects)
+        settings_page.page.select_option(settings_page.TRANSFER_METHOD, "file")
+        settings_page.page.wait_for_timeout(UI_TIMEOUTS['js_processing'])
+        
         from_type_select = settings_page.page.locator(settings_page.CONNECTION_FROM_TYPE)
         from_sftp_config = settings_page.page.locator("#fromSftpConfig")
         
@@ -150,6 +154,10 @@ class TestConnectionForm:
         settings_page.goto()
         settings_page.switch_to_connections_tab()
         settings_page.open_add_connection_modal()
+        
+        # Switch to file transfer mode (default is torrent, which hides type selects)
+        settings_page.page.select_option(settings_page.TRANSFER_METHOD, "file")
+        settings_page.page.wait_for_timeout(UI_TIMEOUTS['js_processing'])
         
         to_type_select = settings_page.page.locator(settings_page.CONNECTION_TO_TYPE)
         to_sftp_config = settings_page.page.locator("#toSftpConfig")
@@ -231,6 +239,10 @@ class TestTestConnection:
         
         from_select.select_option(client_values[0])
         to_select.select_option(client_values[1])
+        
+        # Switch to file transfer mode (default is torrent, which hides type selects)
+        settings_page.page.select_option(settings_page.TRANSFER_METHOD, "file")
+        page.wait_for_timeout(UI_TIMEOUTS['js_processing'])
         
         # Select from/to types as local
         settings_page.page.select_option(settings_page.CONNECTION_FROM_TYPE, "local")
@@ -491,25 +503,25 @@ class TestTorrentConnectionForm:
         assert "torrent" in option_values
         print("  ✓ Transfer Method selector visible with file/torrent options")
 
-    def test_transfer_method_defaults_to_file_transfer(self, settings_page, page: Page):
-        """Test that File Transfer is the default transfer method."""
-        log_test_step("Test: Transfer Method defaults to File Transfer")
+    def test_transfer_method_defaults_to_torrent(self, settings_page, page: Page):
+        """Test that Torrent is the default transfer method."""
+        log_test_step("Test: Transfer Method defaults to Torrent")
         self._open_connection_modal(settings_page, page)
+        page.wait_for_timeout(UI_TIMEOUTS['js_processing'])
 
         transfer_method = page.locator(settings_page.TRANSFER_METHOD)
-        assert transfer_method.input_value() == "file"
+        assert transfer_method.input_value() == "torrent"
 
-        # File-transfer-only elements should be visible
+        # File-transfer-only elements should be hidden
         file_only_elements = page.locator(settings_page.FILE_TRANSFER_ONLY).all()
         for el in file_only_elements:
-            # Elements should not be hidden via display:none
-            display = el.evaluate("el => getComputedStyle(el).display")
-            assert display != "none", "File-transfer-only element should be visible by default"
+            display = el.evaluate("el => el.style.display")
+            assert display == "none", "File-transfer-only element should be hidden by default"
 
-        # Torrent config should be hidden
+        # Torrent config should be visible
         torrent_config = page.locator(settings_page.TORRENT_TRANSFER_CONFIG)
-        expect(torrent_config).to_be_hidden()
-        print("  ✓ File Transfer is selected by default")
+        expect(torrent_config).to_be_visible()
+        print("  ✓ Torrent is selected by default")
 
     def test_switching_to_torrent_hides_sftp_config(self, settings_page, page: Page):
         """Test that selecting Torrent hides SFTP config and path sections."""

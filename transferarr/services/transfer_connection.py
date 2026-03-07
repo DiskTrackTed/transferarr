@@ -169,6 +169,9 @@ class TransferConnection:
         """Background task to copy a torrent"""
         try:
             self._do_copy_torrent(torrent)
+        except Exception as e:
+            logger.error(f"Unexpected error copying torrent {torrent.name}: {e}")
+            torrent.state = TorrentState.ERROR
         finally:
             with self._lock:
                 if torrent.name in self._active_transfers:

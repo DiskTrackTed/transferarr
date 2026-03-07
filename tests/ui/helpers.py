@@ -179,6 +179,10 @@ def add_connection_via_ui(
     # Fill connection name
     page.fill(settings_page.CONNECTION_NAME, connection_name)
     
+    # Switch to file transfer method (default is torrent)
+    page.select_option(settings_page.TRANSFER_METHOD, "file")
+    page.wait_for_timeout(UI_TIMEOUTS['js_processing'])
+    
     # Select clients
     page.select_option(settings_page.CONNECTION_FROM_SELECT, from_client)
     page.select_option(settings_page.CONNECTION_TO_SELECT, to_client)

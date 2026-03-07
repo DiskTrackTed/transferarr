@@ -245,3 +245,22 @@ class BrowseRequestSchema(Schema):
     type = fields.Str(required=True, validate=validate.OneOf(["local", "sftp"]))
     path = fields.Str(load_default="/")
     sftp = fields.Nested(SFTPConfigSchema, load_default=None)
+
+
+# =============================================================================
+# Manual Transfer Schemas
+# =============================================================================
+
+class ManualTransferSchema(Schema):
+    """Schema for POST /api/v1/transfers/manual
+
+    Validates the request to initiate a manual torrent transfer.
+    """
+    hashes = fields.List(
+        fields.Str(validate=validate.Length(min=1)),
+        required=True,
+        validate=validate.Length(min=1),
+    )
+    source_client = fields.Str(required=True, validate=validate.Length(min=1))
+    destination_client = fields.Str(required=True, validate=validate.Length(min=1))
+    include_cross_seeds = fields.Bool(load_default=True)

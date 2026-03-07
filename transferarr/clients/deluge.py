@@ -331,7 +331,8 @@ class DelugeClient(DownloadClientBase):
             
             try:
                 # Use a minimal set of fields to reduce memory usage
-                fields = ['name', 'state', 'progress']
+                # save_path is needed for cross-seed detection in manual transfers
+                fields = ['name', 'state', 'progress', 'save_path', 'total_size']
                 retry_count = 0
                 max_retries = 3
                 

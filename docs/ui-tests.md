@@ -1,6 +1,6 @@
 # UI Tests
 
-*Last Updated: 2026-01-25*
+*Last Updated: 2026-03-03*
 
 ## Overview
 
@@ -21,6 +21,7 @@ tests/ui/
         test_navigation.py
         test_dashboard.py
         test_torrents.py
+        test_manual_transfer.py
         test_settings.py
         test_settings_tracker.py
         test_history.py
@@ -32,6 +33,7 @@ tests/ui/
         test_smoke.py
         test_torrent_transfer_ui.py
         test_transfer_types.py
+        test_manual_transfer_e2e.py
     pages/                  # Page objects
     conftest.py
     helpers.py
@@ -478,11 +480,12 @@ Transfer History page: stats, filters, table, pagination, status badges, delete 
 | `test_history_stats_banner_visible` | Stats banner shows all 5 stat cards |
 | `test_history_stats_labels` | Stats have correct labels |
 | `test_history_table_visible` | History table is visible |
-| `test_history_shows_correct_columns` | Table has Name, From→To, Type, Transferred, Duration, Status, Date, Actions |
+| `test_history_shows_correct_columns` | Table has Name, From→To, Type, Trigger, Transferred, Duration, Status, Date, Actions |
 | `test_history_pagination_controls` | Pagination controls are visible |
 | `test_filter_controls_visible` | Filter dropdowns and search visible |
 | `test_history_filter_by_status` | Status dropdown filters correctly |
 | `test_history_filter_by_client` | Source/target filters work |
+| `test_history_filter_by_trigger` | Trigger dropdown filters correctly |
 | `test_history_search_by_name` | Search input filters by name |
 | `test_history_clear_filters` | Clear button resets all filters |
 | `test_history_date_filter_from` | From date filter works |
@@ -508,6 +511,76 @@ Transfer History page: stats, filters, table, pagination, status badges, delete 
 | `test_delete_modal_shows_torrent_name` | Delete modal shows the torrent name |
 | `test_delete_modal_cancel` | Cancel button closes delete modal |
 | `test_delete_modal_close_button` | X button closes delete modal |
+
+#### [test_manual_transfer.py](../tests/ui/fast/test_manual_transfer.py)
+Manual transfer UI: transfer button, torrent selection, transfer modal elements, close actions, cross-seed checkbox.
+
+**TestTransferButtonVisibility** - Transfer button show/hide:
+
+| Test | Description |
+|------|-------------|
+| `test_transfer_button_hidden_initially` | Button hidden when no torrent selected |
+| `test_transfer_button_appears_on_selection` | Button visible after selecting a seeding torrent |
+| `test_selected_count_updates` | Badge count increments with multiple selections |
+| `test_deselect_hides_button` | Deselecting last torrent hides button |
+
+**TestTorrentCardSelection** - Torrent card checkbox and highlight:
+
+| Test | Description |
+|------|-------------|
+| `test_checkboxes_present_on_torrent_cards` | Every torrent card has a checkbox |
+| `test_non_seeding_checkboxes_disabled` | Non-seeding torrent checkboxes are disabled |
+| `test_selected_card_gets_highlight_class` | Selected card gets 'selected' CSS class |
+| `test_deselect_removes_highlight` | Deselecting removes highlight class |
+
+**TestTransferModalElements** - Transfer modal structure and form:
+
+| Test | Description |
+|------|-------------|
+| `test_modal_opens_on_button_click` | Transfer Selected opens modal |
+| `test_modal_has_title` | Modal shows 'Transfer Torrents' title |
+| `test_modal_shows_selected_count` | Modal body shows selected count |
+| `test_modal_has_destination_dropdown` | Modal has destination dropdown |
+| `test_destination_dropdown_loads_options` | Dropdown populates with destinations |
+| `test_modal_has_destination_path_input` | Modal has optional path input |
+| `test_modal_has_cross_seeds_checkbox` | Modal has Include Cross-Seeds checkbox |
+| `test_modal_has_torrent_list_preview` | Modal shows list of selected torrents |
+| `test_confirm_button_disabled_without_destination` | Start Transfer disabled without destination |
+| `test_confirm_button_enabled_after_destination` | Start Transfer enables after choosing destination |
+| `test_transfer_error_hidden_initially` | Error alert hidden by default |
+
+**TestModalCloseActions** - Modal close behaviour:
+
+| Test | Description |
+|------|-------------|
+| `test_close_button_hides_modal` | X button closes modal |
+| `test_cancel_button_hides_modal` | Cancel button closes modal |
+| `test_backdrop_click_hides_modal` | Clicking outside dialog closes modal |
+| `test_selection_preserved_after_close` | Closing modal keeps selection active |
+
+**TestCrossSeedCheckbox** - Cross-seeds toggle and warning:
+
+| Test | Description |
+|------|-------------|
+| `test_cross_seeds_checked_by_default` | Checkbox checked by default |
+| `test_can_uncheck_cross_seeds` | Can uncheck cross-seeds |
+| `test_can_recheck_cross_seeds` | Can re-check after unchecking |
+| `test_cross_seed_warning_hidden_when_checked` | Cross-seed warning hidden when checkbox is checked |
+| `test_cross_seed_warning_hidden_when_no_siblings` | Warning stays hidden when unchecking if no siblings |
+| `test_cross_seed_warning_shows_on_uncheck_with_siblings` | Warning appears when unchecking with sibling torrents |
+| `test_cross_seed_warning_hides_on_recheck` | Warning disappears when re-checking Include Cross-Seeds |
+
+**TestInlineTransferButton** - Per-torrent inline transfer button:
+
+| Test | Description |
+|------|-------------|
+| `test_inline_button_present_on_seeding_cards` | Seeding cards have inline transfer button |
+| `test_inline_button_count_matches_seeding_count` | Button count equals seeding torrent count |
+| `test_inline_button_not_on_non_seeding_cards` | Non-seeding cards lack inline button |
+| `test_inline_button_opens_modal` | Clicking inline button opens transfer modal |
+| `test_inline_button_selects_single_torrent` | Modal shows exactly 1 torrent selected |
+| `test_inline_button_clears_previous_selection` | Inline button resets any multi-selection |
+| `test_inline_button_has_tooltip` | Button has descriptive title attribute |
 
 ### crud/
 
@@ -562,7 +635,7 @@ Connection CRUD workflows: add, edit, delete, test connection.
 | Test | Description |
 |------|-------------|
 | `test_transfer_method_selector_visible` | Transfer Method selector visible in Add Connection modal |
-| `test_transfer_method_defaults_to_file_transfer` | File Transfer is selected by default |
+| `test_transfer_method_defaults_to_torrent` | Torrent is selected by default |
 | `test_switching_to_torrent_hides_sftp_config` | Selecting Torrent hides SFTP config and path sections |
 | `test_switching_to_file_transfer_shows_sftp_config` | Switching back to File Transfer restores SFTP config |
 | `test_torrent_type_shows_destination_path` | Torrent type shows destination path under Advanced Options |
@@ -632,6 +705,16 @@ Torrent transfer visibility in Dashboard and History pages.
 | `test_history_shows_torrent_transfer` | Transfer recorded in history page |
 | `test_history_type_column_shows_torrent` | History table shows "Torrent" in type column |
 | `test_torrent_transfer_progress_displayed` | Transfer progress/state verified on dashboard |
+
+#### [test_manual_transfer_e2e.py](../tests/ui/e2e/test_manual_transfer_e2e.py)
+Manual transfer end-to-end: select torrent, open modal, confirm transfer, verify completion.
+
+**TestManualTransferE2E** - Full manual transfer workflow via UI:
+
+| Test | Description |
+|------|-------------|
+| `test_manual_transfer_via_ui` | Select torrent, pick destination, confirm — verify transfer reaches TARGET_SEEDING |
+| `test_success_notification_shown` | After confirming, a success toast notification appears |
 
 ## Helper Functions
 

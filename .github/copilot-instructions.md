@@ -170,6 +170,7 @@ Flask blueprints in `web/routes/`:
   - `connections.py` - Transfer connection CRUD operations
   - `torrents.py` - `/torrents`, `/all_torrents` endpoints
   - `transfers.py` - `/transfers` history endpoints (list, stats, delete)
+  - `manual_transfers.py` - `/transfers/destinations`, `/transfers/manual` manual transfer endpoints
   - `auth.py` - `/auth/*` authentication settings and API key management endpoints
   - `tracker.py` - `/tracker/settings` tracker configuration endpoints
   - `utilities.py` - `/browse` file browser endpoint
@@ -186,6 +187,7 @@ Flask blueprints in `web/routes/`:
 - `DownloadClientService` - CRUD operations for download clients (list, add, update, delete, test connection)
 - `ConnectionService` - CRUD operations for transfer connections (list, add, update, delete, test connection)
 - `TorrentService` - Read-only torrent listing (tracked torrents, all client torrents)
+- `ManualTransferService` - Manual transfer validation and orchestration (get destinations, detect cross-seeds, validate and initiate transfers)
 - `HistoryService` (in `transferarr/services/history_service.py`) - Transfer history tracking with SQLite persistence
 - Custom exceptions (`NotFoundError`, `ConflictError`, `ValidationError`, `ConfigSaveError`) map to HTTP responses
 
@@ -435,6 +437,7 @@ GitHub Actions workflow in `.github/workflows/tests.yml` runs the full test suit
 - `integration-persistence-sftp` - SFTP state persistence tests
 - `integration-persistence-torrent-restart` - Torrent transfer restart recovery tests
 - `integration-persistence-torrent-large` - Large file torrent restart tests
+- `integration-persistence-manual-restart` - Manual transfer restart recovery tests
 - `integration-transfers-torrent-infra` - Torrent infra and setup tests
 - `integration-transfers-torrent-lifecycle` - Torrent download and lifecycle tests
 - `integration-transfers-concurrent` - Concurrent and transfer type tests
@@ -621,8 +624,6 @@ gh issue close 1
 - `docs/ci.md` - CI/CD documentation (workflows, image pinning, weekly latest tests)
 - `docs/integration-tests.md` - Integration test documentation (test coverage, test names, patterns)
 - `docs/ui-tests.md` - UI test documentation (Playwright, page objects, fixtures)
-- `docs/plans/005-torrent-based-transfer.md` - Torrent-based transfer implementation plan (10 phases)
-- `docs/plans/006-deluge-2.2.0-create-torrent-bug.md` - Deluge 2.2.0 bug analysis and CI pinning rationale
 
 ## Testing Infrastructure
 
@@ -654,7 +655,7 @@ All Docker images in `docker-compose.test.yml` are pinned to specific versions f
 
 - **opentracker**: Only `latest` and `pre-update` tags exist; no versioned tags available
 - **Locally-built images** (mock-indexer, test-runner, registrar, torrent-creator): Python base images pinned to `bookworm` Debian release in their Dockerfiles
-- **Deluge is pinned to 2.1.1** because 2.2.0 has a `create_torrent` bug (see `docs/plans/006-deluge-2.2.0-create-torrent-bug.md`)
+- **Deluge is pinned to 2.1.1** because 2.2.0 has a `create_torrent` bug
 
 **Updating pinned versions**: When updating a pin, use the full linuxserver tag format: `{app_version}-ls{build_number}` (e.g., `2.1.1-r10-ls324`). Find available tags at `https://hub.docker.com/r/linuxserver/{image}/tags`.
 
@@ -705,6 +706,7 @@ curl http://localhost:9696/torrents
 - `docker/fixtures/config.local.json` - Config for running transferarr locally against Docker services
 - `docker/fixtures/config.torrent-transfer.json` - Config for torrent-based transfer tests (uses tracker, no SFTP)
 - `docker/fixtures/config.sftp-to-sftp-no-tracker.json` - SFTP config with tracker explicitly disabled (for testing no-handler error paths)
+- `docker/fixtures/config.torrent-transfer-no-tracker.json` - Torrent-type connection config with tracker disabled (for testing tracker validation error paths)
 
 ### Running Transferarr with Test Environment
 ```bash
@@ -827,7 +829,7 @@ The conftest uses internal helper functions (prefixed with `_`) to reduce duplic
 - `deluge_source`, `deluge_target` - RPC clients for Deluge instances
 - `deluge_target_2` - RPC client for second target Deluge (skip if not running)
 - `create_torrent` - Factory to create test torrents via torrent-creator container (supports `size_mb` and `multi_file` params)
-- `transferarr` - Manager to start/stop/restart transferarr container (supports `config_type` and `history_config` params). Config types: `sftp-to-local`, `local-to-sftp`, `sftp-to-sftp`, `sftp-to-sftp-no-tracker`, `local-to-local`, `multi-target`, `torrent-transfer`. Defaults to `sftp-to-sftp`.
+- `transferarr` - Manager to start/stop/restart transferarr container (supports `config_type` and `history_config` params). Config types: `sftp-to-local`, `local-to-sftp`, `sftp-to-sftp`, `sftp-to-sftp-no-tracker`, `local-to-local`, `multi-target`, `torrent-transfer`, `torrent-transfer-no-tracker`. Defaults to `sftp-to-sftp`.
 - `clean_test_environment` - Standard setup/teardown fixture for all integration tests
 - `lifecycle_runner` - Unified runner for standardized migration tests (Radarr/Sonarr)
 

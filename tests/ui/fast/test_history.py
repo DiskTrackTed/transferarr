@@ -93,11 +93,12 @@ class TestHistoryPageElements:
         expect(headers.nth(0)).to_contain_text("Name")
         expect(headers.nth(1)).to_contain_text("From")
         expect(headers.nth(2)).to_contain_text("Type")
-        expect(headers.nth(3)).to_contain_text("Transferred")
-        expect(headers.nth(4)).to_contain_text("Duration")
-        expect(headers.nth(5)).to_contain_text("Status")
-        expect(headers.nth(6)).to_contain_text("Date")
-        expect(headers.nth(7)).to_contain_text("Actions")
+        expect(headers.nth(3)).to_contain_text("Trigger")
+        expect(headers.nth(4)).to_contain_text("Transferred")
+        expect(headers.nth(5)).to_contain_text("Duration")
+        expect(headers.nth(6)).to_contain_text("Status")
+        expect(headers.nth(7)).to_contain_text("Date")
+        expect(headers.nth(8)).to_contain_text("Actions")
     
     def test_history_pagination_controls(self, page: Page, base_url: str):
         """Test that pagination controls are visible."""
@@ -126,6 +127,8 @@ class TestHistoryFilters:
         expect(page.locator("#filter-status")).to_be_visible()
         expect(page.locator("#filter-source")).to_be_visible()
         expect(page.locator("#filter-target")).to_be_visible()
+        expect(page.locator("#filter-method")).to_be_visible()
+        expect(page.locator("#filter-trigger")).to_be_visible()
         expect(page.locator("#filter-search")).to_be_visible()
         expect(page.locator("#filter-from-date")).to_be_visible()
         expect(page.locator("#filter-to-date")).to_be_visible()
@@ -161,6 +164,25 @@ class TestHistoryFilters:
         # Target filter should be interactable
         target_select = page.locator("#filter-target")
         expect(target_select).to_be_visible()
+
+    def test_history_filter_by_trigger(self, page: Page, base_url: str):
+        """Test filtering by trigger dropdown."""
+        page.goto(f"{base_url}/history")
+        page.wait_for_load_state("networkidle")
+        
+        # Trigger filter should be interactable
+        trigger_select = page.locator("#filter-trigger")
+        expect(trigger_select).to_be_visible()
+        
+        # Select automatic trigger filter
+        trigger_select.select_option("automatic")
+        page.wait_for_timeout(500)
+        expect(trigger_select).to_have_value("automatic")
+        
+        # Select manual trigger filter
+        trigger_select.select_option("manual")
+        page.wait_for_timeout(500)
+        expect(trigger_select).to_have_value("manual")
     
     def test_history_search_by_name(self, page: Page, base_url: str):
         """Test search input for filtering by name."""
@@ -184,6 +206,7 @@ class TestHistoryFilters:
         
         # Set some filters
         page.locator("#filter-status").select_option("completed")
+        page.locator("#filter-trigger").select_option("manual")
         page.locator("#filter-search").fill("test")
         page.locator("#filter-from-date").fill("2025-01-01")
         page.locator("#filter-to-date").fill("2025-12-31")
@@ -195,6 +218,7 @@ class TestHistoryFilters:
         
         # Verify filters are cleared
         expect(page.locator("#filter-status")).to_have_value("")
+        expect(page.locator("#filter-trigger")).to_have_value("")
         expect(page.locator("#filter-search")).to_have_value("")
         expect(page.locator("#filter-from-date")).to_have_value("")
         expect(page.locator("#filter-to-date")).to_have_value("")

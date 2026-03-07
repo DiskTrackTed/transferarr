@@ -89,6 +89,15 @@
         </div>
         
         <div class="filter-group">
+            <label for="filter-trigger">Trigger</label>
+            <select id="filter-trigger" class="filter-select">
+                <option value="">All Triggers</option>
+                <option value="automatic">Automatic</option>
+                <option value="manual">Manual</option>
+            </select>
+        </div>
+        
+        <div class="filter-group">
             <label for="filter-search">Search</label>
             <input type="text" id="filter-search" class="filter-input" placeholder="Search torrent name...">
         </div>
@@ -120,6 +129,7 @@
                     <th class="sortable" data-sort="torrent_name">Name <i class="fas fa-sort"></i></th>
                     <th>From → To</th>
                     <th>Type</th>
+                    <th>Trigger</th>
                     <th class="sortable" data-sort="bytes_transferred">Transferred <i class="fas fa-sort"></i></th>
                     <th>Duration</th>
                     <th>Status</th>

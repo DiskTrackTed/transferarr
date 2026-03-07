@@ -72,6 +72,11 @@ def register_routes(bp):
             type: string
             enum: [sftp, local, torrent]
             description: Filter by transfer method
+          - in: query
+            name: trigger
+            type: string
+            enum: [automatic, manual]
+            description: Filter by trigger type
         responses:
           200:
             description: Paginated list of transfers
@@ -121,6 +126,7 @@ def register_routes(bp):
             from_date = request.args.get('from_date')
             to_date = request.args.get('to_date')
             transfer_method = request.args.get('transfer_method')
+            trigger = request.args.get('trigger')
             sort = request.args.get('sort', 'created_at')
             order = request.args.get('order', 'desc')
             
@@ -142,6 +148,15 @@ def register_routes(bp):
                     status_code=400
                 )
             
+            # Validate trigger if provided
+            valid_triggers = ('automatic', 'manual')
+            if trigger and trigger not in valid_triggers:
+                return error_response(
+                    "VALIDATION_ERROR",
+                    f"Invalid trigger '{trigger}'. Must be one of: {', '.join(valid_triggers)}",
+                    status_code=400
+                )
+            
             transfers, total = history_service.list_transfers(
                 status=status,
                 source=source,
@@ -150,6 +165,7 @@ def register_routes(bp):
                 start_date=from_date,
                 end_date=to_date,
                 transfer_method=transfer_method,
+                trigger=trigger,
                 page=page,
                 per_page=per_page,
                 sort=sort,

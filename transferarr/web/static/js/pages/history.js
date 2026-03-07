@@ -14,7 +14,8 @@ const state = {
         search: '',
         from_date: '',
         to_date: '',
-        transfer_method: ''
+        transfer_method: '',
+        trigger: ''
     },
     pagination: {
         page: 1,
@@ -80,6 +81,13 @@ function initializeFilters() {
     // Transfer method filter
     document.getElementById('filter-method').addEventListener('change', (e) => {
         state.filters.transfer_method = e.target.value;
+        state.pagination.page = 1;
+        fetchTransfers();
+    });
+    
+    // Trigger filter
+    document.getElementById('filter-trigger').addEventListener('change', (e) => {
+        state.filters.trigger = e.target.value;
         state.pagination.page = 1;
         fetchTransfers();
     });
@@ -318,7 +326,8 @@ function clearFilters() {
         search: '',
         from_date: '',
         to_date: '',
-        transfer_method: ''
+        transfer_method: '',
+        trigger: ''
     };
     state.pagination.page = 1;
     
@@ -327,6 +336,7 @@ function clearFilters() {
     document.getElementById('filter-source').value = '';
     document.getElementById('filter-target').value = '';
     document.getElementById('filter-method').value = '';
+    document.getElementById('filter-trigger').value = '';
     document.getElementById('filter-search').value = '';
     document.getElementById('filter-from-date').value = '';
     document.getElementById('filter-to-date').value = '';
@@ -463,6 +473,7 @@ async function fetchTransfers(isBackgroundRefresh = false) {
         if (state.filters.from_date) params.append('from_date', state.filters.from_date);
         if (state.filters.to_date) params.append('to_date', state.filters.to_date);
         if (state.filters.transfer_method) params.append('transfer_method', state.filters.transfer_method);
+        if (state.filters.trigger) params.append('trigger', state.filters.trigger);
         
         const response = await fetch(`/api/v1/transfers?${params}`);
         const data = await response.json();
@@ -548,6 +559,7 @@ function updateTable() {
                 <span class="client-name">${escapeHtml(transfer.target_client)}</span>
             </td>
             <td class="type-cell">${formatTransferMethod(transfer.transfer_method)}</td>
+            <td class="type-cell">${formatTrigger(transfer.trigger)}</td>
             <td class="size-cell">${formatBytes(transfer.bytes_transferred)}</td>
             <td class="duration-cell">${formatDuration(transfer.started_at, transfer.completed_at, transfer.status)}</td>
             <td>${formatStatus(transfer.status)}</td>
@@ -699,6 +711,27 @@ function formatTransferMethod(method) {
     const config = methodConfig[method] || { icon: 'fa-question', label: method, className: 'method-unknown' };
     
     return `<span class="method-badge ${config.className}">
+        <i class="fas ${config.icon}"></i>
+        ${config.label}
+    </span>`;
+}
+
+/**
+ * Format trigger type as a badge
+ */
+function formatTrigger(trigger) {
+    const triggerConfig = {
+        'automatic': { icon: 'fa-sync-alt', label: 'Auto', className: 'trigger-automatic' },
+        'manual': { icon: 'fa-hand-pointer', label: 'Manual', className: 'trigger-manual' }
+    };
+
+    if (!trigger) {
+        return '<span class="trigger-badge trigger-unknown">—</span>';
+    }
+
+    const config = triggerConfig[trigger] || { icon: 'fa-question', label: trigger, className: 'trigger-unknown' };
+
+    return `<span class="trigger-badge ${config.className}">
         <i class="fas ${config.icon}"></i>
         ${config.label}
     </span>`;

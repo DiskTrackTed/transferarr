@@ -40,6 +40,7 @@ on:
           - integration-persistence-sftp
           - integration-persistence-torrent-restart
           - integration-persistence-torrent-large
+          - integration-persistence-manual-restart
           - integration-transfers-torrent-infra
           - integration-transfers-torrent-lifecycle
           - integration-transfers-concurrent
@@ -98,6 +99,10 @@ jobs:
             needs_docker: true
           - category: integration-persistence-torrent-large
             path: tests/integration/persistence/test_torrent_transfer_large_restart.py
+            timeout: 30
+            needs_docker: true
+          - category: integration-persistence-manual-restart
+            path: tests/integration/persistence/test_manual_transfer_restart.py
             timeout: 30
             needs_docker: true
           - category: integration-transfers-torrent-infra

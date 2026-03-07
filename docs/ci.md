@@ -47,6 +47,7 @@ All categories run in parallel with `fail-fast: false` (one failure doesn't canc
 | `integration-persistence-sftp` | `tests/integration/persistence/test_state_persistence.py` | 30 min | Yes | SFTP state recovery and restart |
 | `integration-persistence-torrent-restart` | `tests/integration/persistence/test_torrent_transfer_restart.py` | 30 min | Yes | Torrent transfer restart recovery |
 | `integration-persistence-torrent-large` | `tests/integration/persistence/test_torrent_transfer_large_restart.py` | 30 min | Yes | Large file torrent restart |
+| `integration-persistence-manual-restart` | `tests/integration/persistence/test_manual_transfer_restart.py` | 30 min | Yes | Manual transfer restart recovery |
 | `integration-transfers-torrent-infra` | `tests/integration/transfers/test_torrent_infra.py tests/integration/transfers/test_torrent_transfer_setup.py` | 10 min | Yes | Torrent infra checks and setup |
 | `integration-transfers-torrent-lifecycle` | `tests/integration/transfers/test_torrent_transfer_download.py tests/integration/transfers/test_torrent_transfer_lifecycle.py` | 30 min | Yes | Torrent download and lifecycle |
 | `integration-transfers-concurrent` | `tests/integration/transfers/test_concurrent_transfers.py tests/integration/transfers/test_transfer_types.py` | 20 min | Yes | Concurrent and transfer type variations |
@@ -124,7 +125,7 @@ Detects breaking changes in upstream Docker images before they hit the main CI.
 
 ### Why This Exists
 
-The main `tests.yml` workflow uses **pinned image versions** for deterministic, reproducible builds. This means upstream breaking changes (like the [Deluge 2.2.0 `create_torrent` bug](plans/006-deluge-2.2.0-create-torrent-bug.md)) are invisible until we manually update the pins.
+The main `tests.yml` workflow uses **pinned image versions** for deterministic, reproducible builds. This means upstream breaking changes (like the [Deluge 2.2.0 `create_torrent` bug]) are invisible until we manually update the pins.
 
 The weekly workflow catches these proactively by testing against `:latest` on a schedule.
 

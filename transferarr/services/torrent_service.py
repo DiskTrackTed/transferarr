@@ -266,6 +266,99 @@ class TorrentManager:
         except Exception as e:
             logger.error(f"Failed to save configuration: {e}")
             return False
+
+    def create_manual_transfers(self, hashes, source_client, dest_client,
+                                connection):
+        """Create and initiate manual transfers for the given torrent hashes.
+
+        Creates Torrent objects from raw client data (no media manager),
+        sets up home/target clients, and initiates transfers via the
+        appropriate connection method (SFTP/local or torrent P2P).
+
+        Args:
+            hashes: List of torrent hashes to transfer
+            source_client: Source DownloadClientBase instance
+            dest_client: Target DownloadClientBase instance
+            connection: TransferConnection instance to use
+
+        Returns:
+            Dict with transfer summary: initiated count, skipped, errors
+        """
+        initiated = []
+        errors = []
+
+        for torrent_hash in hashes:
+            try:
+                # Fetch full torrent info (includes 'files' needed by
+                # get_paths_to_copy() during the file copy).
+                torrent = Torrent(
+                    name=torrent_hash,
+                    id=torrent_hash,
+                )
+                torrent.set_home_client(source_client)
+                info = source_client.get_torrent_info(torrent)
+                if not info:
+                    errors.append({
+                        "hash": torrent_hash,
+                        "error": "Could not fetch torrent info"
+                    })
+                    continue
+
+                # Populate from fetched info
+                torrent.name = info.get("name", torrent_hash)
+                torrent.home_client_info = info
+                torrent.set_target_client(dest_client)
+                torrent.media_manager = None  # Manual transfer — no media manager
+                torrent.size = int(info.get("total_size", 0))
+                torrent.progress = int(info.get("progress", 0))
+                torrent.state = TorrentState.HOME_SEEDING  # no save_callback yet
+                torrent.save_callback = self.save_torrents_state
+
+                # Add to tracked torrents
+                self.torrents.append(torrent)
+
+                # Initiate transfer based on connection type
+                if connection.is_torrent_transfer:
+                    if self.torrent_transfer_handler:
+                        torrent.state = TorrentState.TORRENT_CREATING
+                        self.torrent_transfer_handler.handle_creating(
+                            torrent, connection
+                        )
+                        initiated.append({
+                            "hash": torrent_hash,
+                            "name": torrent.name,
+                            "method": "torrent",
+                        })
+                    else:
+                        self.torrents.remove(torrent)
+                        torrent.state = TorrentState.ERROR
+                        errors.append({
+                            "hash": torrent_hash,
+                            "error": "Tracker not available for torrent transfer"
+                        })
+                else:
+                    # SFTP/local file transfer
+                    connection.enqueue_copy_torrent(torrent)
+                    initiated.append({
+                        "hash": torrent_hash,
+                        "name": torrent.name,
+                        "method": connection.get_history_transfer_method(),
+                    })
+
+            except Exception as e:
+                logger.error(
+                    f"Error creating manual transfer for {torrent_hash}: {e}"
+                )
+                errors.append({"hash": torrent_hash, "error": str(e)})
+
+        self.save_torrents_state()
+
+        return {
+            "initiated": initiated,
+            "errors": errors,
+            "total_initiated": len(initiated),
+            "total_errors": len(errors),
+        }
     
     def start(self):
         """Start the torrent manager background thread"""
@@ -374,32 +467,35 @@ class TorrentManager:
                     torrents_to_remove.append(torrent)
                     continue
                 logger.debug(f"Torrent {torrent.name} has home client {torrent.home_client.name}, state: {torrent.state.name}")
+                # If there's no target client, there's nowhere to send this torrent
+                if torrent.target_client is None:
+                    logger.info(f"Torrent {torrent.name} in {torrent.state.name} has no target client, removing from tracked list")
+                    torrents_to_remove.append(torrent)
+                    continue
                 ### Now we check if it's seeding
                 if torrent.state == TorrentState.HOME_SEEDING:
                     logger.debug(f"Torrent {torrent.name} is seeding on home client: {torrent.home_client.name}, checking connection")
-                    ### Does the torrent have a to_client
-                    if torrent.target_client is not None:
-                        for connection in self.connections.values():
-                            if connection.from_client.name == torrent.home_client.name and connection.to_client.name == torrent.target_client.name:
-                                if torrent.target_client.has_torrent(torrent):
-                                    torrent.state = torrent.target_client.get_torrent_state(torrent)
-                                    torrent.set_target_client_info(torrent.target_client.get_torrent_info(torrent))
-                                    logger.debug(f"Torrent {torrent.name} already exists on {torrent.target_client.name}")
-                                else:
-                                    logger.debug(f"Torrent {torrent.name} not found on {torrent.target_client.name}, ready to transfer")
-                                    # Check if this is a torrent-based transfer
-                                    if connection.is_torrent_transfer:
-                                        if self.torrent_transfer_handler:
-                                            torrent.state = TorrentState.TORRENT_CREATING
-                                            self.torrent_transfer_handler.handle_creating(torrent, connection)
-                                        else:
-                                            logger.error(
-                                                f"Torrent {torrent.name} needs torrent transfer but tracker is disabled. "
-                                                f"Enable the tracker or change connection '{connection.name}' to a file-based transfer."
-                                            )
+                    for connection in self.connections.values():
+                        if connection.from_client.name == torrent.home_client.name and connection.to_client.name == torrent.target_client.name:
+                            if torrent.target_client.has_torrent(torrent):
+                                torrent.state = torrent.target_client.get_torrent_state(torrent)
+                                torrent.set_target_client_info(torrent.target_client.get_torrent_info(torrent))
+                                logger.debug(f"Torrent {torrent.name} already exists on {torrent.target_client.name}")
+                            else:
+                                logger.debug(f"Torrent {torrent.name} not found on {torrent.target_client.name}, ready to transfer")
+                                # Check if this is a torrent-based transfer
+                                if connection.is_torrent_transfer:
+                                    if self.torrent_transfer_handler:
+                                        torrent.state = TorrentState.TORRENT_CREATING
+                                        self.torrent_transfer_handler.handle_creating(torrent, connection)
                                     else:
-                                        # SFTP/local file transfer
-                                        connection.enqueue_copy_torrent(torrent)
+                                        logger.error(
+                                            f"Torrent {torrent.name} needs torrent transfer but tracker is disabled. "
+                                            f"Enable the tracker or change connection '{connection.name}' to a file-based transfer."
+                                        )
+                                else:
+                                    # SFTP/local file transfer
+                                    connection.enqueue_copy_torrent(torrent)
             ### If the torrent is in COPYING state, check if it's in the connection queue
             elif torrent.state == TorrentState.COPYING:
                 # Check if the torrent is in any connection's active transfers
