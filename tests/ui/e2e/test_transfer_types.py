@@ -208,6 +208,10 @@ class TestSftpFieldVisibility:
         # Wait for modal to fully load
         page.wait_for_timeout(UI_TIMEOUTS['modal_animation'])
         
+        # Switch to File Transfer to reveal from/to type dropdowns
+        page.select_option(settings_page.TRANSFER_METHOD, 'file')
+        page.wait_for_timeout(300)
+        
         # Select local for both types
         page.select_option(settings_page.CONNECTION_FROM_TYPE, 'local')
         page.select_option(settings_page.CONNECTION_TO_TYPE, 'local')
@@ -233,6 +237,10 @@ class TestSftpFieldVisibility:
         settings_page.open_add_connection_modal()
         
         page.wait_for_timeout(UI_TIMEOUTS['modal_animation'])
+        
+        # Switch to File Transfer to reveal from/to type dropdowns
+        page.select_option(settings_page.TRANSFER_METHOD, 'file')
+        page.wait_for_timeout(300)
         
         # Select sftp for source, local for target
         page.select_option(settings_page.CONNECTION_FROM_TYPE, 'sftp')
@@ -266,6 +274,10 @@ class TestSftpFieldVisibility:
         
         page.wait_for_timeout(UI_TIMEOUTS['modal_animation'])
         
+        # Switch to File Transfer to reveal from/to type dropdowns
+        page.select_option(settings_page.TRANSFER_METHOD, 'file')
+        page.wait_for_timeout(300)
+        
         # Select local for source, sftp for target
         page.select_option(settings_page.CONNECTION_FROM_TYPE, 'local')
         page.select_option(settings_page.CONNECTION_TO_TYPE, 'sftp')
@@ -298,6 +310,10 @@ class TestSftpFieldVisibility:
         
         page.wait_for_timeout(UI_TIMEOUTS['modal_animation'])
         
+        # Switch to File Transfer to reveal from/to type dropdowns
+        page.select_option(settings_page.TRANSFER_METHOD, 'file')
+        page.wait_for_timeout(300)
+        
         # Select sftp for both
         page.select_option(settings_page.CONNECTION_FROM_TYPE, 'sftp')
         page.select_option(settings_page.CONNECTION_TO_TYPE, 'sftp')
@@ -323,6 +339,10 @@ class TestSftpFieldVisibility:
         settings_page.open_add_connection_modal()
         
         page.wait_for_timeout(UI_TIMEOUTS['modal_animation'])
+        
+        # Switch to File Transfer to reveal from/to type dropdowns
+        page.select_option(settings_page.TRANSFER_METHOD, 'file')
+        page.wait_for_timeout(300)
         
         from_sftp_container = page.locator("#fromSftpConfig")
         to_sftp_container = page.locator("#toSftpConfig")

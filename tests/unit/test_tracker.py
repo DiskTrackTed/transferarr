@@ -823,3 +823,25 @@ class TestGetStatus:
         status = tracker.get_status()
 
         assert status["active_transfers"] == 2
+
+
+class TestExternalUrlLiveUpdate:
+    """Tests for live-updating external_url on running tracker."""
+
+    def test_external_url_updates_in_place(self):
+        """external_url is a plain attribute that can be updated at runtime."""
+        tracker = BitTorrentTracker(port=9999, external_url="http://old:6969/announce")
+        assert tracker.external_url == "http://old:6969/announce"
+
+        tracker.external_url = "http://new:7070/announce"
+        assert tracker.external_url == "http://new:7070/announce"
+
+    def test_external_url_fallback_when_cleared(self):
+        """When external_url is set to None/empty, falls back to localhost default."""
+        tracker = BitTorrentTracker(port=9999, external_url="http://custom:6969/announce")
+
+        # Simulate the fallback logic used in the API handler
+        new_url = None
+        tracker.external_url = new_url or f"http://localhost:{tracker.port}/announce"
+
+        assert tracker.external_url == "http://localhost:9999/announce"

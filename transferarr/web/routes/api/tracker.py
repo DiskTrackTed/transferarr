@@ -175,6 +175,8 @@ def register_routes(api_bp):
                 TrackerRequestHandler.announce_interval = updates['announce_interval']
             if 'peer_expiry' in updates:
                 torrent_manager.tracker.state.peer_expiry = updates['peer_expiry']
+            if 'external_url' in updates:
+                torrent_manager.tracker.external_url = updates['external_url'] or f"http://localhost:{torrent_manager.tracker.port}/announce"
 
         # If apply is requested, stop/start the tracker as needed
         should_apply = data.get('apply', False)
