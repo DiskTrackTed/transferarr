@@ -57,7 +57,7 @@ services:
   # ============== DOWNLOAD CLIENTS ==============
 
   deluge-source:
-    # Pinned to 2.1.1 — Deluge 2.2.0 has a create_torrent bug (see docs/plans/006)
+    # Pinned to 2.1.1 — Deluge 2.2.0 has a create_torrent bug
     image: lscr.io/linuxserver/deluge:${DELUGE_TAG:-2.1.1-r10-ls324}
     container_name: test-deluge-source
     environment:

@@ -75,6 +75,7 @@ class HistoryService:
                 status TEXT NOT NULL DEFAULT 'pending',
                 error_message TEXT,
                 transfer_method TEXT,
+                trigger TEXT DEFAULT 'automatic',
                 created_at TEXT NOT NULL,
                 started_at TEXT,
                 completed_at TEXT
@@ -104,6 +105,12 @@ class HistoryService:
             conn.execute("ALTER TABLE transfers ADD COLUMN transfer_method TEXT")
             conn.commit()
             logger.info("Migration: added transfer_method column to transfers table")
+        
+        # Migration: add trigger column (automatic/manual)
+        if 'trigger' not in columns:
+            conn.execute("ALTER TABLE transfers ADD COLUMN trigger TEXT DEFAULT 'automatic'")
+            conn.commit()
+            logger.info("Migration: added trigger column to transfers table")
     
     def _mark_interrupted_transfers(self):
         """Mark any pending/transferring records as failed on startup."""
@@ -149,14 +156,17 @@ class HistoryService:
         media_type_map = {'radarr': 'movie', 'sonarr': 'episode'}
         media_type = media_type_map.get(manager_type, 'unknown')
         
+        # Derive trigger: manual if no media manager, automatic otherwise
+        trigger = 'manual' if manager_type is None else 'automatic'
+        
         conn = self._get_connection()
         conn.execute(
             """
             INSERT INTO transfers (
                 id, torrent_name, torrent_hash, source_client, target_client,
                 connection_name, media_type, media_manager, size_bytes,
-                bytes_transferred, status, transfer_method, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'pending', ?, ?)
+                bytes_transferred, status, transfer_method, trigger, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'pending', ?, ?, ?)
             """,
             (
                 transfer_id,
@@ -169,6 +179,7 @@ class HistoryService:
                 media_manager,
                 getattr(torrent, 'size', None),
                 transfer_method,
+                trigger,
                 _utc_now().isoformat()
             )
         )
@@ -316,6 +327,7 @@ class HistoryService:
         start_date: Optional[str] = None,
         end_date: Optional[str] = None,
         transfer_method: Optional[str] = None,
+        trigger: Optional[str] = None,
         page: int = 1,
         per_page: int = 25,
         sort: str = 'created_at',
@@ -331,6 +343,7 @@ class HistoryService:
             start_date: Filter by created_at >= date (ISO format)
             end_date: Filter by created_at <= date (ISO format)
             transfer_method: Filter by transfer method ('sftp', 'local', 'torrent')
+            trigger: Filter by trigger type ('automatic', 'manual')
             page: Page number (1-indexed)
             per_page: Items per page
             sort: Sort field (created_at, completed_at, size_bytes)
@@ -361,6 +374,10 @@ class HistoryService:
         if transfer_method:
             conditions.append("transfer_method = ?")
             params.append(transfer_method)
+        
+        if trigger:
+            conditions.append("trigger = ?")
+            params.append(trigger)
         
         if start_date:
             conditions.append("created_at >= ?")

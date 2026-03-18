@@ -4,10 +4,12 @@
 
 // Helper function to get state indicator class
 function getStateIndicatorClass(state) {
+    if (state.includes('TORRENT_CREATE_QUEUE')) return 'state-queued';
     if (state.includes('TORRENT_CREATING') || state.includes('TORRENT_TARGET_ADDING') || state.includes('TORRENT_DOWNLOADING')) return 'state-copying';
     if (state.includes('COPYING')) return 'state-copying';
     if (state.includes('SEEDING')) return 'state-seeding';
     if (state.includes('ERROR')) return 'state-error';
+    if (state.includes('FAILED')) return 'state-error';
     if (state.includes('QUEUED')) return 'state-queued';
     return 'state-default';
 }

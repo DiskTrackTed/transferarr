@@ -83,6 +83,15 @@ class SettingsPage(BasePage):
     TORRENT_TRACKER_INFO = "#torrentTransferConfig .alert-info"
     TORRENT_ADVANCED_TOGGLE = "#torrentAdvancedToggle"
     TORRENT_ADVANCED_OPTIONS = "#torrentAdvancedOptions"
+    TORRENT_SOURCE_SFTP_CONFIG = "#torrentSourceSftpConfig"
+    TORRENT_SOURCE_TYPE = "#torrentSourceType"
+    TORRENT_SOURCE_STATE_DIR = "#torrentSourceStateDir"
+    TORRENT_MAGNET_ONLY = "#torrentMagnetOnly"
+    TORRENT_MAGNET_ONLY_WARNING = "#torrentMagnetOnlyWarning"
+    TORRENT_SOURCE_SFTP_HOST = "#torrentSourceSftpHost"
+    TORRENT_SOURCE_SFTP_PORT = "#torrentSourceSftpPort"
+    TORRENT_SOURCE_SFTP_USERNAME = "#torrentSourceSftpUsername"
+    TORRENT_SOURCE_SFTP_PASSWORD = "#torrentSourceSftpPassword"
     
     # Tracker tab selectors
     TRACKER_STATUS_INDICATOR = "#tracker-status-indicator"

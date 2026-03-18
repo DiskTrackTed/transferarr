@@ -34,7 +34,8 @@ Transferarr uses a JSON configuration file. Create `config.json` with the follow
       "connection_type": "web",
       "host": "seedbox.example.com",
       "port": 8112,
-      "password": "deluge-password"
+      "password": "deluge-password",
+      "delete_cross_seeds": true
     }
   },
   "connections": {
@@ -109,6 +110,7 @@ python -m transferarr.main --config ./config.json --state-dir ./data
 | `port` | number | ✓ | RPC port (58846) or Web port (8112) |
 | `username` | string | | Username (RPC only, optional) |
 | `password` | string | ✓ | Password |
+| `delete_cross_seeds` | boolean | | Remove cross-seed siblings from this client when a torrent is removed after transfer. Defaults to `true` |
 
 ### Connections
 
@@ -191,7 +193,7 @@ Copies files and `.torrent` to the destination via SFTP or local storage.
 
 #### Torrent Transfer (BitTorrent P2P)
 
-Transfers files via BitTorrent protocol using a built-in tracker. **No filesystem access required** — all operations happen through Deluge’s API.
+Transfers files via BitTorrent protocol using a built-in tracker. In magnet-only mode, **no filesystem access is required** — all operations happen through Deluge’s API. Optionally, configure source access (SFTP or local) to fetch `.torrent` files for private tracker support.
 
 ```json
 {
@@ -204,6 +206,55 @@ Transfers files via BitTorrent protocol using a built-in tracker. **No filesyste
 |-------|------|-------------|
 | `type` | string | Must be `"torrent"` |
 | `destination_path` | string | Download path on destination client |
+| `source` | object | Optional source config to fetch `.torrent` metadata (see below) |
+
+**Source Access** (optional — for private tracker torrents):
+
+By default, torrent transfers add the original torrent to the target via magnet link. This works for public trackers but **private tracker torrents require the `.torrent` file** (magnet links don’t carry the private flag/passkey). When `source` is configured, Transferarr fetches the `.torrent` file from the source’s Deluge state directory.
+
+Two access modes are available:
+
+**SFTP** — Fetch the `.torrent` file over SFTP from a remote source:
+
+```json
+{
+  "type": "torrent",
+  "destination_path": "/downloads",
+  "source": {
+    "type": "sftp",
+    "sftp": {
+      "host": "source-server",
+      "port": 22,
+      "username": "user",
+      "password": "pass"
+    },
+    "state_dir": "/home/user/.config/deluge/state"
+  }
+}
+```
+
+**Local** — Read the `.torrent` file from a locally-mounted path (e.g., Docker volume, NFS mount):
+
+```json
+{
+  "type": "torrent",
+  "destination_path": "/downloads",
+  "source": {
+    "type": "local",
+    "state_dir": "/mnt/deluge-state"
+  }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `source.type` | string | Access mode: `"sftp"` or `"local"` |
+| `source.sftp` | object | SFTP connection details (required when `type` is `"sftp"`) |
+| `source.sftp.host` | string | SFTP hostname or IP |
+| `source.sftp.port` | number | SSH port (default: 22) |
+| `source.sftp.username` | string | SSH username |
+| `source.sftp.password` | string | SSH password (or use SSH key auth via `ssh_config_host`) |
+| `source.state_dir` | string | Path to Deluge’s state directory containing `.torrent` files |
 
 **Requirements:**
 - Both source and destination must be Deluge clients
@@ -350,6 +401,7 @@ The `tracker` section controls the built-in BitTorrent tracker used for torrent-
     "enabled": true,
     "port": 6969,
     "external_url": "http://transferarr:6969/announce",
+    "internal_url": null,
     "announce_interval": 60,
     "peer_expiry": 120
   }
@@ -361,14 +413,16 @@ The `tracker` section controls the built-in BitTorrent tracker used for torrent-
 | `enabled` | boolean | `true` | Enable/disable the tracker |
 | `port` | number | `6969` | Port for the tracker to listen on |
 | `external_url` | string | `null` | URL that download clients use to reach the tracker. **Required for torrent transfers** |
+| `internal_url` | string | `null` | URL for clients on the same network as the tracker (e.g., Docker). When set, both URLs are included in transfer torrents so each client uses whichever responds |
 | `announce_interval` | number | `60` | Seconds between peer re-announces |
 | `peer_expiry` | number | `120` | Seconds before a peer is considered expired |
 
 **Notes:**
 - The tracker is enabled by default. Disable it if you only use SFTP/local transfers.
 - `external_url` must be reachable by both source and target Deluge clients (e.g., `http://transferarr:6969/announce` in Docker networks).
+- `internal_url` is useful when one client (e.g., homelab behind VPN) can't reach the external URL but can reach the tracker directly.
 - Changing `port` or `enabled` requires a tracker restart (available via Settings → Tracker → "Save and Apply").
-- `announce_interval` and `peer_expiry` can be changed live without restarting the tracker.
+- `announce_interval`, `peer_expiry`, `external_url`, and `internal_url` can be changed live without restarting the tracker.
 - Tracker state (registered hashes, peers) is in-memory only and is rebuilt from torrent state on restart.
 
 ---
@@ -384,6 +438,36 @@ Transferarr supports five transfer type combinations:
 | File Transfer | `sftp` | `sftp` | Between two remote servers |
 | File Transfer | `local` | `local` | Same server, different clients |
 | Torrent | — | — | P2P between two Deluge instances (no filesystem access needed) |
+
+---
+
+## Manual Transfers & Cross-Seeds
+
+### Manual Transfers
+
+The Torrents page allows you to manually select seeding torrents and transfer them to a destination client. Select one or more torrents using the checkboxes (or the inline transfer button), choose a destination, and click **Start Transfer**.
+
+### Cross-Seeds
+
+If you use a tool like [cross-seed](https://www.cross-seed.org/), your source client may have multiple torrents sharing the same data files via hardlinks. When manually transferring, Transferarr detects these cross-seed siblings (torrents with the same name and size) and offers an **Include Cross-Seeds** checkbox.
+
+**This checkbox is unchecked by default**, and we recommend leaving it unchecked. Here's why:
+
+1. **Hardlink safety**: On the source, cross-seeds share data through hardlinks — deleting one torrent's data doesn't affect others. Transferarr copies files independently to the target, so there are no hardlinks on the destination. If you later "Remove with data" on any one torrent, it deletes the shared files and breaks the others.
+
+2. **Less bandwidth**: Only one copy needs to be transferred. Cross-seed can re-add the siblings on the target from the same data.
+
+3. **Correct tracker metadata**: Cross-seed generates `.torrent` files with the correct passkeys, announce URLs, and piece hashes for each tracker. Transferring the original cross-seed torrents may carry source-specific metadata.
+
+#### Recommended Workflow
+
+1. **Transfer the original torrent** (leave "Include Cross-Seeds" unchecked)
+2. **Run cross-seed on your target client** — it will scan the downloaded files and create matching torrents for your other trackers, with proper hardlinks
+3. **Remove the original + cross-seeds from the source** once the target is seeding
+
+This preserves hardlink safety on both source and target, uses minimal bandwidth, and ensures each tracker gets the correct torrent metadata.
+
+> **Power users**: If you understand the hardlink implications and want to transfer cross-seeds anyway (e.g., for a quick migration where you'll fix hardlinks later), you can check the box. A warning will appear reminding you about the hardlink safety concern.
 
 ---
 

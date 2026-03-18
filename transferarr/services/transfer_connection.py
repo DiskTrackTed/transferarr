@@ -43,6 +43,56 @@ def test_torrent_client_connectivity(from_client, to_client) -> list:
     return details
 
 
+def _test_sftp_connectivity(sftp_config: dict) -> list:
+    """Test SFTP connectivity for source SFTP configuration.
+    
+    Creates a temporary SFTPClient, attempts to connect, and returns
+    a result list compatible with the test_connection details format.
+    
+    Args:
+        sftp_config: Dict with SFTP connection params (host, port, username, password, etc.)
+        
+    Returns:
+        List with a single dict: component, success, and message.
+    """
+    from transferarr.clients.ftp import SFTPClient
+    from transferarr.services.torrent_transfer import _sftp_client_params
+
+    try:
+        client = SFTPClient(**_sftp_client_params(sftp_config))
+        # SFTPClient connects in __init__ and immediately closes,
+        # so reaching here means connection succeeded.
+        return [{"component": "Source SFTP", "success": True, "message": "Connected"}]
+    except Exception as e:
+        return [{"component": "Source SFTP", "success": False, "message": str(e)}]
+
+
+def _test_local_state_dir(source_config: dict) -> list:
+    """Test local access to the Deluge state directory.
+    
+    Verifies the state_dir path exists and is readable.
+    
+    Args:
+        source_config: Source config dict with at least ``state_dir``.
+        
+    Returns:
+        List with a single dict: component, success, and message.
+    """
+    import os
+    
+    state_dir = source_config.get("state_dir")
+    if not state_dir:
+        return [{"component": "Source Local", "success": False, "message": "No state_dir configured"}]
+    
+    if not os.path.isdir(state_dir):
+        return [{"component": "Source Local", "success": False, "message": f"Directory not found: {state_dir}"}]
+    
+    if not os.access(state_dir, os.R_OK):
+        return [{"component": "Source Local", "success": False, "message": f"Directory not readable: {state_dir}"}]
+    
+    return [{"component": "Source Local", "success": True, "message": f"Directory accessible: {state_dir}"}]
+
+
 def get_transfer_type(transfer_config: dict) -> str:
     """Get the transfer type from config, defaulting to SFTP for backward compatibility.
     
@@ -106,6 +156,30 @@ class TransferConnection:
         """Check if this connection uses torrent-based transfer."""
         return self.transfer_type == TRANSFER_TYPE_TORRENT
     
+    @property
+    def source_config(self) -> dict:
+        """Get source access config for torrent connections, if configured.
+        
+        Returns:
+            Dict with source access config (type, sftp, state_dir)
+            or None if not configured or not a torrent connection.
+        """
+        if not self.is_torrent_transfer or not self.transfer_config:
+            return None
+        return self.transfer_config.get("source")
+    
+    @property
+    def source_type(self) -> str:
+        """Get source access type for torrent connections.
+        
+        Returns:
+            "sftp", "local", or None (magnet-only).
+        """
+        config = self.source_config
+        if not config:
+            return None
+        return config.get("type")
+    
     def get_history_transfer_method(self) -> str:
         """Get the transfer method string for history records.
         
@@ -143,8 +217,8 @@ class TransferConnection:
     def enqueue_copy_torrent(self, torrent):
         """Enqueue a torrent for copying in the background"""
         with self._lock:
-            if torrent.name in self._active_transfers:
-                logger.debug(f"Torrent {torrent.name} already queued for transfer, skipping")
+            if torrent.id in self._active_transfers:
+                logger.debug(f"Torrent {torrent.name} ({torrent.id[:8]}) already queued for transfer, skipping")
                 return False
             
             logger.info(f"Enqueueing torrent {torrent.name} for copying")
@@ -161,7 +235,7 @@ class TransferConnection:
                 )
                 torrent._transfer_id = transfer_id  # Attach for later updates
             
-            self._active_transfers[torrent.name] = torrent
+            self._active_transfers[torrent.id] = torrent
             self._transfer_executor.submit(self._do_copy_torrent_task, torrent)
             return True
     
@@ -169,10 +243,13 @@ class TransferConnection:
         """Background task to copy a torrent"""
         try:
             self._do_copy_torrent(torrent)
+        except Exception as e:
+            logger.error(f"Unexpected error copying torrent {torrent.name}: {e}")
+            torrent.state = TorrentState.ERROR
         finally:
             with self._lock:
-                if torrent.name in self._active_transfers:
-                    del self._active_transfers[torrent.name]
+                if torrent.id in self._active_transfers:
+                    del self._active_transfers[torrent.id]
     
     def _do_copy_torrent(self, torrent):
         ## Copy .torrent file to tmp dir
@@ -297,8 +374,16 @@ class TransferConnection:
             return {"success": False, "message": str(e)}
     
     def _test_torrent_connection(self):
-        """Test a torrent-type connection by verifying both clients are reachable."""
+        """Test a torrent-type connection by verifying clients and source access."""
         details = test_torrent_client_connectivity(self.from_client, self.to_client)
+        
+        # Test source access if configured
+        source_type = self.source_type
+        source_config = self.source_config
+        if source_type == "sftp" and source_config.get("sftp"):
+            details.extend(_test_sftp_connectivity(source_config["sftp"]))
+        elif source_type == "local":
+            details.extend(_test_local_state_dir(source_config))
         
         failed = [d for d in details if not d["success"]]
         if failed:

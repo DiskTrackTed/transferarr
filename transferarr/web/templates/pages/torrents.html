@@ -9,6 +9,9 @@
 {% block content %}
 <div class="card-header">
     <h2 class="card-title">All Torrents</h2>
+    <button id="transfer-selected-btn" class="btn btn-primary transfer-selected-btn" disabled style="visibility: hidden; opacity: 0;">
+        <i class="fas fa-exchange-alt"></i> Transfer Selected (<span id="selected-count">0</span>)
+    </button>
 </div>
 <div class="card">
     <!-- Add loading indicator -->
@@ -22,6 +25,81 @@
     </div>
     <div id="client-tab-contents">
         <!-- Client tab contents will be populated by JavaScript -->
+    </div>
+</div>
+
+<!-- Transfer Destination Modal -->
+<div class="modal" id="transferModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Transfer Torrents</h5>
+                <button type="button" class="btn-close" id="transferModalClose" aria-label="Close">
+                    <i class="fas fa-times" style="font-size: 24px;"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <!-- Transfer summary -->
+                <div id="transfer-summary" class="transfer-summary">
+                    <p><strong>Torrents to transfer:</strong> <span id="modal-selected-count">0</span></p>
+                    <p class="transfer-summary-hint">Transferred to destination and removed from source</p>
+                </div>
+
+                <!-- Torrent list preview -->
+                <div id="transfer-torrent-list" class="transfer-torrent-list">
+                    <!-- Populated dynamically -->
+                </div>
+
+                <!-- Destination selection -->
+                <div class="form-group">
+                    <label for="destinationClient" class="form-label">Destination Client</label>
+                    <select class="form-control" id="destinationClient" required>
+                        <option value="">Select destination...</option>
+                    </select>
+                </div>
+
+                <!-- Cross-seed option -->
+                <div class="form-group">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="includeCrossSeeds">
+                        <label class="form-check-label" for="includeCrossSeeds">
+                            Transfer cross-seeds
+                        </label>
+                        <small class="form-text">
+                            Not recommended. Cross-seeds use hardlinks on source — transferred copies won't have hardlinks.
+                        </small>
+                    </div>
+                </div>
+
+                <!-- Delete cross-seeds from source option -->
+                <div class="form-group">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="deleteCrossSeeds" checked>
+                        <label class="form-check-label" for="deleteCrossSeeds">
+                            Delete cross-seeds from source
+                        </label>
+                        <small class="form-text">
+                            Remove cross-seed siblings from the source client when the transferred torrent is removed. Safe for hardlinks.
+                        </small>
+                    </div>
+                </div>
+
+                <!-- Cross-seed warning (shown when checked + siblings exist) -->
+                <div id="cross-seed-warning" class="alert alert-warning cross-seed-warning" style="display: none;">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    <span>Cross-seed siblings will be transferred as independent copies without hardlinks. Deleting any torrent's data on the target could remove files shared by others. Consider using <a href="https://www.cross-seed.org/" target="_blank">cross-seed</a> to rescan the target client instead.</span>
+                </div>
+
+                <!-- Error message -->
+                <div id="transfer-error" class="alert alert-danger" style="display: none;"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" id="transferModalCancel">Cancel</button>
+                <button type="button" class="btn btn-primary" id="confirmTransferBtn" disabled>
+                    <i class="fas fa-exchange-alt"></i> Start Transfer
+                </button>
+            </div>
+        </div>
     </div>
 </div>
 {% endblock %}

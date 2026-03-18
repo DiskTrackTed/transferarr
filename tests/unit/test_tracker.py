@@ -823,3 +823,160 @@ class TestGetStatus:
         status = tracker.get_status()
 
         assert status["active_transfers"] == 2
+
+
+class TestExternalUrlLiveUpdate:
+    """Tests for live-updating external_url on running tracker."""
+
+    def test_external_url_updates_in_place(self):
+        """external_url is a plain attribute that can be updated at runtime."""
+        tracker = BitTorrentTracker(port=9999, external_url="http://old:6969/announce")
+        assert tracker.external_url == "http://old:6969/announce"
+
+        tracker.external_url = "http://new:7070/announce"
+        assert tracker.external_url == "http://new:7070/announce"
+
+    def test_external_url_fallback_when_cleared(self):
+        """When external_url is set to None/empty, falls back to localhost default."""
+        tracker = BitTorrentTracker(port=9999, external_url="http://custom:6969/announce")
+
+        # Simulate the fallback logic used in the API handler
+        new_url = None
+        tracker.external_url = new_url or f"http://localhost:{tracker.port}/announce"
+
+        assert tracker.external_url == "http://localhost:9999/announce"
+
+
+class TestInternalUrl:
+    """Tests for internal_url config option."""
+
+    def test_internal_url_defaults_to_none(self):
+        """internal_url is None by default."""
+        tracker = BitTorrentTracker()
+        assert tracker.internal_url is None
+
+    def test_internal_url_set_in_constructor(self):
+        """internal_url can be set via constructor."""
+        tracker = BitTorrentTracker(
+            port=6969,
+            external_url="http://public:6969/announce",
+            internal_url="http://transferarr:6969/announce"
+        )
+        assert tracker.internal_url == "http://transferarr:6969/announce"
+
+    def test_internal_url_live_update(self):
+        """internal_url can be updated at runtime."""
+        tracker = BitTorrentTracker(port=6969)
+        assert tracker.internal_url is None
+
+        tracker.internal_url = "http://internal:6969/announce"
+        assert tracker.internal_url == "http://internal:6969/announce"
+
+        tracker.internal_url = None
+        assert tracker.internal_url is None
+
+    def test_get_tracker_config_includes_internal_url(self):
+        """get_tracker_config returns internal_url."""
+        config = {
+            "tracker": {
+                "internal_url": "http://transferarr:6969/announce"
+            }
+        }
+        tracker_config = get_tracker_config(config)
+        assert tracker_config["internal_url"] == "http://transferarr:6969/announce"
+
+    def test_get_tracker_config_internal_url_defaults_none(self):
+        """get_tracker_config returns None for internal_url by default."""
+        config = {}
+        tracker_config = get_tracker_config(config)
+        assert tracker_config["internal_url"] is None
+
+    def test_create_tracker_from_config_with_internal_url(self):
+        """create_tracker_from_config passes internal_url to tracker."""
+        config = {
+            "tracker": {
+                "enabled": True,
+                "port": 7070,
+                "external_url": "http://public:7070/announce",
+                "internal_url": "http://docker:7070/announce"
+            }
+        }
+        tracker = create_tracker_from_config(config)
+        assert tracker is not None
+        assert tracker.internal_url == "http://docker:7070/announce"
+
+    def test_create_tracker_from_config_without_internal_url(self):
+        """create_tracker_from_config works without internal_url."""
+        config = {
+            "tracker": {
+                "enabled": True,
+                "port": 7070,
+                "external_url": "http://public:7070/announce"
+            }
+        }
+        tracker = create_tracker_from_config(config)
+        assert tracker is not None
+        assert tracker.internal_url is None
+
+
+class TestGetTrackerUrls:
+    """Tests for TorrentTransferHandler._get_tracker_urls()."""
+
+    def test_external_only(self):
+        """Only external_url when no internal_url configured."""
+        from unittest.mock import Mock
+        from transferarr.services.torrent_transfer import TorrentTransferHandler
+
+        mock_tracker = Mock()
+        mock_tracker.external_url = "http://public:6969/announce"
+        mock_tracker.internal_url = None
+
+        handler = TorrentTransferHandler(tracker=mock_tracker)
+        urls = handler._get_tracker_urls()
+
+        assert urls == ["http://public:6969/announce"]
+
+    def test_both_urls(self):
+        """Both URLs included when internal_url is configured."""
+        from unittest.mock import Mock
+        from transferarr.services.torrent_transfer import TorrentTransferHandler
+
+        mock_tracker = Mock()
+        mock_tracker.external_url = "http://public:6969/announce"
+        mock_tracker.internal_url = "http://transferarr:6969/announce"
+
+        handler = TorrentTransferHandler(tracker=mock_tracker)
+        urls = handler._get_tracker_urls()
+
+        assert urls == [
+            "http://public:6969/announce",
+            "http://transferarr:6969/announce"
+        ]
+
+    def test_external_is_primary(self):
+        """External URL is always first (primary tracker)."""
+        from unittest.mock import Mock
+        from transferarr.services.torrent_transfer import TorrentTransferHandler
+
+        mock_tracker = Mock()
+        mock_tracker.external_url = "http://external:6969/announce"
+        mock_tracker.internal_url = "http://internal:6969/announce"
+
+        handler = TorrentTransferHandler(tracker=mock_tracker)
+        urls = handler._get_tracker_urls()
+
+        assert urls[0] == "http://external:6969/announce"
+
+    def test_empty_string_internal_url_ignored(self):
+        """Empty string internal_url is treated as not configured."""
+        from unittest.mock import Mock
+        from transferarr.services.torrent_transfer import TorrentTransferHandler
+
+        mock_tracker = Mock()
+        mock_tracker.external_url = "http://public:6969/announce"
+        mock_tracker.internal_url = ""
+
+        handler = TorrentTransferHandler(tracker=mock_tracker)
+        urls = handler._get_tracker_urls()
+
+        assert urls == ["http://public:6969/announce"]

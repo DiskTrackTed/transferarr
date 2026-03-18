@@ -43,6 +43,7 @@
     padding: 12px;
     border-bottom: 1px solid #eee;
     background-color: white;
+    transition: background-color 0.15s ease;
 }
 
 .simple-torrent-card:last-child {
@@ -53,6 +54,31 @@
     background-color: #f9f9f9;
 }
 
+.simple-torrent-card.selected {
+    background-color: #e8f4fd;
+    border-left: 3px solid #3498db;
+}
+
+/* Torrent checkbox */
+.torrent-checkbox-wrapper {
+    flex: 0 0 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.torrent-checkbox {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+    accent-color: #3498db;
+}
+
+.torrent-checkbox:disabled {
+    cursor: not-allowed;
+    opacity: 0.4;
+}
+
 .simple-torrent-name {
     flex: 1;
     font-weight: 500;
@@ -60,6 +86,9 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     padding-right: 15px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
 }
 
 .simple-torrent-state {
@@ -96,6 +125,413 @@
     color: #666;
     margin-top: 3px;
     text-align: right;
+}
+
+/* Cross-seed badge */
+.cross-seed-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background-color: #e8dff5;
+    color: #7c3aed;
+    border-radius: 4px;
+    padding: 2px 6px;
+    font-size: 11px;
+    flex-shrink: 0;
+    cursor: help;
+}
+
+.cross-seed-badge i {
+    font-size: 10px;
+}
+
+/* Transfer Selected button */
+.transfer-selected-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    font-size: 14px;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    background-color: #3498db;
+    color: white;
+    transition: background-color 0.2s, opacity 0.15s ease, visibility 0.15s ease;
+}
+
+.transfer-selected-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.transfer-selected-btn:not(:disabled):hover {
+    background-color: #2980b9;
+}
+
+/* Inline per-torrent transfer button */
+.torrent-action-wrapper {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    min-width: 32px;
+}
+
+.torrent-transfer-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    background-color: transparent;
+    color: #3498db;
+    font-size: 14px;
+    transition: background-color 0.2s, color 0.2s;
+    padding: 0;
+}
+
+.torrent-transfer-btn:hover {
+    background-color: #ebf5fb;
+    color: #2980b9;
+}
+
+.torrent-transfer-btn:active {
+    background-color: #d4e6f1;
+}
+
+/* Transfer Modal Styles */
+.transfer-summary {
+    margin-bottom: 8px;
+    padding: 8px 12px;
+    background-color: #f8f9fa;
+    border-radius: 6px;
+}
+
+.transfer-summary p {
+    margin: 0;
+}
+
+.transfer-summary-hint {
+    font-size: 0.78em;
+    color: #6b7280;
+    margin-top: 2px !important;
+}
+
+.transfer-torrent-list {
+    max-height: 200px;
+    overflow-y: auto;
+    margin-bottom: 16px;
+    border: 1px solid #eee;
+    border-radius: 6px;
+}
+
+.transfer-list-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    border-bottom: 1px solid #f0f0f0;
+    font-size: 13px;
+}
+
+.transfer-list-item:last-child {
+    border-bottom: none;
+}
+
+.transfer-list-item.cross-seed-item {
+    background-color: #faf5ff;
+}
+
+.transfer-item-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    padding-right: 8px;
+}
+
+.transfer-item-name-text {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.transfer-item-tracker {
+    display: block;
+    font-size: 11px;
+    color: #888;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    margin-top: 1px;
+}
+
+.transfer-item-badges {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding-right: 8px;
+}
+
+.original-badge {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 600;
+    color: #fff;
+    background-color: #2563eb;
+    border-radius: 3px;
+    padding: 1px 5px;
+    white-space: nowrap;
+    vertical-align: middle;
+}
+
+.selected-badge {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 600;
+    color: #fff;
+    background-color: #6366f1;
+    border-radius: 3px;
+    padding: 1px 5px;
+    white-space: nowrap;
+    vertical-align: middle;
+}
+
+/* Action badges for cross-seed items */
+.action-badge {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 600;
+    border-radius: 3px;
+    padding: 1px 5px;
+    white-space: nowrap;
+    vertical-align: middle;
+}
+
+.action-badge-transfer {
+    color: #fff;
+    background-color: #059669;
+}
+
+.action-badge-delete {
+    color: #fff;
+    background-color: #dc2626;
+}
+
+.action-badge-none {
+    color: #888;
+    background-color: #e5e7eb;
+}
+
+/* Dimmed state for cross-seed items with no action */
+.transfer-list-item.cross-seed-inactive {
+    opacity: 0.55;
+}
+
+.transfer-item-size {
+    flex-shrink: 0;
+    color: #666;
+    font-size: 12px;
+}
+
+.cross-seed-divider {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    background-color: #e8dff5;
+    color: #7c3aed;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+/* Modal form styles (reuse settings patterns) */
+
+#transferModal .form-label {
+    display: block;
+    margin-bottom: 4px;
+    font-weight: 500;
+    font-size: 14px;
+}
+
+#transferModal .form-control {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    font-size: 14px;
+    box-sizing: border-box;
+}
+
+#transferModal .form-control:focus {
+    border-color: #3498db;
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.2);
+}
+
+#transferModal .form-text {
+    display: block;
+    margin-top: 4px;
+    font-size: 12px;
+    color: #888;
+}
+
+#transferModal .form-group {
+    margin-bottom: 16px;
+}
+
+#transferModal .form-check {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+}
+
+#transferModal .form-check-input {
+    margin-top: 3px;
+    accent-color: #3498db;
+}
+
+#transferModal .cross-seed-warning {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin-top: 8px;
+    margin-bottom: 0;
+    padding: 10px 12px;
+    background-color: #fff3cd;
+    color: #856404;
+    border: 1px solid #ffc107;
+    border-radius: 4px;
+    font-size: 13px;
+    line-height: 1.4;
+}
+
+#transferModal .cross-seed-warning i {
+    margin-top: 2px;
+    flex-shrink: 0;
+}
+
+#transferModal .alert-danger {
+    padding: 10px 14px;
+    background-color: #ffeaea;
+    color: #c0392b;
+    border: 1px solid #e74c3c;
+    border-radius: 6px;
+    font-size: 13px;
+}
+
+/* Modal base styles (for pages that don't include settings.css) */
+#transferModal.modal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 1050;
+    background-color: rgba(0, 0, 0, 0.5);
+    align-items: flex-start;
+    justify-content: center;
+    padding-top: 80px;
+}
+
+#transferModal.modal.show {
+    display: flex;
+}
+
+#transferModal .modal-dialog {
+    width: 100%;
+    max-width: 560px;
+}
+
+#transferModal .modal-content {
+    background-color: white;
+    border-radius: 10px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+    overflow: hidden;
+}
+
+#transferModal .modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 20px;
+    border-bottom: 1px solid #eee;
+    background-color: #f8f9fa;
+}
+
+#transferModal .modal-header .modal-title {
+    font-size: 18px;
+    font-weight: 600;
+    margin: 0;
+}
+
+#transferModal .modal-header .btn-close {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: #666;
+    padding: 4px;
+    display: flex;
+    align-items: center;
+}
+
+#transferModal .modal-header .btn-close:hover {
+    color: #333;
+}
+
+#transferModal .modal-body {
+    padding: 20px;
+    max-height: 60vh;
+    overflow-y: auto;
+}
+
+#transferModal .modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    padding: 16px 20px;
+    border-top: 1px solid #eee;
+    background-color: #f8f9fa;
+}
+
+#transferModal .btn {
+    padding: 8px 16px;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+#transferModal .btn-primary {
+    background-color: #3498db;
+    color: white;
+}
+
+#transferModal .btn-primary:hover:not(:disabled) {
+    background-color: #2980b9;
+}
+
+#transferModal .btn-primary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+#transferModal .btn-secondary {
+    background-color: #95a5a6;
+    color: white;
+}
+
+#transferModal .btn-secondary:hover {
+    background-color: #7f8c8d;
 }
 
 /* Client torrents section styles */
@@ -160,5 +596,22 @@
         width: 100%;
         margin-left: 0;
         margin-top: 8px;
+    }
+
+    .torrent-checkbox-wrapper {
+        position: absolute;
+        top: 12px;
+        right: 12px;
+    }
+
+    .torrent-action-wrapper {
+        position: absolute;
+        top: 12px;
+        right: 40px;
+    }
+
+    .transfer-selected-btn {
+        font-size: 12px;
+        padding: 6px 12px;
     }
 }

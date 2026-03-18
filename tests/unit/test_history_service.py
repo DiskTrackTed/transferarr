@@ -123,6 +123,15 @@ class TestDatabaseInitialization:
         
         assert 'transfer_method' in columns
 
+    def test_schema_includes_trigger_column(self, history_service, db_path):
+        """transfers table should include trigger column."""
+        conn = sqlite3.connect(db_path)
+        cursor = conn.execute("PRAGMA table_info(transfers)")
+        columns = {row[1] for row in cursor.fetchall()}
+        conn.close()
+        
+        assert 'trigger' in columns
+
 
 class TestDatabaseMigration:
     """Tests for database schema migration."""
@@ -223,6 +232,94 @@ class TestDatabaseMigration:
         conn.close()
         
         assert 'transfer_method' in columns
+
+    def test_migrate_adds_trigger_to_old_schema(self, db_path):
+        """Migration should add trigger column to a database missing it."""
+        # Create database with schema that has transfer_method but no trigger
+        conn = sqlite3.connect(db_path)
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS transfers (
+                id TEXT PRIMARY KEY,
+                torrent_name TEXT NOT NULL,
+                torrent_hash TEXT,
+                source_client TEXT NOT NULL,
+                target_client TEXT NOT NULL,
+                connection_name TEXT,
+                media_type TEXT,
+                media_manager TEXT,
+                size_bytes INTEGER,
+                bytes_transferred INTEGER DEFAULT 0,
+                status TEXT NOT NULL DEFAULT 'pending',
+                error_message TEXT,
+                created_at TEXT NOT NULL,
+                started_at TEXT,
+                completed_at TEXT,
+                transfer_method TEXT
+            );
+        """)
+        conn.commit()
+
+        # Verify trigger does NOT exist yet
+        cursor = conn.execute("PRAGMA table_info(transfers)")
+        columns = {row[1] for row in cursor.fetchall()}
+        assert 'trigger' not in columns
+        conn.close()
+
+        # Open with HistoryService which should run migration
+        service = HistoryService(db_path)
+
+        # Verify trigger now exists
+        conn2 = sqlite3.connect(db_path)
+        cursor = conn2.execute("PRAGMA table_info(transfers)")
+        columns = {row[1] for row in cursor.fetchall()}
+        conn2.close()
+
+        assert 'trigger' in columns
+        service.close()
+
+    def test_migrate_preserves_existing_data_with_trigger(self, db_path):
+        """Migration should preserve existing records and default trigger to 'automatic'."""
+        # Create database with old schema (no trigger column) and insert a record
+        conn = sqlite3.connect(db_path)
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS transfers (
+                id TEXT PRIMARY KEY,
+                torrent_name TEXT NOT NULL,
+                torrent_hash TEXT,
+                source_client TEXT NOT NULL,
+                target_client TEXT NOT NULL,
+                connection_name TEXT,
+                media_type TEXT,
+                media_manager TEXT,
+                size_bytes INTEGER,
+                bytes_transferred INTEGER DEFAULT 0,
+                status TEXT NOT NULL DEFAULT 'pending',
+                error_message TEXT,
+                created_at TEXT NOT NULL,
+                started_at TEXT,
+                completed_at TEXT,
+                transfer_method TEXT
+            );
+        """)
+        conn.execute(
+            """
+            INSERT INTO transfers (id, torrent_name, source_client, target_client, 
+                                   connection_name, status, created_at)
+            VALUES ('test-id', 'Old.Torrent', 'src', 'tgt', 'conn', 'completed', '2024-01-01T00:00:00')
+            """
+        )
+        conn.commit()
+        conn.close()
+
+        # Open with HistoryService (triggers migration)
+        service = HistoryService(db_path)
+
+        # Existing record should still be there with trigger='automatic' (default)
+        transfer = service.get_transfer('test-id')
+        assert transfer is not None
+        assert transfer['torrent_name'] == 'Old.Torrent'
+        assert transfer['trigger'] == 'automatic'
+        service.close()
 
 
 class TestCreateTransfer:
@@ -364,6 +461,44 @@ class TestCreateTransfer:
         
         transfer = history_service.get_transfer(transfer_id)
         assert transfer['transfer_method'] is None
+
+    def test_create_transfer_automatic_trigger_with_media_manager(self, history_service):
+        """Torrents with a media manager should have trigger='automatic'."""
+        torrent = MockTorrent(media_manager=MockRadarrManager())
+        transfer_id = history_service.create_transfer(
+            torrent=torrent,
+            source_client='source',
+            target_client='target',
+            connection_name='test'
+        )
+        
+        transfer = history_service.get_transfer(transfer_id)
+        assert transfer['trigger'] == 'automatic'
+
+    def test_create_transfer_manual_trigger_without_media_manager(self, history_service, torrent):
+        """Torrents without a media manager should have trigger='manual'."""
+        transfer_id = history_service.create_transfer(
+            torrent=torrent,
+            source_client='source',
+            target_client='target',
+            connection_name='test'
+        )
+        
+        transfer = history_service.get_transfer(transfer_id)
+        assert transfer['trigger'] == 'manual'
+
+    def test_create_transfer_automatic_trigger_sonarr(self, history_service):
+        """Sonarr-managed torrents should have trigger='automatic'."""
+        torrent = MockTorrent(media_manager=MockSonarrManager())
+        transfer_id = history_service.create_transfer(
+            torrent=torrent,
+            source_client='source',
+            target_client='target',
+            connection_name='test'
+        )
+        
+        transfer = history_service.get_transfer(transfer_id)
+        assert transfer['trigger'] == 'automatic'
 
 
 class TestStartTransfer:
@@ -832,6 +967,36 @@ class TestListTransfers:
         
         transfers, total = history_service.list_transfers(transfer_method='local')
         assert total == 1
+
+    def test_list_transfers_filter_by_trigger(self, history_service):
+        """list_transfers should filter by trigger."""
+        # Create automatic transfers (with media manager)
+        for _ in range(3):
+            torrent = MockTorrent(media_manager=MockRadarrManager())
+            history_service.create_transfer(
+                torrent=torrent,
+                source_client='source',
+                target_client='target',
+                connection_name='test'
+            )
+        
+        # Create manual transfers (without media manager)
+        for _ in range(2):
+            torrent = MockTorrent()
+            history_service.create_transfer(
+                torrent=torrent,
+                source_client='source',
+                target_client='target',
+                connection_name='test'
+            )
+        
+        transfers, total = history_service.list_transfers(trigger='automatic')
+        assert total == 3
+        assert all(t['trigger'] == 'automatic' for t in transfers)
+        
+        transfers, total = history_service.list_transfers(trigger='manual')
+        assert total == 2
+        assert all(t['trigger'] == 'manual' for t in transfers)
 
 
 class TestGetActiveTransfers:

@@ -695,6 +695,8 @@
 .password-field-container {
     position: relative;
     display: flex;
+    width: 100%;
+    min-width: 0;
 }
 
 .password-field-container .form-control {
@@ -1331,6 +1333,17 @@
 
     .tracker-status-row {
         padding: 8px 12px;
+    }
+}
+
+/* Constrain torrent source SFTP section to match side-panel width */
+#torrentSourceSftpConfig {
+    max-width: 50%;
+}
+
+@media (max-width: 768px) {
+    #torrentSourceSftpConfig {
+        max-width: 100%;
     }
 }
 

@@ -38,24 +38,12 @@
       "to": "target-deluge",
       "transfer_config": {
         "type": "torrent",
-        "destination_path": "/downloads",
-        "source": {
-          "type": "sftp",
-          "sftp": {
-            "host": "sftp-server",
-            "port": 2222,
-            "username": "testuser",
-            "password": "testpass"
-          },
-          "state_dir": "/home/testuser/state"
-        }
+        "destination_path": "/downloads"
       }
     }
   ],
   "tracker": {
-    "enabled": true,
-    "port": 6969,
-    "external_url": "http://transferarr:6969/announce"
+    "enabled": false
   },
   "history": {
     "enabled": true,

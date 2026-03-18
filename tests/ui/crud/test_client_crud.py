@@ -471,3 +471,67 @@ class TestClientFormInteractions:
         
         # Save button should be disabled after change
         expect(save_btn).to_be_disabled()
+
+
+class TestClientDeleteCrossSeedsCheckbox:
+    """Tests for the Delete Cross-Seeds checkbox in the client add/edit modal."""
+
+    @pytest.fixture(autouse=True)
+    def setup(self, crud_test_setup):
+        """Setup clean environment with running transferarr."""
+        pass
+
+    def test_checkbox_visible_in_add_modal(self, settings_page):
+        """Delete Cross-Seeds checkbox is visible in the Add Client modal."""
+        settings_page.goto()
+        settings_page.wait_for_clients_loaded()
+        settings_page.open_add_client_modal()
+
+        checkbox = settings_page.page.locator("#clientDeleteCrossSeeds")
+        expect(checkbox).to_be_visible()
+
+    def test_checkbox_checked_by_default(self, settings_page):
+        """Delete Cross-Seeds checkbox is checked by default in a new form."""
+        settings_page.goto()
+        settings_page.wait_for_clients_loaded()
+        settings_page.open_add_client_modal()
+
+        checkbox = settings_page.page.locator("#clientDeleteCrossSeeds")
+        assert checkbox.is_checked()
+
+    def test_checkbox_has_label(self, settings_page):
+        """Checkbox has descriptive label text."""
+        settings_page.goto()
+        settings_page.wait_for_clients_loaded()
+        settings_page.open_add_client_modal()
+
+        label = settings_page.page.locator("label[for='clientDeleteCrossSeeds']")
+        expect(label).to_contain_text("Delete cross-seeds from source")
+
+    def test_checkbox_has_help_text(self, settings_page):
+        """Checkbox has help text explaining the behaviour."""
+        settings_page.goto()
+        settings_page.wait_for_clients_loaded()
+        settings_page.open_add_client_modal()
+
+        help_text = settings_page.page.locator(
+            "#clientDeleteCrossSeeds"
+        ).locator("xpath=ancestor::div[contains(@class,'form-check')]").locator(".form-text")
+        expect(help_text).to_contain_text("cross-seed siblings")
+
+    def test_checkbox_populated_on_edit(self, settings_page):
+        """Checkbox state is populated from existing client data when editing."""
+        settings_page.goto()
+        settings_page.wait_for_clients_loaded()
+
+        clients = settings_page.get_client_cards()
+        if len(clients) == 0:
+            pytest.skip("No existing clients to edit")
+
+        client_name = clients[0].locator(".card-header").text_content().strip()
+        settings_page.edit_client(client_name)
+
+        checkbox = settings_page.page.locator("#clientDeleteCrossSeeds")
+        expect(checkbox).to_be_visible()
+        # Default config has delete_cross_seeds=True (or absent → True)
+        assert checkbox.is_checked()

@@ -264,8 +264,8 @@ class TestMaxRetriesCleansUpAndResets:
         # In either case, it should eventually reach TARGET_SEEDING
         wait_for_transferarr_state(
             transferarr, torrent_name,
-            ['TARGET_SEEDING', 'HOME_SEEDING', 'TORRENT_CREATING',
-             'TORRENT_TARGET_ADDING', 'TORRENT_DOWNLOADING'],
+            ['TARGET_SEEDING', 'HOME_SEEDING', 'TORRENT_CREATE_QUEUE',
+             'TORRENT_CREATING', 'TORRENT_TARGET_ADDING', 'TORRENT_DOWNLOADING'],
             timeout=TIMEOUTS['torrent_transfer'] * 2
         )
 
@@ -281,7 +281,7 @@ class TestMaxRetriesCleansUpAndResets:
             # After cleanup, transfer dict may still exist but retry_count > 0
             print(f"  Retry count: {transfer.get('retry_count', 'N/A')}")
             print("  ✅ Cleanup triggered, torrent reset to HOME_SEEDING")
-        elif current_state in ['TORRENT_CREATING', 'TORRENT_TARGET_ADDING', 'TORRENT_DOWNLOADING']:
+        elif current_state in ['TORRENT_CREATE_QUEUE', 'TORRENT_CREATING', 'TORRENT_TARGET_ADDING', 'TORRENT_DOWNLOADING']:
             # Already started a fresh retry
             print("  ✅ Fresh retry started after cleanup")
         elif current_state == 'TARGET_SEEDING':
@@ -343,9 +343,9 @@ class TestNoHandlerGoesToError:
         # Wait for torrent to be tracked in any state
         wait_for_transferarr_state(
             transferarr, torrent_name,
-            ['HOME_SEEDING', 'TORRENT_CREATING', 'TORRENT_TARGET_ADDING',
-             'TORRENT_DOWNLOADING', 'TORRENT_SEEDING', 'COPIED',
-             'TARGET_CHECKING', 'TARGET_SEEDING'],
+            ['HOME_SEEDING', 'TORRENT_CREATE_QUEUE', 'TORRENT_CREATING',
+             'TORRENT_TARGET_ADDING', 'TORRENT_DOWNLOADING', 'TORRENT_SEEDING',
+             'COPIED', 'TARGET_CHECKING', 'TARGET_SEEDING'],
             timeout=120
         )
 
@@ -440,9 +440,9 @@ class TestNoConnectionGoesToError:
         # Wait for torrent to be tracked in any state
         wait_for_transferarr_state(
             transferarr, torrent_name,
-            ['HOME_SEEDING', 'TORRENT_CREATING', 'TORRENT_TARGET_ADDING',
-             'TORRENT_DOWNLOADING', 'TORRENT_SEEDING', 'COPIED',
-             'TARGET_CHECKING', 'TARGET_SEEDING'],
+            ['HOME_SEEDING', 'TORRENT_CREATE_QUEUE', 'TORRENT_CREATING',
+             'TORRENT_TARGET_ADDING', 'TORRENT_DOWNLOADING', 'TORRENT_SEEDING',
+             'COPIED', 'TARGET_CHECKING', 'TARGET_SEEDING'],
             timeout=120
         )
 

@@ -24,7 +24,7 @@
                         <label for="transferMethod" class="form-label">Transfer Method</label>
                         <select class="form-control" id="transferMethod">
                             <option value="file">File Transfer (SFTP/Local)</option>
-                            <option value="torrent">Torrent (P2P)</option>
+                            <option value="torrent" selected>Torrent (P2P)</option>
                         </select>
                         <small class="form-text text-muted">How files are transferred between clients</small>
                     </div>
@@ -159,13 +159,6 @@
                         </div>
                     </div>
                 </form>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="button" class="btn btn-info" id="testConnectionBtn2">
-                        <i class="fas fa-plug"></i> Test Connection
-                    </button>
-                    <button type="button" class="btn btn-primary" id="saveConnectionBtn" disabled>Save</button>
-                </div>
                 <!-- Path Configuration Section (File Transfer only) -->
                 <div class="path-config-section mt-4 file-transfer-only">
                     <h4 class="section-title">Path Configuration</h4>
@@ -234,25 +227,98 @@
                 </div>
                 <!-- Torrent Transfer Configuration (Torrent method only) -->
                 <div id="torrentTransferConfig" class="mt-4" style="display: none;">
+                    <!-- Source Access Type Selector -->
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold mb-0">Source Access</label>
+                        <div><small class="form-text text-muted">How to fetch .torrent files from the source client. Required for private tracker torrents.</small></div>
+                        <div class="mt-2">
+                            <select class="form-select" id="torrentSourceType" style="max-width: 250px;">
+                                <option value="sftp">SFTP</option>
+                                <option value="local">Local Filesystem</option>
+                            </select>
+                        </div>
+                    </div>
+                    <!-- Source SFTP Configuration (shown when source type = sftp) -->
+                    <div id="torrentSourceSftpConfig" class="config-section">
+                        <div class="form-group">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="torrentSourceUseSshConfig">
+                                <label class="form-check-label" for="torrentSourceUseSshConfig">
+                                    Use SSH Config Instead
+                                </label>
+                            </div>
+                        </div>
+                        <div class="form-group" id="torrentSourceSftpHostGroup">
+                            <label for="torrentSourceSftpHost" class="form-label">SFTP Host</label>
+                            <input type="text" class="form-control" id="torrentSourceSftpHost">
+                        </div>
+                        <div class="form-group" id="torrentSourceSftpPortGroup">
+                            <label for="torrentSourceSftpPort" class="form-label">SFTP Port</label>
+                            <input type="number" class="form-control" id="torrentSourceSftpPort" value="22">
+                        </div>
+                        <div class="form-group" id="torrentSourceSftpUsernameGroup">
+                            <label for="torrentSourceSftpUsername" class="form-label">SFTP Username</label>
+                            <input type="text" class="form-control" id="torrentSourceSftpUsername">
+                        </div>
+                        <div class="form-group" id="torrentSourceSftpPasswordGroup">
+                            <label for="torrentSourceSftpPassword" class="form-label">SFTP Password</label>
+                            <div class="password-field-container">
+                                <input type="text" class="form-control obfuscated-field" id="torrentSourceSftpPassword">
+                                <button type="button" class="toggle-visibility" tabindex="-1">
+                                    <i class="fas fa-eye"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <div id="torrentSourceSshConfigSection" style="display: none;">
+                            <div class="form-group">
+                                <label for="torrentSourceSshConfigFile" class="form-label">SSH Config File</label>
+                                <input type="text" class="form-control" id="torrentSourceSshConfigFile" value="~/.ssh/config">
+                            </div>
+                            <div class="form-group">
+                                <label for="torrentSourceSshConfigHost" class="form-label">SSH Config Host</label>
+                                <input type="text" class="form-control" id="torrentSourceSshConfigHost">
+                            </div>
+                        </div>
+                    </div>
+                    <!-- State Directory -->
+                    <div class="mb-3" id="torrentSourceStateDirGroup">
+                        <label for="torrentSourceStateDir" class="form-label fw-semibold">State Directory</label>
+                        <small class="form-text text-muted d-block mb-1" id="torrentSourceStateDirHelp">Path to the Deluge state directory as accessible via SFTP. Deluge stores .torrent files at <code>&lt;state_dir&gt;/&lt;hash&gt;.torrent</code>.</small>
+                        <div class="input-group" style="max-width: 50%;">
+                            <input type="text" class="form-control" id="torrentSourceStateDir" placeholder="Test SFTP connection first" disabled>
+                            <button type="button" class="btn btn-outline-secondary browse-btn" data-target="torrentSourceStateDir" data-side="torrent-source" disabled>
+                                <i class="fas fa-folder-open"></i>
+                            </button>
+                        </div>
+                    </div>
                     <!-- Advanced Options (collapsible) -->
                     <div class="mb-0">
                         <a class="text-decoration-none" href="#" role="button" aria-expanded="false" id="torrentAdvancedToggle" onclick="toggleTorrentAdvanced(event)">
                             <i class="fas fa-chevron-right fa-xs me-1" id="torrentAdvancedIcon"></i>  Advanced Options
                         </a>
                         <div class="mt-2" id="torrentAdvancedOptions" style="display: none;">
-                            <div class="form-group mb-0">
+                            <div class="form-group mb-3">
                                 <label for="torrentDestinationPath" class="form-label">
                                     Destination Path <span class="text-muted fw-normal">(optional)</span>
                                 </label>
                                 <small class="form-text text-muted" style="display: block; margin-bottom: 0.35rem;">Override the download path on the target client. If empty, the client's default download path will be used.</small>
                                 <input type="text" class="form-control" id="torrentDestinationPath" placeholder="Leave empty to use client default">
                             </div>
+                            <div class="form-check mb-2">
+                                <input class="form-check-input" type="checkbox" id="torrentMagnetOnly">
+                                <label class="form-check-label" for="torrentMagnetOnly">
+                                    Use magnet links only <span class="text-muted fw-normal">(skip SFTP)</span>
+                                </label>
+                            </div>
+                            <div id="torrentMagnetOnlyWarning" class="alert alert-warning mb-0" style="display: none;">
+                                <i class="fas fa-exclamation-triangle"></i>
+                                Magnet links require metadata download from peers. This <strong>will not work</strong> for private tracker torrents — the target client cannot reach the private tracker. Private torrents will be skipped automatically.
+                            </div>
                         </div>
                     </div>
                     <div class="alert alert-info mb-3">
                         <i class="fas fa-info-circle"></i>
                         Torrent transfers use BitTorrent P2P protocol and require the built-in tracker to be enabled.
-                        No filesystem access to source or target is needed.
                     </div>
                 </div>
             </div>
@@ -266,13 +332,13 @@
                 toggle.setAttribute('aria-expanded', isHidden ? 'true' : 'false');
             }
             </script>
-            <!-- <div class="modal-footer">
+            <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                 <button type="button" class="btn btn-info" id="testConnectionBtn2">
                     <i class="fas fa-plug"></i> Test Connection
                 </button>
                 <button type="button" class="btn btn-primary" id="saveConnectionBtn" disabled>Save</button>
-            </div> -->
+            </div>
         </div>
     </div>
 </div>

@@ -26,6 +26,8 @@ class DownloadClientService:
         # Include connection_type if the client has it (Deluge-specific)
         if hasattr(client, 'connection_type'):
             result["connection_type"] = client.connection_type
+        # Include delete_cross_seeds setting
+        result["delete_cross_seeds"] = client.delete_cross_seeds
         return result
     
     def _create_client_config(self, name: str, data: dict) -> ClientConfig:

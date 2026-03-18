@@ -12,10 +12,11 @@ Transferarr monitors your Radarr/Sonarr queues and automatically transfers compl
 ## Features
 
 - 🔄 **Automatic Migration** — Monitors media manager queues and transfers torrents when seeding completes
+- ✋ **Manual Transfers** — Select torrents directly from the web UI to transfer on demand, with cross-seed detection
 - 🌐 **Multi-Server Support** — Transfer between local storage, SFTP, or any combination
 - 🧲 **BitTorrent Transfer** — Transfer via P2P with a built-in tracker — no SFTP or filesystem access needed
 - 🔐 **Optional Authentication** — Protect your web UI with username/password login or API keys for scripts
-- 📊 **Web Dashboard** — Real-time status and manual controls
+- 📊 **Web Dashboard** — Real-time status, torrent browsing, and transfer history
 - 📜 **Transfer History** — Track completed/failed transfers with stats, filtering, and retention policies
 - 🔗 **Radarr & Sonarr Integration** — Seamless integration via API
 - 🐳 **Docker Ready** — Simple deployment with Docker Compose
@@ -124,6 +125,17 @@ See **[CONFIGURATION.md](CONFIGURATION.md)** for the complete configuration guid
    - **Torrent** — Creates a transfer torrent on source; target downloads via BitTorrent P2P through a built-in tracker (no filesystem access required)
 5. **Verify & Seed** — Destination client verifies files and starts seeding
 6. **Cleanup** — Transferarr removes torrent and data from source client
+
+### Manual Transfers
+
+In addition to automatic migration, you can transfer torrents on demand:
+
+1. Go to the **Torrents** page to browse all torrents across your clients
+2. Select one or more seeding torrents (cross-seeds sharing the same data are detected automatically)
+3. Click **Transfer Selected**, choose a destination, and confirm
+4. The transfer uses the same SFTP or BitTorrent method as automatic transfers
+
+Manual transfers bypass Radarr/Sonarr — the source torrent is removed immediately once the destination is seeding.
 
 ---
 

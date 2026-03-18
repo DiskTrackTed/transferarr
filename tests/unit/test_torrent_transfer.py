@@ -1,7 +1,7 @@
 """Unit tests for torrent-based transfer components."""
 
 from datetime import datetime, timezone, timedelta
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -27,6 +27,10 @@ from transferarr.utils import (
 class TestTorrentStateEnum:
     """Tests for new torrent transfer states."""
     
+    def test_torrent_create_queue_exists(self):
+        """TORRENT_CREATE_QUEUE state exists."""
+        assert TorrentState.TORRENT_CREATE_QUEUE.value == 29
+    
     def test_torrent_creating_exists(self):
         """TORRENT_CREATING state exists."""
         assert TorrentState.TORRENT_CREATING.value == 30
@@ -42,6 +46,11 @@ class TestTorrentStateEnum:
     def test_torrent_seeding_exists(self):
         """TORRENT_SEEDING state exists."""
         assert TorrentState.TORRENT_SEEDING.value == 33
+    
+    def test_torrent_create_queue_is_torrent_transfer_state(self):
+        """TORRENT_CREATE_QUEUE is considered a torrent transfer state."""
+        torrent = Torrent(name="Test", id="abc", state=TorrentState.TORRENT_CREATE_QUEUE)
+        assert torrent._is_torrent_transfer_state is True
 
 
 # --- Test Torrent model transfer serialization ---
@@ -182,6 +191,60 @@ class TestTorrentModelTransferSerialization:
         
         # Should show torrent download rate, not SFTP speed
         assert data["transfer_speed"] == 5242880
+
+    def test_delete_source_cross_seeds_true_serialized(self):
+        """delete_source_cross_seeds=True is serialized in to_dict."""
+        torrent = Torrent(
+            name="Test.Movie.2024",
+            id="original_hash",
+            state=TorrentState.HOME_SEEDING,
+            delete_source_cross_seeds=True,
+        )
+        data = torrent.to_dict()
+        assert data["delete_source_cross_seeds"] is True
+
+    def test_delete_source_cross_seeds_false_serialized(self):
+        """delete_source_cross_seeds=False is serialized in to_dict."""
+        torrent = Torrent(
+            name="Test.Movie.2024",
+            id="original_hash",
+            state=TorrentState.HOME_SEEDING,
+            delete_source_cross_seeds=False,
+        )
+        data = torrent.to_dict()
+        assert data["delete_source_cross_seeds"] is False
+
+    def test_delete_source_cross_seeds_none_not_serialized(self):
+        """delete_source_cross_seeds=None (default) is NOT in to_dict output."""
+        torrent = Torrent(
+            name="Test.Movie.2024",
+            id="original_hash",
+            state=TorrentState.HOME_SEEDING,
+        )
+        data = torrent.to_dict()
+        assert "delete_source_cross_seeds" not in data
+
+    def test_delete_source_cross_seeds_survives_round_trip(self):
+        """delete_source_cross_seeds survives to_dict/from_dict."""
+        torrent = Torrent(
+            name="Test.Movie.2024",
+            id="original_hash",
+            state=TorrentState.HOME_SEEDING,
+            delete_source_cross_seeds=False,
+        )
+        data = torrent.to_dict()
+        restored = Torrent.from_dict(data, download_clients={})
+        assert restored.delete_source_cross_seeds is False
+
+    def test_delete_source_cross_seeds_absent_restores_as_none(self):
+        """Old state.json without delete_source_cross_seeds restores as None."""
+        data = {
+            "name": "Test.Movie.2024",
+            "id": "original_hash",
+            "state": "HOME_SEEDING",
+        }
+        restored = Torrent.from_dict(data, download_clients={})
+        assert restored.delete_source_cross_seeds is None
 
 
 # --- Test transfer config type parsing ---
@@ -464,7 +527,7 @@ class TestTorrentTransferHandler:
         assert torrent.transfer["retry_count"] == 1
     
     def test_handle_retry_resets_on_max(self):
-        """_handle_retry resets to HOME_SEEDING after MAX_RETRIES."""
+        """_handle_retry sets to ERROR after MAX_RETRIES to stop retry loop."""
         from unittest.mock import Mock
         from transferarr.services.torrent_transfer import TorrentTransferHandler
         
@@ -480,7 +543,7 @@ class TestTorrentTransferHandler:
         
         assert result is False
         assert torrent.transfer is None
-        assert torrent.state == TorrentState.HOME_SEEDING
+        assert torrent.state == TorrentState.TRANSFER_FAILED
         # Verify tracker unregistration was called
         mock_tracker.unregister_transfer.assert_called_once()
     
@@ -531,12 +594,17 @@ def _make_handler(tracker=None, history_service=None, history_config=None):
     )
 
 
-def _make_connection(from_client=None, to_client=None, destination_path=None):
+def _make_connection(from_client=None, to_client=None, destination_path=None, source_config=None, source_type=None):
     """Create a mock TransferConnection."""
     conn = Mock()
     conn.from_client = from_client or Mock()
     conn.to_client = to_client or Mock()
     conn.destination_torrent_download_path = destination_path or "/downloads"
+    conn.source_config = source_config
+    conn.source_type = source_type
+    conn.name = "test-conn"
+    # Default: torrent is not private (allows magnet path in tests)
+    conn.from_client.is_private_torrent.return_value = False
     return conn
 
 
@@ -766,8 +834,8 @@ class TestHandleDownloadingStall:
 
         assert torrent.transfer["reannounce_count"] == 2
 
-    def test_max_reannounce_sets_stalled(self):
-        """After max re-announce attempts, sets stalled flag."""
+    def test_max_reannounce_cleans_up_and_resets(self):
+        """After max re-announce attempts, cleans up and sets TRANSFER_FAILED."""
         handler = _make_handler()
         torrent = self._make_downloading_torrent(
             last_progress_offset_seconds=360,
@@ -785,7 +853,9 @@ class TestHandleDownloadingStall:
         result = handler.handle_downloading(torrent, conn)
 
         assert result is False
-        assert torrent.transfer.get("stalled") is True
+        # Transfer data cleared, state set to TRANSFER_FAILED (sticky)
+        assert torrent.transfer is None
+        assert torrent.state == TorrentState.TRANSFER_FAILED
         conn.from_client.force_reannounce.assert_not_called()
 
     def test_progress_resets_reannounce_count(self):
@@ -907,16 +977,129 @@ class TestHandleDownloadingStall:
         conn.to_client.force_reannounce.assert_not_called()
 
 
+# --- Test handle_create_queue ---
+
+def _mock_client(name="source-deluge"):
+    """Create a mock client with a .name attribute."""
+    c = Mock()
+    c.name = name
+    return c
+
+
+class TestHandleCreateQueue:
+    """Tests for TorrentTransferHandler.handle_create_queue() — per-client creation slot serialization."""
+
+    def test_slot_free_transitions_to_creating(self):
+        """When creation slot is free for this client, acquires it and transitions."""
+        handler = _make_handler()
+        torrent = Torrent(name="Test.Movie.2024", id="orig_hash")
+        torrent.state = TorrentState.TORRENT_CREATE_QUEUE
+        torrent.home_client = _mock_client("source-deluge")
+
+        result = handler.handle_create_queue(torrent)
+
+        assert result is True
+        assert torrent.state == TorrentState.TORRENT_CREATING
+        assert handler._creating_slots["source-deluge"] == "orig_hash"
+
+    def test_slot_occupied_stays_queued(self):
+        """When creation slot is occupied for this client, torrent stays queued."""
+        handler = _make_handler()
+        handler._creating_slots["source-deluge"] = "other_torrent"
+        torrent = Torrent(name="Test.Movie.2024", id="orig_hash")
+        torrent.state = TorrentState.TORRENT_CREATE_QUEUE
+        torrent.home_client = _mock_client("source-deluge")
+
+        result = handler.handle_create_queue(torrent)
+
+        assert result is False
+        assert torrent.state == TorrentState.TORRENT_CREATE_QUEUE
+        assert handler._creating_slots["source-deluge"] == "other_torrent"
+
+    def test_different_client_slot_is_independent(self):
+        """Slot occupied on client A does not block client B."""
+        handler = _make_handler()
+        handler._creating_slots["source-deluge-1"] = "torrent_on_1"
+
+        torrent = Torrent(name="Test.Movie.2024", id="orig_hash")
+        torrent.state = TorrentState.TORRENT_CREATE_QUEUE
+        torrent.home_client = _mock_client("source-deluge-2")
+
+        result = handler.handle_create_queue(torrent)
+
+        assert result is True
+        assert torrent.state == TorrentState.TORRENT_CREATING
+        assert handler._creating_slots["source-deluge-2"] == "orig_hash"
+        # Client 1 slot unchanged
+        assert handler._creating_slots["source-deluge-1"] == "torrent_on_1"
+
+    def test_slot_released_after_previous_completes(self):
+        """After previous torrent releases slot, next queued torrent can proceed."""
+        handler = _make_handler()
+        client = _mock_client("source-deluge")
+
+        first = Torrent(name="First.Movie", id="first_torrent")
+        first.home_client = client
+        handler._creating_slots["source-deluge"] = "first_torrent"
+
+        # First torrent releases slot
+        handler._release_creation_slot(first)
+        assert "source-deluge" not in handler._creating_slots
+
+        # Second torrent can now acquire
+        torrent2 = Torrent(name="Second.Movie", id="second_hash")
+        torrent2.state = TorrentState.TORRENT_CREATE_QUEUE
+        torrent2.home_client = client
+        result = handler.handle_create_queue(torrent2)
+
+        assert result is True
+        assert torrent2.state == TorrentState.TORRENT_CREATING
+        assert handler._creating_slots["source-deluge"] == "second_hash"
+
+    def test_release_wrong_id_is_noop(self):
+        """Releasing a slot with wrong torrent ID does nothing."""
+        handler = _make_handler()
+        handler._creating_slots["source-deluge"] = "holder"
+
+        wrong = Torrent(name="Wrong", id="not_holder")
+        wrong.home_client = _mock_client("source-deluge")
+        handler._release_creation_slot(wrong)
+
+        assert handler._creating_slots["source-deluge"] == "holder"
+
+    def test_release_when_empty_is_noop(self):
+        """Releasing a slot when client has no slot does nothing."""
+        handler = _make_handler()
+        assert handler._creating_slots == {}
+
+        t = Torrent(name="Any", id="any_id")
+        t.home_client = _mock_client("source-deluge")
+        handler._release_creation_slot(t)
+
+        assert handler._creating_slots == {}
+
+    def test_slots_initialized_empty(self):
+        """Creation slots dict starts empty."""
+        handler = _make_handler()
+        assert handler._creating_slots == {}
+
+
 # --- Test handle_creating (U1) ---
 
 class TestHandleCreating:
-    """Tests for TorrentTransferHandler.handle_creating()."""
+    """Tests for TorrentTransferHandler.handle_creating() — two-phase flow.
+    
+    Phase A (first call): fires start_create_torrent RPC, stores poll spec,
+    returns False.
+    Phase B (subsequent calls): calls poll_created_torrent once; returns False
+    if not found, True + state transition on success.
+    """
 
-    def test_happy_path_creates_torrent_and_transitions(self):
-        """Initializes transfer, creates torrent on source, transitions to TARGET_ADDING."""
-        history = Mock()
-        history.create_transfer.return_value = 99
-        handler = _make_handler(history_service=history)
+    # --- Phase A tests ---
+
+    def test_first_call_fires_rpc_and_returns_false(self):
+        """First call fires RPC, stores creating spec, returns False."""
+        handler = _make_handler()
         torrent = Torrent(name="Test.Movie.2024", id="orig_hash")
         torrent.size = 100_000
         torrent.state = TorrentState.TORRENT_CREATING
@@ -926,140 +1109,23 @@ class TestHandleCreating:
             "name": "Test.Movie.2024",
             "total_size": 100_000,
         }
-        conn.from_client.create_torrent.return_value = "ab" * 20
-
-        result = handler.handle_creating(torrent, conn)
-
-        assert result is True
-        assert torrent.state == TorrentState.TORRENT_TARGET_ADDING
-        assert torrent.transfer is not None
-        assert torrent.transfer["hash"] == "ab" * 20
-        assert torrent.transfer["on_source"] is True
-        conn.from_client.create_torrent.assert_called_once()
-        conn.from_client.force_reannounce.assert_called_once_with("ab" * 20)
-        handler.tracker.register_transfer.assert_called_once()
-        history.create_transfer.assert_called_once()
-        history.start_transfer.assert_called_once_with(99)
-        assert torrent._transfer_id == 99
-
-    def test_restart_existing_hash_on_source_skips_create(self):
-        """When transfer data has hash + on_source=True and exists, skips create_torrent."""
-        handler = _make_handler()
-        torrent = Torrent(name="Test.Movie.2024", id="orig_hash")
-        torrent.state = TorrentState.TORRENT_CREATING
-        torrent.transfer = {
-            "id": "abc123",
-            "name": "[TR-abc123] Test.Movie.2024",
-            "hash": "ab" * 20,
-            "on_source": True,
-            "on_target": False,
-            "retry_count": 0,
+        conn.from_client.start_create_torrent.return_value = {
+            "expected_name": "Test.Movie.2024",
+            "tracker_urls": ["http://tracker:6969/announce"],
+            "timeout": 30,
         }
-        conn = _make_connection()
-        # _get_torrent_by_hash finds it on source
-        conn.from_client.has_torrent.return_value = True
-        conn.from_client.get_torrent_info.return_value = {"name": "Test.Movie.2024"}
-
-        result = handler.handle_creating(torrent, conn)
-
-        assert result is True
-        assert torrent.state == TorrentState.TORRENT_TARGET_ADDING
-        conn.from_client.create_torrent.assert_not_called()
-        handler.tracker.register_transfer.assert_called_once()
-
-    def test_restart_existing_hash_but_torrent_gone_creates_new(self):
-        """When transfer data has hash + on_source=True but gone, creates new."""
-        handler = _make_handler()
-        torrent = Torrent(name="Test.Movie.2024", id="orig_hash")
-        torrent.size = 50_000
-        torrent.state = TorrentState.TORRENT_CREATING
-        torrent.transfer = {
-            "id": "abc123",
-            "name": "[TR-abc123] Test.Movie.2024",
-            "hash": "ab" * 20,
-            "on_source": True,
-            "on_target": False,
-            "retry_count": 0,
-        }
-        conn = _make_connection()
-        # _get_torrent_by_hash does NOT find it
-        conn.from_client.has_torrent.return_value = False
-        conn.from_client.get_torrent_info.return_value = {
-            "save_path": "/downloads",
-            "name": "Test.Movie.2024",
-            "total_size": 50_000,
-        }
-        conn.from_client.create_torrent.return_value = "cd" * 20
-
-        result = handler.handle_creating(torrent, conn)
-
-        assert result is True
-        assert torrent.transfer["hash"] == "cd" * 20
-        conn.from_client.create_torrent.assert_called_once()
-
-    def test_get_torrent_info_returns_none_triggers_retry(self):
-        """When source_client.get_torrent_info() returns None, calls _handle_retry."""
-        handler = _make_handler()
-        torrent = Torrent(name="Test.Movie.2024", id="orig_hash")
-        torrent.state = TorrentState.TORRENT_CREATING
-        conn = _make_connection()
-        conn.from_client.get_torrent_info.return_value = None
 
         result = handler.handle_creating(torrent, conn)
 
         assert result is False
-        assert torrent.transfer["retry_count"] == 1
+        assert torrent.state == TorrentState.TORRENT_CREATING  # unchanged
+        assert "creating" in torrent.transfer
+        assert torrent.transfer["creating"]["expected_name"] == "Test.Movie.2024"
+        assert "started_at" in torrent.transfer["creating"]
+        conn.from_client.start_create_torrent.assert_called_once()
+        conn.from_client.poll_created_torrent.assert_not_called()
 
-    def test_create_torrent_returns_none_triggers_retry(self):
-        """When source_client.create_torrent() returns None, calls _handle_retry."""
-        handler = _make_handler()
-        torrent = Torrent(name="Test.Movie.2024", id="orig_hash")
-        torrent.state = TorrentState.TORRENT_CREATING
-        conn = _make_connection()
-        conn.from_client.get_torrent_info.return_value = {
-            "save_path": "/downloads",
-            "name": "Test.Movie.2024",
-        }
-        conn.from_client.create_torrent.return_value = None
-
-        result = handler.handle_creating(torrent, conn)
-
-        assert result is False
-        assert torrent.transfer["retry_count"] == 1
-
-    def test_history_exception_does_not_block_transition(self):
-        """History service exception still allows state transition."""
-        history = Mock()
-        history.create_transfer.side_effect = Exception("DB locked")
-        handler = _make_handler(history_service=history)
-        torrent = Torrent(name="Test.Movie.2024", id="orig_hash")
-        torrent.state = TorrentState.TORRENT_CREATING
-        conn = _make_connection()
-        conn.from_client.get_torrent_info.return_value = {
-            "save_path": "/downloads",
-            "name": "Test.Movie.2024",
-        }
-        conn.from_client.create_torrent.return_value = "ab" * 20
-
-        result = handler.handle_creating(torrent, conn)
-
-        assert result is True
-        assert torrent.state == TorrentState.TORRENT_TARGET_ADDING
-
-    def test_general_exception_triggers_retry(self):
-        """Unexpected exception calls _handle_retry."""
-        handler = _make_handler()
-        torrent = Torrent(name="Test.Movie.2024", id="orig_hash")
-        torrent.state = TorrentState.TORRENT_CREATING
-        conn = _make_connection()
-        conn.from_client.get_torrent_info.side_effect = RuntimeError("boom")
-
-        result = handler.handle_creating(torrent, conn)
-
-        assert result is False
-        assert torrent.transfer["retry_count"] == 1
-
-    def test_uses_existing_transfer_data_on_partial_restart(self):
+    def test_first_call_reuses_existing_transfer_data(self):
         """When torrent.transfer is populated (no hash yet), reuses id/name."""
         handler = _make_handler()
         torrent = Torrent(name="Test.Movie.2024", id="orig_hash")
@@ -1077,15 +1143,286 @@ class TestHandleCreating:
             "save_path": "/downloads",
             "name": "Test.Movie.2024",
         }
-        conn.from_client.create_torrent.return_value = "ef" * 20
+        conn.from_client.start_create_torrent.return_value = {
+            "expected_name": "Test.Movie.2024",
+            "tracker_urls": ["http://tracker:6969/announce"],
+            "timeout": 30,
+        }
+
+        result = handler.handle_creating(torrent, conn)
+
+        assert result is False
+        assert torrent.transfer["id"] == "xyz789"
+        assert torrent.transfer["name"] == "[TR-xyz789] Test.Movie.2024"
+        assert "creating" in torrent.transfer
+
+    def test_get_torrent_info_returns_none_triggers_retry(self):
+        """When source_client.get_torrent_info() returns None, retries and re-queues."""
+        handler = _make_handler()
+        handler._creating_slots["source-deluge"] = "orig_hash"  # Simulate slot acquired
+        torrent = Torrent(name="Test.Movie.2024", id="orig_hash")
+        torrent.state = TorrentState.TORRENT_CREATING
+        torrent.home_client = _mock_client("source-deluge")
+        conn = _make_connection()
+        conn.from_client.get_torrent_info.return_value = None
+
+        result = handler.handle_creating(torrent, conn)
+
+        assert result is False
+        assert torrent.transfer["retry_count"] == 1
+        assert torrent.state == TorrentState.TORRENT_CREATE_QUEUE
+        assert "source-deluge" not in handler._creating_slots  # Slot released
+
+    # --- Phase B tests ---
+
+    def test_poll_finds_torrent_and_transitions(self):
+        """Poll finds hash → sets transfer data, transitions to TARGET_ADDING, releases slot."""
+        history = Mock()
+        history.create_transfer.return_value = 99
+        handler = _make_handler(history_service=history)
+        handler._creating_slots["source-deluge"] = "orig_hash"  # Simulate slot acquired
+        torrent = Torrent(name="Test.Movie.2024", id="orig_hash")
+        torrent.size = 100_000
+        torrent.state = TorrentState.TORRENT_CREATING
+        torrent.home_client = _mock_client("source-deluge")
+        torrent.transfer = {
+            "id": "abc123",
+            "name": "[TR-abc123] Test.Movie.2024",
+            "hash": None,
+            "on_source": False,
+            "on_target": False,
+            "total_size": 100_000,
+            "retry_count": 0,
+            "creating": {
+                "expected_name": "Test.Movie.2024",
+                "tracker_urls": ["http://tracker:6969/announce"],
+                "timeout": 30,
+                "started_at": datetime.now(timezone.utc).isoformat(),
+            },
+        }
+        conn = _make_connection()
+        conn.from_client.poll_created_torrent.return_value = "ab" * 20
 
         result = handler.handle_creating(torrent, conn)
 
         assert result is True
-        # Should reuse existing id/name, not generate new ones
-        assert torrent.transfer["id"] == "xyz789"
-        assert torrent.transfer["name"] == "[TR-xyz789] Test.Movie.2024"
-        assert torrent.transfer["hash"] == "ef" * 20
+        assert torrent.state == TorrentState.TORRENT_TARGET_ADDING
+        assert torrent.transfer["hash"] == "ab" * 20
+        assert torrent.transfer["on_source"] is True
+        assert "creating" not in torrent.transfer
+        conn.from_client.poll_created_torrent.assert_called_once_with(
+            "Test.Movie.2024",
+            ["http://tracker:6969/announce"],
+            label="transferarr_tmp",
+        )
+        conn.from_client.force_reannounce.assert_called_once_with("ab" * 20)
+        handler.tracker.register_transfer.assert_called_once()
+        history.create_transfer.assert_called_once()
+        history.start_transfer.assert_called_once_with(99)
+        assert torrent._transfer_id == 99
+        assert "source-deluge" not in handler._creating_slots  # Slot released
+
+    def test_poll_not_found_returns_false(self):
+        """Poll returns None → returns False, state unchanged."""
+        handler = _make_handler()
+        torrent = Torrent(name="Test.Movie.2024", id="orig_hash")
+        torrent.state = TorrentState.TORRENT_CREATING
+        torrent.transfer = {
+            "id": "abc123",
+            "name": "[TR-abc123] Test.Movie.2024",
+            "hash": None,
+            "on_source": False,
+            "on_target": False,
+            "retry_count": 0,
+            "creating": {
+                "expected_name": "Test.Movie.2024",
+                "tracker_urls": ["http://tracker:6969/announce"],
+                "timeout": 120,
+                "started_at": datetime.now(timezone.utc).isoformat(),
+            },
+        }
+        conn = _make_connection()
+        conn.from_client.poll_created_torrent.return_value = None
+
+        result = handler.handle_creating(torrent, conn)
+
+        assert result is False
+        assert torrent.state == TorrentState.TORRENT_CREATING
+        assert "creating" in torrent.transfer  # spec preserved
+
+    def test_poll_timeout_triggers_retry(self):
+        """When started_at + timeout exceeded, retries and re-queues."""
+        handler = _make_handler()
+        handler._creating_slots["source-deluge"] = "orig_hash"  # Simulate slot acquired
+        torrent = Torrent(name="Test.Movie.2024", id="orig_hash")
+        torrent.state = TorrentState.TORRENT_CREATING
+        torrent.home_client = _mock_client("source-deluge")
+        # started_at is 200 seconds ago, timeout is 30s → timed out
+        past = datetime.now(timezone.utc) - timedelta(seconds=200)
+        torrent.transfer = {
+            "id": "abc123",
+            "name": "[TR-abc123] Test.Movie.2024",
+            "hash": None,
+            "on_source": False,
+            "on_target": False,
+            "retry_count": 0,
+            "creating": {
+                "expected_name": "Test.Movie.2024",
+                "tracker_urls": ["http://tracker:6969/announce"],
+                "timeout": 30,
+                "started_at": past.isoformat(),
+            },
+        }
+        conn = _make_connection()
+
+        result = handler.handle_creating(torrent, conn)
+
+        assert result is False
+        assert torrent.transfer["retry_count"] == 1
+        assert "creating" not in torrent.transfer  # cleaned up
+        assert torrent.state == TorrentState.TORRENT_CREATE_QUEUE
+        assert "source-deluge" not in handler._creating_slots  # Slot released
+        conn.from_client.poll_created_torrent.assert_not_called()
+
+    def test_restart_with_creating_key_resumes_polling(self):
+        """After restart, creating key is present → polls without re-firing RPC."""
+        handler = _make_handler()
+        torrent = Torrent(name="Test.Movie.2024", id="orig_hash")
+        torrent.state = TorrentState.TORRENT_CREATING
+        torrent.home_client = _mock_client("source-deluge")
+        torrent.transfer = {
+            "id": "abc123",
+            "name": "[TR-abc123] Test.Movie.2024",
+            "hash": None,
+            "on_source": False,
+            "on_target": False,
+            "retry_count": 0,
+            "creating": {
+                "expected_name": "Test.Movie.2024",
+                "tracker_urls": ["http://tracker:6969/announce"],
+                "timeout": 120,
+                "started_at": datetime.now(timezone.utc).isoformat(),
+            },
+        }
+        conn = _make_connection()
+        conn.from_client.poll_created_torrent.return_value = "cd" * 20
+
+        result = handler.handle_creating(torrent, conn)
+
+        assert result is True
+        assert torrent.transfer["hash"] == "cd" * 20
+        conn.from_client.start_create_torrent.assert_not_called()
+        conn.from_client.poll_created_torrent.assert_called_once()
+
+    # --- Restart / edge cases ---
+
+    def test_restart_existing_hash_on_source_skips_create(self):
+        """When transfer data has hash + on_source=True and exists, skips creation and releases slot."""
+        handler = _make_handler()
+        handler._creating_slots["source-deluge"] = "orig_hash"  # Simulate slot acquired
+        torrent = Torrent(name="Test.Movie.2024", id="orig_hash")
+        torrent.state = TorrentState.TORRENT_CREATING
+        torrent.home_client = _mock_client("source-deluge")
+        torrent.transfer = {
+            "id": "abc123",
+            "name": "[TR-abc123] Test.Movie.2024",
+            "hash": "ab" * 20,
+            "on_source": True,
+            "on_target": False,
+            "retry_count": 0,
+        }
+        conn = _make_connection()
+        conn.from_client.has_torrent.return_value = True
+        conn.from_client.get_torrent_info.return_value = {"name": "Test.Movie.2024"}
+
+        result = handler.handle_creating(torrent, conn)
+
+        assert result is True
+        assert torrent.state == TorrentState.TORRENT_TARGET_ADDING
+        conn.from_client.start_create_torrent.assert_not_called()
+        handler.tracker.register_transfer.assert_called_once()
+        assert "source-deluge" not in handler._creating_slots  # Slot released
+
+    def test_restart_existing_hash_but_torrent_gone_fires_rpc(self):
+        """When hash + on_source=True but torrent gone, falls through to Phase A."""
+        handler = _make_handler()
+        torrent = Torrent(name="Test.Movie.2024", id="orig_hash")
+        torrent.size = 50_000
+        torrent.state = TorrentState.TORRENT_CREATING
+        torrent.transfer = {
+            "id": "abc123",
+            "name": "[TR-abc123] Test.Movie.2024",
+            "hash": "ab" * 20,
+            "on_source": True,
+            "on_target": False,
+            "retry_count": 0,
+        }
+        conn = _make_connection()
+        conn.from_client.has_torrent.return_value = False
+        conn.from_client.get_torrent_info.return_value = {
+            "save_path": "/downloads",
+            "name": "Test.Movie.2024",
+            "total_size": 50_000,
+        }
+        conn.from_client.start_create_torrent.return_value = {
+            "expected_name": "Test.Movie.2024",
+            "tracker_urls": ["http://tracker:6969/announce"],
+            "timeout": 30,
+        }
+
+        result = handler.handle_creating(torrent, conn)
+
+        # Phase A: fires RPC and returns False (non-blocking)
+        assert result is False
+        assert "creating" in torrent.transfer
+        conn.from_client.start_create_torrent.assert_called_once()
+
+    def test_history_exception_does_not_block_transition(self):
+        """History service exception still allows state transition."""
+        history = Mock()
+        history.create_transfer.side_effect = Exception("DB locked")
+        handler = _make_handler(history_service=history)
+        torrent = Torrent(name="Test.Movie.2024", id="orig_hash")
+        torrent.state = TorrentState.TORRENT_CREATING
+        torrent.home_client = _mock_client("source-deluge")
+        torrent.transfer = {
+            "id": "abc123",
+            "name": "[TR-abc123] Test.Movie.2024",
+            "hash": None,
+            "on_source": False,
+            "on_target": False,
+            "retry_count": 0,
+            "creating": {
+                "expected_name": "Test.Movie.2024",
+                "tracker_urls": ["http://tracker:6969/announce"],
+                "timeout": 30,
+                "started_at": datetime.now(timezone.utc).isoformat(),
+            },
+        }
+        conn = _make_connection()
+        conn.from_client.poll_created_torrent.return_value = "ab" * 20
+
+        result = handler.handle_creating(torrent, conn)
+
+        assert result is True
+        assert torrent.state == TorrentState.TORRENT_TARGET_ADDING
+
+    def test_general_exception_triggers_retry(self):
+        """Unexpected exception retries and re-queues, releases slot."""
+        handler = _make_handler()
+        handler._creating_slots["source-deluge"] = "orig_hash"  # Simulate slot acquired
+        torrent = Torrent(name="Test.Movie.2024", id="orig_hash")
+        torrent.state = TorrentState.TORRENT_CREATING
+        torrent.home_client = _mock_client("source-deluge")
+        conn = _make_connection()
+        conn.from_client.get_torrent_info.side_effect = RuntimeError("boom")
+
+        result = handler.handle_creating(torrent, conn)
+
+        assert result is False
+        assert torrent.transfer["retry_count"] == 1
+        assert torrent.state == TorrentState.TORRENT_CREATE_QUEUE
+        assert "source-deluge" not in handler._creating_slots  # Slot released
 
 
 # --- Test handle_target_adding (U2) ---
@@ -1112,6 +1449,9 @@ class TestHandleTargetAdding:
         handler = _make_handler()
         torrent = self._make_creating_done_torrent()
         conn = _make_connection()
+        # Pre-check: transfer torrent not yet on target
+        conn.to_client.has_torrent.return_value = False
+        conn.to_client.get_torrent_info.return_value = None
         conn.from_client.get_magnet_uri.return_value = "magnet:?xt=urn:btih:ab" * 2
         conn.to_client.add_torrent_magnet.return_value = "ab" * 20
 
@@ -1145,7 +1485,7 @@ class TestHandleTargetAdding:
         assert result is False
 
     def test_restart_torrent_already_on_target_skips_add(self):
-        """When on_target=True and torrent exists, transitions directly."""
+        """When torrent exists on target (regardless of on_target flag), transitions directly."""
         handler = _make_handler()
         torrent = self._make_creating_done_torrent(on_target=True)
         conn = _make_connection()
@@ -1156,13 +1496,36 @@ class TestHandleTargetAdding:
 
         assert result is True
         assert torrent.state == TorrentState.TORRENT_DOWNLOADING
+        assert torrent.transfer["on_target"] is True
         conn.from_client.get_magnet_uri.assert_not_called()
+
+    def test_race_condition_on_target_false_but_torrent_exists(self):
+        """When on_target=False but torrent actually exists (race condition), transitions directly.
+        
+        This covers the race condition where add_torrent_magnet succeeded on a
+        previous attempt but on_target was never set to True (exception before
+        the flag update).  The unconditional pre-check discovers the torrent.
+        """
+        handler = _make_handler()
+        torrent = self._make_creating_done_torrent(on_target=False)
+        conn = _make_connection()
+        conn.to_client.has_torrent.return_value = True
+        conn.to_client.get_torrent_info.return_value = {"name": "test"}
+
+        result = handler.handle_target_adding(torrent, conn)
+
+        assert result is True
+        assert torrent.state == TorrentState.TORRENT_DOWNLOADING
+        assert torrent.transfer["on_target"] is True
+        conn.from_client.get_magnet_uri.assert_not_called()
+        conn.to_client.add_torrent_magnet.assert_not_called()
 
     def test_on_target_true_but_torrent_gone_resets_flag(self):
         """When on_target=True but missing from target, resets and re-adds."""
         handler = _make_handler()
         torrent = self._make_creating_done_torrent(on_target=True)
         conn = _make_connection()
+        # Pre-check: torrent not found on target
         conn.to_client.has_torrent.return_value = False
         conn.to_client.get_torrent_info.return_value = None
         conn.from_client.get_magnet_uri.return_value = "magnet:?xt=urn:btih:test"
@@ -1172,12 +1535,16 @@ class TestHandleTargetAdding:
 
         assert result is True
         assert torrent.transfer["on_target"] is True
+        conn.to_client.add_torrent_magnet.assert_called_once()
 
     def test_get_magnet_uri_returns_none_triggers_retry(self):
         """When source get_magnet_uri returns None, calls _handle_retry."""
         handler = _make_handler()
         torrent = self._make_creating_done_torrent()
         conn = _make_connection()
+        # Pre-check: not on target
+        conn.to_client.has_torrent.return_value = False
+        conn.to_client.get_torrent_info.return_value = None
         conn.from_client.get_magnet_uri.return_value = None
 
         result = handler.handle_target_adding(torrent, conn)
@@ -1190,6 +1557,9 @@ class TestHandleTargetAdding:
         handler = _make_handler()
         torrent = self._make_creating_done_torrent()
         conn = _make_connection()
+        # Pre-check: not on target
+        conn.to_client.has_torrent.return_value = False
+        conn.to_client.get_torrent_info.return_value = None
         conn.from_client.get_magnet_uri.return_value = "magnet:?xt=urn:btih:test"
         conn.to_client.add_torrent_magnet.return_value = None
 
@@ -1203,6 +1573,9 @@ class TestHandleTargetAdding:
         handler = _make_handler()
         torrent = self._make_creating_done_torrent()
         conn = _make_connection()
+        # Pre-check: not on target
+        conn.to_client.has_torrent.return_value = False
+        conn.to_client.get_torrent_info.return_value = None
         conn.from_client.get_magnet_uri.return_value = "magnet:?xt=urn:btih:test"
         conn.to_client.add_torrent_magnet.return_value = "ff" * 20  # Different hash
 
@@ -1217,6 +1590,9 @@ class TestHandleTargetAdding:
         handler = _make_handler()
         torrent = self._make_creating_done_torrent()
         conn = _make_connection(destination_path="/custom/path")
+        # Pre-check: not on target
+        conn.to_client.has_torrent.return_value = False
+        conn.to_client.get_torrent_info.return_value = None
         conn.from_client.get_magnet_uri.return_value = "magnet:?test"
         conn.to_client.add_torrent_magnet.return_value = "ab" * 20
 
@@ -1231,6 +1607,10 @@ class TestHandleTargetAdding:
         handler = _make_handler()
         torrent = self._make_creating_done_torrent()
         conn = _make_connection()
+        # Pre-check: not on target
+        conn.to_client.has_torrent.return_value = False
+        conn.to_client.get_torrent_info.return_value = None
+        # Exception happens when getting magnet URI
         conn.from_client.get_magnet_uri.side_effect = RuntimeError("boom")
 
         result = handler.handle_target_adding(torrent, conn)
@@ -1400,6 +1780,55 @@ class TestHandleSeeding:
         call_args = conn.to_client.add_torrent_magnet.call_args
         options = call_args[0][1]
         assert options["download_location"] == "/custom/downloads"
+
+    def test_private_torrent_magnet_only_sets_transfer_failed(self):
+        """Private torrent in magnet-only mode transitions to TRANSFER_FAILED."""
+        handler = _make_handler()
+        torrent = self._make_seeding_torrent()
+        conn = _make_connection()  # source_type=None (magnet-only)
+        conn.to_client.get_transfer_progress.return_value = {"state": "Seeding"}
+        conn.from_client.is_private_torrent.return_value = True
+
+        result = handler.handle_seeding(torrent, conn)
+
+        assert result is False
+        assert torrent.state == TorrentState.TRANSFER_FAILED
+
+    def test_private_torrent_magnet_only_cleans_up_transfer(self):
+        """Private torrent detection cleans up transfer torrents and clears transfer data."""
+        handler = _make_handler()
+        torrent = self._make_seeding_torrent()
+        conn = _make_connection()  # source_type=None (magnet-only)
+        conn.to_client.get_transfer_progress.return_value = {"state": "Seeding"}
+        conn.from_client.is_private_torrent.return_value = True
+
+        handler.handle_seeding(torrent, conn)
+
+        # Transfer data should be cleared (cleanup ran)
+        assert torrent.transfer is None
+        # Transfer torrent should have been removed from both clients
+        conn.to_client.remove_torrent.assert_called_once()
+        conn.from_client.remove_torrent.assert_called_once()
+
+    def test_private_torrent_with_source_access_proceeds(self):
+        """Private torrent with source_type='sftp' does NOT hit the private check."""
+        handler = _make_handler()
+        torrent = self._make_seeding_torrent()
+        conn = _make_connection(
+            source_type="sftp",
+            source_config={"sftp": {"host": "example.com"}, "state_dir": "/state"},
+        )
+        conn.to_client.get_transfer_progress.return_value = {"state": "Seeding"}
+        # is_private_torrent should NOT be called when source access is configured
+        conn.from_client.is_private_torrent.return_value = True
+
+        # Mock the SFTP fetch to avoid real connection attempt (returns None → retry)
+        with patch.object(handler, '_fetch_torrent_file_via_sftp', return_value=None):
+            result = handler.handle_seeding(torrent, conn)
+
+        assert result is False
+        assert torrent.state != TorrentState.TRANSFER_FAILED
+        conn.from_client.is_private_torrent.assert_not_called()
 
 
 # --- Test _complete_history (U4) ---

@@ -241,6 +241,37 @@
     font-size: 9px;
 }
 
+/* Trigger badges */
+.trigger-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.trigger-badge.trigger-automatic {
+    background-color: #d6eaf8;
+    color: #2471a3;
+}
+
+.trigger-badge.trigger-manual {
+    background-color: #fdebd0;
+    color: #b9770e;
+}
+
+.trigger-badge.trigger-unknown {
+    background-color: #e2e3e5;
+    color: #6c757d;
+}
+
+.trigger-badge i {
+    font-size: 9px;
+}
+
 /* Date column */
 .date-cell {
     white-space: nowrap;

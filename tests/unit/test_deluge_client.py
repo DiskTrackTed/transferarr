@@ -33,148 +33,336 @@ def make_web_config(name="test", host="localhost", port=8112, password="test"):
     )
 
 
-class TestCreateTorrent:
-    """Tests for create_torrent method."""
+class TestStartCreateTorrent:
+    """Tests for start_create_torrent — fires RPC and returns poll spec."""
 
-    def test_create_torrent_rpc(self):
-        """RPC method called with correct params, polls for new hash."""
+    def test_fires_rpc_and_returns_spec(self):
+        """RPC called with correct params, returns poll spec dict."""
         with patch("transferarr.clients.deluge.DelugeRPCClient") as mock_rpc_class:
             mock_rpc = MagicMock()
             mock_rpc_class.return_value = mock_rpc
             mock_rpc.connected = True
-            
-            new_hash = "abc123def456"
-            # First call: get existing torrents (empty)
-            # Second call: poll finds the new torrent
-            mock_rpc.core.get_torrents_status.side_effect = [
-                {},  # pre-existing check
-                {new_hash: {"name": "movie.mkv"}},  # polling finds new torrent
-            ]
-            
+
+            tracker_url = "http://localhost:6969/announce"
             client = DelugeClient(make_rpc_config())
             client.rpc_client = mock_rpc
-            
-            with patch("time.sleep"):
-                result = client.create_torrent(
-                    path="/downloads/movie.mkv",
-                    name="Test Movie",
-                    trackers=["http://localhost:6969/announce"],
-                    private=True,
-                    add_to_session=True
-                )
-            
-            # Verify RPC was called with correct params
-            # target is dynamic (timestamp-based), so use ANY
-            mock_rpc.core.create_torrent.assert_called_once_with(
-                "/downloads/movie.mkv",       # path
-                "http://localhost:6969/announce",  # tracker (primary)
-                262144,                        # piece_length (256KB)
-                "",                            # comment
-                ANY,                           # target (dynamic timestamp)
-                [],                            # webseeds
-                True,                          # private
-                "transferarr",                 # created_by
-                ["http://localhost:6969/announce"],  # trackers list
-                True                           # add_to_session
+
+            spec = client.start_create_torrent(
+                path="/downloads/movie.mkv",
+                trackers=[tracker_url],
+                private=True,
+                add_to_session=True,
+                total_size=100_000,
             )
-            assert result == new_hash
 
-    def test_create_torrent_returns_hash(self):
-        """Returns new info_hash discovered by polling."""
+            mock_rpc.core.create_torrent.assert_called_once_with(
+                "/downloads/movie.mkv",
+                tracker_url,
+                262144,         # piece_length
+                "",             # comment
+                ANY,            # target (dynamic)
+                [],             # webseeds
+                True,           # private
+                "transferarr",  # created_by
+                [[tracker_url]],  # tracker tiers
+                True,           # add_to_session
+            )
+            assert spec["expected_name"] == "movie.mkv"
+            assert spec["tracker_urls"] == [tracker_url]
+            assert spec["timeout"] == 30  # 100KB → tiny tier
+            assert "started_at" not in spec
+
+    def test_multiple_trackers_as_single_tier(self):
+        """Multiple tracker URLs are passed as a single tier (list of lists)."""
         with patch("transferarr.clients.deluge.DelugeRPCClient") as mock_rpc_class:
             mock_rpc = MagicMock()
             mock_rpc_class.return_value = mock_rpc
             mock_rpc.connected = True
-            
-            new_hash = "fedcba9876543210"
-            # Pre-existing empty, then poll finds the new torrent
-            mock_rpc.core.get_torrents_status.side_effect = [
-                {},  # pre-existing check
-                {new_hash: {b"name": b"test"}},  # bytes keys/values from Deluge
+
+            trackers = [
+                "http://public:6969/announce",
+                "http://internal:6969/announce",
             ]
-            
             client = DelugeClient(make_rpc_config())
             client.rpc_client = mock_rpc
-            
-            with patch("time.sleep"):
-                result = client.create_torrent(
-                    path="/downloads/test",
-                    name="Test",
-                    trackers=["http://tracker:6969/announce"]
-                )
-            
-            assert result == new_hash
-            assert isinstance(result, str)
 
-    def test_create_torrent_raises_on_failure(self):
-        """Raises exception when torrent creation times out."""
-        with patch("transferarr.clients.deluge.DelugeRPCClient") as mock_rpc_class:
-            mock_rpc = MagicMock()
-            mock_rpc_class.return_value = mock_rpc
-            mock_rpc.connected = True
-            
-            # Pre-existing empty, then polling never finds the torrent
-            mock_rpc.core.get_torrents_status.return_value = {}
-            
-            client = DelugeClient(make_rpc_config())
-            client.rpc_client = mock_rpc
-            
-            with patch("time.sleep"):
-                with pytest.raises(Exception) as excinfo:
-                    client.create_torrent(
-                        path="/downloads/test",
-                        name="Test",
-                        trackers=["http://tracker:6969/announce"]
-                    )
-            
-            assert "timed out" in str(excinfo.value).lower()
+            spec = client.start_create_torrent(
+                path="/downloads/movie.mkv",
+                trackers=trackers,
+                private=False,
+                add_to_session=True,
+            )
 
-    def test_create_torrent_web(self):
-        """Web API called with correct params, polls for new hash."""
+            mock_rpc.core.create_torrent.assert_called_once_with(
+                "/downloads/movie.mkv",
+                "http://public:6969/announce",
+                262144,
+                "",
+                ANY,
+                [],
+                False,
+                "transferarr",
+                [["http://public:6969/announce", "http://internal:6969/announce"]],
+                True,
+            )
+            assert spec["tracker_urls"] == trackers
+
+    def test_web_mode(self):
+        """Web API called with correct params, returns poll spec."""
         with patch("transferarr.clients.deluge.DelugeRPCClient"):
             with patch.object(DelugeClient, "_connect"):
                 client = DelugeClient(make_web_config())
                 client.web_authenticated = True
-                
-                new_hash = "webapi123hash"
-                
-                def web_side_effect(method, params, **kwargs):
-                    if method == "web.update_ui":
-                        # Track call count to distinguish pre-existing vs polling
-                        web_side_effect.ui_calls += 1
-                        if web_side_effect.ui_calls == 1:
-                            # Pre-existing check: empty
-                            return {"result": {"torrents": {}}}
-                        else:
-                            # Polling: return new torrent
-                            return {"result": {"torrents": {
-                                new_hash: {"name": "movie.mkv"}
-                            }}}
-                    elif method == "core.create_torrent":
-                        return {"result": None}
-                    return {"result": None}
-                
-                web_side_effect.ui_calls = 0
-                
+
+                tracker_url = "http://localhost:6969/announce"
+
                 with patch.object(client, "_send_web_request") as mock_web:
-                    mock_web.side_effect = web_side_effect
-                    
-                    with patch("time.sleep"):
-                        result = client.create_torrent(
-                            path="/downloads/movie.mkv",
-                            name="Test Movie",
-                            trackers=["http://localhost:6969/announce"],
-                            private=True,
-                            add_to_session=True
-                        )
-                    
-                    # Verify core.create_torrent was called
+                    mock_web.return_value = {"result": None}
+
+                    spec = client.start_create_torrent(
+                        path="/downloads/movie.mkv",
+                        trackers=[tracker_url],
+                        private=True,
+                        add_to_session=True,
+                    )
+
                     create_calls = [
                         c for c in mock_web.call_args_list
                         if c[0][0] == "core.create_torrent"
                     ]
                     assert len(create_calls) == 1
-                    assert result == new_hash
+                    assert spec["expected_name"] == "movie.mkv"
+
+    def test_rpc_error_raises(self):
+        """Exception from RPC propagates."""
+        with patch("transferarr.clients.deluge.DelugeRPCClient") as mock_rpc_class:
+            mock_rpc = MagicMock()
+            mock_rpc_class.return_value = mock_rpc
+            mock_rpc.connected = True
+            mock_rpc.core.create_torrent.side_effect = Exception("RPC failed")
+
+            client = DelugeClient(make_rpc_config())
+            client.rpc_client = mock_rpc
+
+            with pytest.raises(Exception, match="RPC failed"):
+                client.start_create_torrent(
+                    path="/downloads/test",
+                    trackers=["http://tracker:6969/announce"],
+                )
+
+    def test_timeout_scales_with_total_size(self):
+        """Timeout in returned spec comes from _calculate_create_timeout."""
+        with patch("transferarr.clients.deluge.DelugeRPCClient") as mock_rpc_class:
+            mock_rpc = MagicMock()
+            mock_rpc_class.return_value = mock_rpc
+            mock_rpc.connected = True
+
+            client = DelugeClient(make_rpc_config())
+            client.rpc_client = mock_rpc
+
+            spec = client.start_create_torrent(
+                path="/downloads/big",
+                trackers=["http://t:6969/announce"],
+                total_size=5 * 1024**3,  # 5GB → 120s tier (≤10GB)
+            )
+            assert spec["timeout"] == 120
+
+
+class TestPollCreatedTorrent:
+    """Tests for poll_created_torrent — single-shot check for created torrent."""
+
+    def test_finds_match(self):
+        """Returns hash when name + tracker match."""
+        with patch("transferarr.clients.deluge.DelugeRPCClient") as mock_rpc_class:
+            mock_rpc = MagicMock()
+            mock_rpc_class.return_value = mock_rpc
+            mock_rpc.connected = True
+
+            tracker_url = "http://tracker:6969/announce"
+            mock_rpc.core.get_torrents_status.return_value = {
+                "abc123": {
+                    "name": "movie.mkv",
+                    "trackers": [{"url": tracker_url}],
+                }
+            }
+
+            client = DelugeClient(make_rpc_config())
+            client.rpc_client = mock_rpc
+
+            result = client.poll_created_torrent("movie.mkv", [tracker_url])
+            assert result == "abc123"
+
+    def test_no_match_returns_none(self):
+        """Returns None when no torrents match."""
+        with patch("transferarr.clients.deluge.DelugeRPCClient") as mock_rpc_class:
+            mock_rpc = MagicMock()
+            mock_rpc_class.return_value = mock_rpc
+            mock_rpc.connected = True
+
+            mock_rpc.core.get_torrents_status.return_value = {}
+
+            client = DelugeClient(make_rpc_config())
+            client.rpc_client = mock_rpc
+
+            result = client.poll_created_torrent(
+                "movie.mkv", ["http://tracker:6969/announce"]
+            )
+            assert result is None
+
+    def test_ignores_cross_seed_different_tracker(self):
+        """Same name but different tracker URL → None."""
+        with patch("transferarr.clients.deluge.DelugeRPCClient") as mock_rpc_class:
+            mock_rpc = MagicMock()
+            mock_rpc_class.return_value = mock_rpc
+            mock_rpc.connected = True
+
+            mock_rpc.core.get_torrents_status.return_value = {
+                "crossseed_hash": {
+                    "name": "movie.mkv",
+                    "trackers": [{"url": "http://other-tracker.example.com/announce"}],
+                }
+            }
+
+            client = DelugeClient(make_rpc_config())
+            client.rpc_client = mock_rpc
+
+            result = client.poll_created_torrent(
+                "movie.mkv", ["http://transferarr:6969/announce"]
+            )
+            assert result is None
+
+    def test_matches_any_of_multiple_tracker_urls(self):
+        """Partial tracker overlap still matches."""
+        with patch("transferarr.clients.deluge.DelugeRPCClient") as mock_rpc_class:
+            mock_rpc = MagicMock()
+            mock_rpc_class.return_value = mock_rpc
+            mock_rpc.connected = True
+
+            external = "http://public:6969/announce"
+            internal = "http://internal:6969/announce"
+            mock_rpc.core.get_torrents_status.return_value = {
+                "dual_hash": {
+                    "name": "movie.mkv",
+                    "trackers": [{"url": external}, {"url": internal}],
+                }
+            }
+
+            client = DelugeClient(make_rpc_config())
+            client.rpc_client = mock_rpc
+
+            result = client.poll_created_torrent("movie.mkv", [external, internal])
+            assert result == "dual_hash"
+
+    def test_idempotent_on_retry(self):
+        """Finds previously-created transfer torrent (no snapshot needed)."""
+        with patch("transferarr.clients.deluge.DelugeRPCClient") as mock_rpc_class:
+            mock_rpc = MagicMock()
+            mock_rpc_class.return_value = mock_rpc
+            mock_rpc.connected = True
+
+            our_tracker = "http://transferarr:6969/announce"
+            mock_rpc.core.get_torrents_status.return_value = {
+                "prev_attempt_hash": {
+                    "name": "movie.mkv",
+                    "trackers": [{"url": our_tracker}],
+                }
+            }
+
+            client = DelugeClient(make_rpc_config())
+            client.rpc_client = mock_rpc
+
+            result = client.poll_created_torrent("movie.mkv", [our_tracker])
+            assert result == "prev_attempt_hash"
+
+    def test_applies_label(self):
+        """Calls _apply_label when found and label given."""
+        with patch("transferarr.clients.deluge.DelugeRPCClient") as mock_rpc_class:
+            mock_rpc = MagicMock()
+            mock_rpc_class.return_value = mock_rpc
+            mock_rpc.connected = True
+
+            tracker_url = "http://tracker:6969/announce"
+            mock_rpc.core.get_torrents_status.return_value = {
+                "labeled_hash": {
+                    "name": "movie.mkv",
+                    "trackers": [{"url": tracker_url}],
+                }
+            }
+
+            client = DelugeClient(make_rpc_config())
+            client.rpc_client = mock_rpc
+
+            with patch.object(client, "_apply_label") as mock_label:
+                result = client.poll_created_torrent(
+                    "movie.mkv", [tracker_url], label="transferarr_tmp"
+                )
+
+            assert result == "labeled_hash"
+            mock_label.assert_called_once_with("labeled_hash", "transferarr_tmp")
+
+    def test_no_label_when_not_found(self):
+        """Does not call _apply_label when torrent not found."""
+        with patch("transferarr.clients.deluge.DelugeRPCClient") as mock_rpc_class:
+            mock_rpc = MagicMock()
+            mock_rpc_class.return_value = mock_rpc
+            mock_rpc.connected = True
+
+            mock_rpc.core.get_torrents_status.return_value = {}
+
+            client = DelugeClient(make_rpc_config())
+            client.rpc_client = mock_rpc
+
+            with patch.object(client, "_apply_label") as mock_label:
+                result = client.poll_created_torrent(
+                    "movie.mkv",
+                    ["http://tracker:6969/announce"],
+                    label="transferarr_tmp",
+                )
+
+            assert result is None
+            mock_label.assert_not_called()
+
+
+class TestCalculateCreateTimeout:
+    """Tests for _calculate_create_timeout static method."""
+
+    def test_unknown_size_returns_default(self):
+        """Unknown size (0) returns the generous default timeout."""
+        assert DelugeClient._calculate_create_timeout(0) == 240
+
+    def test_negative_size_returns_default(self):
+        """Negative size treated as unknown."""
+        assert DelugeClient._calculate_create_timeout(-1) == 240
+
+    def test_tiny_file(self):
+        """≤100MB returns shortest timeout."""
+        assert DelugeClient._calculate_create_timeout(50 * 1024 * 1024) == 30
+        assert DelugeClient._calculate_create_timeout(100 * 1024 * 1024) == 30
+
+    def test_small_file(self):
+        """≤1GB returns 60s timeout."""
+        assert DelugeClient._calculate_create_timeout(500 * 1024 * 1024) == 60
+        assert DelugeClient._calculate_create_timeout(1024 ** 3) == 60
+
+    def test_medium_file(self):
+        """≤10GB returns 120s timeout."""
+        assert DelugeClient._calculate_create_timeout(5 * 1024 ** 3) == 120
+        assert DelugeClient._calculate_create_timeout(10 * 1024 ** 3) == 120
+
+    def test_large_file(self):
+        """≤50GB returns 240s timeout."""
+        assert DelugeClient._calculate_create_timeout(25 * 1024 ** 3) == 240
+        assert DelugeClient._calculate_create_timeout(50 * 1024 ** 3) == 240
+
+    def test_very_large_file(self):
+        """>50GB returns maximum timeout."""
+        assert DelugeClient._calculate_create_timeout(100 * 1024 ** 3) == 600
+
+    def test_boundary_just_over_100mb(self):
+        """Just over 100MB (0.1GB boundary) moves to next tier."""
+        # 101MB in bytes = 101 * 1024^2
+        just_over = int(0.101 * 1024 ** 3)
+        assert DelugeClient._calculate_create_timeout(just_over) == 60
 
 
 class TestGetMagnetUri:
@@ -406,8 +594,8 @@ class TestGetDefaultDownloadPath:
 class TestConnectionRequired:
     """Tests that methods require connection."""
 
-    def test_create_torrent_requires_connection(self):
-        """create_torrent raises when not connected."""
+    def test_start_create_torrent_requires_connection(self):
+        """start_create_torrent raises when not connected."""
         with patch("transferarr.clients.deluge.DelugeRPCClient") as mock_rpc_class:
             mock_rpc = MagicMock()
             mock_rpc_class.return_value = mock_rpc
@@ -417,7 +605,7 @@ class TestConnectionRequired:
             client.rpc_client = mock_rpc
             
             with pytest.raises(ConnectionError):
-                client.create_torrent("/path", "name", ["http://tracker"])
+                client.start_create_torrent("/path", ["http://tracker"])
 
     def test_get_magnet_uri_requires_connection(self):
         """get_magnet_uri raises when not connected."""
@@ -470,6 +658,7 @@ class TestConnectionRequired:
             
             with pytest.raises(ConnectionError):
                 client.get_default_download_path()
+
 
 
 # --- Test force_reannounce (U7) ---

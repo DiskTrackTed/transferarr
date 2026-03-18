@@ -138,7 +138,7 @@ class TestTorrentTransferDownload:
         
         # Create a large torrent to ensure we can see progress before it completes
         # (Docker local network is very fast, so we need a big file)
-        torrent_info = create_torrent(torrent_name, size_mb=500)
+        torrent_info = create_torrent(torrent_name, size_mb=1000)
         original_hash = torrent_info['hash']
         
         radarr_client.add_movie(

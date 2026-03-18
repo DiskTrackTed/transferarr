@@ -31,11 +31,14 @@ export function initConnections(modals) {
                 document.getElementById('connectionModalTitle').textContent = 'Add Connection';
                 connectionModal.show();
                 
-                // Set default types and show appropriate config sections
-                document.getElementById('fromType').value = 'sftp';
-                document.getElementById('toType').value = 'sftp';
-                toggleConfigSection('from', 'sftp');
-                toggleConfigSection('to', 'sftp');
+                // Set default types for file-transfer mode (only if file is selected)
+                const method = document.getElementById('transferMethod').value;
+                if (method !== 'torrent') {
+                    document.getElementById('fromType').value = 'sftp';
+                    document.getElementById('toType').value = 'sftp';
+                    toggleConfigSection('from', 'sftp');
+                    toggleConfigSection('to', 'sftp');
+                }
             });
         });
     }
@@ -297,6 +300,59 @@ function editConnection(connection) {
                     if (toggle) toggle.setAttribute('aria-expanded', 'true');
                 }
             }
+            
+            // Populate source config if present
+            const source = connection.transfer_config?.source;
+            if (source) {
+                // Set source type selector
+                const sourceType = source.type || 'sftp';
+                document.getElementById('torrentSourceType').value = sourceType;
+                toggleTorrentSourceType(sourceType);
+
+                if (sourceType === 'sftp' && source.sftp) {
+                    const sftp = source.sftp;
+                    if (sftp.ssh_config_file) {
+                        document.getElementById('torrentSourceUseSshConfig').checked = true;
+                        document.getElementById('torrentSourceSshConfigFile').value = sftp.ssh_config_file;
+                        document.getElementById('torrentSourceSshConfigHost').value = sftp.ssh_config_host;
+                        document.getElementById('torrentSourceSshConfigSection').style.display = 'block';
+                        // Hide direct fields
+                        ['torrentSourceSftpHostGroup', 'torrentSourceSftpPortGroup',
+                         'torrentSourceSftpUsernameGroup', 'torrentSourceSftpPasswordGroup'].forEach(id => {
+                            const el = document.getElementById(id);
+                            if (el) el.style.display = 'none';
+                        });
+                    } else {
+                        document.getElementById('torrentSourceSftpHost').value = sftp.host || '';
+                        document.getElementById('torrentSourceSftpPort').value = sftp.port || 22;
+                        document.getElementById('torrentSourceSftpUsername').value = sftp.username || '';
+                        // Leave password blank - API returns masked "***" value
+                        document.getElementById('torrentSourceSftpPassword').value = '';
+                        document.getElementById('torrentSourceSftpPassword').placeholder = 'Leave blank to keep current';
+                    }
+                }
+                // Populate state_dir regardless of source type or SSH config mode
+                document.getElementById('torrentSourceStateDir').value = source.state_dir || '';
+                // For local type, enable the state dir input
+                if (sourceType === 'local') {
+                    document.getElementById('torrentSourceStateDir').disabled = false;
+                    document.getElementById('torrentSourceStateDir').placeholder = '/path/to/deluge/state';
+                }
+            } else {
+                // No source — this is a magnet-only connection
+                // Expand advanced options and check the magnet-only checkbox
+                const advancedCollapse = document.getElementById('torrentAdvancedOptions');
+                if (advancedCollapse) {
+                    advancedCollapse.style.display = 'block';
+                    const toggle = document.getElementById('torrentAdvancedToggle');
+                    if (toggle) toggle.setAttribute('aria-expanded', 'true');
+                }
+                document.getElementById('torrentMagnetOnly').checked = true;
+                document.getElementById('torrentSourceType').closest('.mb-3').style.display = 'none';
+                document.getElementById('torrentSourceSftpConfig').style.display = 'none';
+                document.getElementById('torrentSourceStateDirGroup').style.display = 'none';
+                document.getElementById('torrentMagnetOnlyWarning').style.display = 'block';
+            }
         } else {
             // Set transfer types and show appropriate config sections
             const fromType = connection.transfer_config?.from?.type || 'sftp';
@@ -432,9 +488,9 @@ function resetConnectionForm() {
     document.getElementById('saveConnectionBtn').disabled = true;
     resetTestConnectionBtn();
     
-    // Reset transfer method to file
-    document.getElementById('transferMethod').value = 'file';
-    toggleTransferMethod('file');
+    // Reset transfer method to torrent (default)
+    document.getElementById('transferMethod').value = 'torrent';
+    toggleTransferMethod('torrent');
     
     // Reset SFTP password placeholders for add mode
     document.getElementById('fromSftpPassword').placeholder = '';
@@ -471,6 +527,31 @@ function resetConnectionForm() {
     
     // Reset torrent transfer config
     document.getElementById('torrentDestinationPath').value = "";
+    
+    // Reset torrent source config (SFTP visible by default)
+    document.getElementById('torrentSourceType').value = 'sftp';
+    document.getElementById('torrentSourceType').closest('.mb-3').style.display = '';
+    document.getElementById('torrentMagnetOnly').checked = false;
+    document.getElementById('torrentMagnetOnlyWarning').style.display = 'none';
+    document.getElementById('torrentSourceSftpConfig').style.display = 'block';
+    document.getElementById('torrentSourceStateDirGroup').style.display = '';
+    document.getElementById('torrentSourceSftpHost').value = '';
+    document.getElementById('torrentSourceSftpPort').value = '22';
+    document.getElementById('torrentSourceSftpUsername').value = '';
+    document.getElementById('torrentSourceSftpPassword').value = '';
+    document.getElementById('torrentSourceSftpPassword').placeholder = '';
+    document.getElementById('torrentSourceStateDir').value = '';
+    disableStateDirBrowse();
+    document.getElementById('torrentSourceUseSshConfig').checked = false;
+    document.getElementById('torrentSourceSshConfigSection').style.display = 'none';
+    document.getElementById('torrentSourceSshConfigFile').value = '~/.ssh/config';
+    document.getElementById('torrentSourceSshConfigHost').value = '';
+    // Show direct SFTP fields
+    ['torrentSourceSftpHostGroup', 'torrentSourceSftpPortGroup',
+     'torrentSourceSftpUsernameGroup', 'torrentSourceSftpPasswordGroup'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = 'block';
+    });
     
     // Collapse advanced options if expanded
     const advancedCollapse = document.getElementById('torrentAdvancedOptions');
@@ -520,6 +601,33 @@ function disablePathConfiguration() {
     });
 }
 
+// Enable the state dir input and browse button (torrent method)
+function enableStateDirBrowse() {
+    const input = document.getElementById('torrentSourceStateDir');
+    const btn = document.querySelector('.browse-btn[data-target="torrentSourceStateDir"]');
+    if (input) {
+        input.disabled = false;
+        input.placeholder = '/home/user/deluge-state';
+    }
+    // Browse works for both SFTP (remote) and local (container filesystem)
+    if (btn) btn.disabled = false;
+}
+
+// Disable the state dir input and browse button (torrent method).
+// In local mode the field is always editable — only SFTP requires a
+// successful test before the state dir can be filled.
+function disableStateDirBrowse() {
+    const sourceType = document.getElementById('torrentSourceType').value;
+    if (sourceType === 'local') return; // Local mode keeps state dir enabled
+    const input = document.getElementById('torrentSourceStateDir');
+    const btn = document.querySelector('.browse-btn[data-target="torrentSourceStateDir"]');
+    if (input) {
+        input.disabled = true;
+        input.placeholder = 'Test SFTP connection first';
+    }
+    if (btn) btn.disabled = true;
+}
+
 // Test connection functionality
 function testConnection() {
     const testBtn = document.getElementById('testConnectionBtn2');
@@ -561,6 +669,10 @@ function testConnection() {
     if (transferMethod === 'torrent') {
         // Torrent transfers only need the type
         connectionData.transfer_config.type = 'torrent';
+        // Include source config unless magnet-only mode
+        if (!document.getElementById('torrentMagnetOnly').checked) {
+            connectionData.transfer_config.source = getTorrentSourceConfig();
+        }
     } else {
         // File transfers use from/to config
         connectionData.transfer_config.from = { type: fromType };
@@ -645,6 +757,9 @@ function testConnection() {
             // Enable path configuration (file transfer only)
             if (transferMethod !== 'torrent') {
                 enablePathConfiguration();
+            } else {
+                // Enable state dir browse for torrent method
+                enableStateDirBrowse();
             }
             
             // Show success notification
@@ -670,6 +785,7 @@ function testConnection() {
             
             // Ensure path configuration is disabled
             disablePathConfiguration();
+            disableStateDirBrowse();
             
             // Show error notification
             let errorMsg = data.message || 'Failed to establish connection';
@@ -772,6 +888,10 @@ function saveConnection() {
         const destPath = document.getElementById('torrentDestinationPath').value.trim();
         if (destPath) {
             connectionData.transfer_config.destination_path = destPath;
+        }
+        // Include source config unless magnet-only mode
+        if (!document.getElementById('torrentMagnetOnly').checked) {
+            connectionData.transfer_config.source = getTorrentSourceConfig();
         }
     } else {
         // File transfer config with from/to and path configuration
@@ -878,7 +998,7 @@ function setupConnectionFormListeners() {
         });
     }
     
-    // Main dropdowns
+    // Main dropdowns (torrentSourceType excluded — has its own handler in initConnectionForm)
     const connectionDropdowns = ['fromClient', 'toClient', 'fromType', 'toType', 'transferMethod'];
     connectionDropdowns.forEach(fieldId => {
         const field = document.getElementById(fieldId);
@@ -891,10 +1011,19 @@ function setupConnectionFormListeners() {
         }
     });
     
-    // SFTP fields for both from and to sections
+    // SFTP fields for from, to, and torrent source sections
     const sftpFieldSuffixes = ['SftpHost', 'SftpPort', 'SftpUsername', 'SftpPassword', 'UseSshConfig', 
                             'SshConfigFile', 'SshConfigHost'];
-    const prefixes = ['from', 'to'];
+    const prefixes = ['from', 'to', 'torrentSource'];
+    
+    // Torrent magnet-only checkbox
+    const torrentMagnetOnly = document.getElementById('torrentMagnetOnly');
+    if (torrentMagnetOnly) {
+        torrentMagnetOnly.addEventListener('change', () => {
+            document.getElementById('saveConnectionBtn').disabled = true;
+            resetTestConnectionBtn();
+        });
+    }
     
     prefixes.forEach(prefix => {
         sftpFieldSuffixes.forEach(suffix => {
@@ -906,6 +1035,9 @@ function setupConnectionFormListeners() {
                         document.getElementById('saveConnectionBtn').disabled = true;
                         resetTestConnectionBtn();
                         disablePathConfiguration(); // Disable path config on field change
+                        if (prefix === 'torrentSource' && document.getElementById('torrentSourceType').value === 'sftp') {
+                            disableStateDirBrowse();
+                        }
                     });
                 });
             }
@@ -957,6 +1089,47 @@ function initConnectionForm() {
             }
         }
     });
+    
+    // Toggle source type (SFTP vs Local)
+    document.getElementById('torrentSourceType').addEventListener('change', function() {
+        // Reset save/test state (same as generic dropdown handler)
+        document.getElementById('saveConnectionBtn').disabled = true;
+        resetTestConnectionBtn();
+        // Apply source-type-specific UI (enables state dir for local)
+        toggleTorrentSourceType(this.value);
+    });
+
+    // Toggle source SFTP config visibility for torrent transfers (magnet-only hides all source)
+    document.getElementById('torrentMagnetOnly').addEventListener('change', function() {
+        const sourceTypeSelect = document.getElementById('torrentSourceType');
+        if (this.checked) {
+            // Magnet-only: hide source type selector, SFTP config, state dir
+            sourceTypeSelect.closest('.mb-3').style.display = 'none';
+            document.getElementById('torrentSourceSftpConfig').style.display = 'none';
+            document.getElementById('torrentSourceStateDirGroup').style.display = 'none';
+            document.getElementById('torrentMagnetOnlyWarning').style.display = 'block';
+        } else {
+            // Restore: show source type selector and apply current type
+            sourceTypeSelect.closest('.mb-3').style.display = '';
+            toggleTorrentSourceType(sourceTypeSelect.value);
+            document.getElementById('torrentSourceStateDirGroup').style.display = '';
+            document.getElementById('torrentMagnetOnlyWarning').style.display = 'none';
+        }
+    });
+    
+    // Toggle between direct SFTP and SSH config for torrent source
+    document.getElementById('torrentSourceUseSshConfig').addEventListener('change', function() {
+        document.getElementById('torrentSourceSshConfigSection').style.display = 
+            this.checked ? 'block' : 'none';
+        
+        // Toggle visibility of direct SFTP fields
+        const directGroups = ['torrentSourceSftpHostGroup', 'torrentSourceSftpPortGroup',
+                              'torrentSourceSftpUsernameGroup', 'torrentSourceSftpPasswordGroup'];
+        directGroups.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.style.display = this.checked ? 'none' : 'block';
+        });
+    });
 }
 
 // Toggle config sections based on type
@@ -970,6 +1143,58 @@ function toggleConfigSection(direction, type) {
     if (type === 'sftp') {
         document.getElementById(sftpConfigId).style.display = 'block';
     }
+}
+
+// Toggle torrent source type visibility (SFTP fields vs local)
+function toggleTorrentSourceType(sourceType) {
+    const sftpConfig = document.getElementById('torrentSourceSftpConfig');
+    const stateDirHelp = document.getElementById('torrentSourceStateDirHelp');
+    const stateDirInput = document.getElementById('torrentSourceStateDir');
+    const browseBtn = document.querySelector('.browse-btn[data-target="torrentSourceStateDir"]');
+
+    if (sourceType === 'sftp') {
+        sftpConfig.style.display = 'block';
+        if (stateDirHelp) stateDirHelp.textContent = 'Path to the Deluge state directory as accessible via SFTP.';
+        // State dir disabled until SFTP is tested
+        disableStateDirBrowse();
+    } else {
+        // Local — hide SFTP fields, enable state dir input
+        sftpConfig.style.display = 'none';
+        if (stateDirHelp) stateDirHelp.innerHTML = 'Absolute path to the Deluge state directory on the local filesystem. Deluge stores .torrent files at <code>&lt;state_dir&gt;/&lt;hash&gt;.torrent</code>.';
+        if (stateDirInput) {
+            stateDirInput.disabled = false;
+            stateDirInput.placeholder = '/path/to/deluge/state';
+        }
+        if (browseBtn) browseBtn.disabled = false; // Browse local filesystem
+    }
+}
+
+// Get torrent source config from form fields (new nested format)
+function getTorrentSourceConfig() {
+    const sourceType = document.getElementById('torrentSourceType').value;
+    const stateDir = document.getElementById('torrentSourceStateDir').value;
+    const config = { type: sourceType };
+
+    if (sourceType === 'sftp') {
+        const useSshConfig = document.getElementById('torrentSourceUseSshConfig').checked;
+        if (useSshConfig) {
+            config.sftp = {
+                ssh_config_file: document.getElementById('torrentSourceSshConfigFile').value,
+                ssh_config_host: document.getElementById('torrentSourceSshConfigHost').value
+            };
+        } else {
+            config.sftp = {
+                host: document.getElementById('torrentSourceSftpHost').value,
+                port: parseInt(document.getElementById('torrentSourceSftpPort').value) || 22,
+                username: document.getElementById('torrentSourceSftpUsername').value,
+                password: document.getElementById('torrentSourceSftpPassword').value
+            };
+        }
+    }
+    if (stateDir) {
+        config.state_dir = stateDir;
+    }
+    return config;
 }
 
 // Toggle between file transfer and torrent transfer modes

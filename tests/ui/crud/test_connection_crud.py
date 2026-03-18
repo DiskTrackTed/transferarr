@@ -134,6 +134,10 @@ class TestConnectionForm:
         settings_page.switch_to_connections_tab()
         settings_page.open_add_connection_modal()
         
+        # Switch to file transfer mode (default is torrent, which hides type selects)
+        settings_page.page.select_option(settings_page.TRANSFER_METHOD, "file")
+        settings_page.page.wait_for_timeout(UI_TIMEOUTS['js_processing'])
+        
         from_type_select = settings_page.page.locator(settings_page.CONNECTION_FROM_TYPE)
         from_sftp_config = settings_page.page.locator("#fromSftpConfig")
         
@@ -150,6 +154,10 @@ class TestConnectionForm:
         settings_page.goto()
         settings_page.switch_to_connections_tab()
         settings_page.open_add_connection_modal()
+        
+        # Switch to file transfer mode (default is torrent, which hides type selects)
+        settings_page.page.select_option(settings_page.TRANSFER_METHOD, "file")
+        settings_page.page.wait_for_timeout(UI_TIMEOUTS['js_processing'])
         
         to_type_select = settings_page.page.locator(settings_page.CONNECTION_TO_TYPE)
         to_sftp_config = settings_page.page.locator("#toSftpConfig")
@@ -231,6 +239,10 @@ class TestTestConnection:
         
         from_select.select_option(client_values[0])
         to_select.select_option(client_values[1])
+        
+        # Switch to file transfer mode (default is torrent, which hides type selects)
+        settings_page.page.select_option(settings_page.TRANSFER_METHOD, "file")
+        page.wait_for_timeout(UI_TIMEOUTS['js_processing'])
         
         # Select from/to types as local
         settings_page.page.select_option(settings_page.CONNECTION_FROM_TYPE, "local")
@@ -491,25 +503,25 @@ class TestTorrentConnectionForm:
         assert "torrent" in option_values
         print("  ✓ Transfer Method selector visible with file/torrent options")
 
-    def test_transfer_method_defaults_to_file_transfer(self, settings_page, page: Page):
-        """Test that File Transfer is the default transfer method."""
-        log_test_step("Test: Transfer Method defaults to File Transfer")
+    def test_transfer_method_defaults_to_torrent(self, settings_page, page: Page):
+        """Test that Torrent is the default transfer method."""
+        log_test_step("Test: Transfer Method defaults to Torrent")
         self._open_connection_modal(settings_page, page)
+        page.wait_for_timeout(UI_TIMEOUTS['js_processing'])
 
         transfer_method = page.locator(settings_page.TRANSFER_METHOD)
-        assert transfer_method.input_value() == "file"
+        assert transfer_method.input_value() == "torrent"
 
-        # File-transfer-only elements should be visible
+        # File-transfer-only elements should be hidden
         file_only_elements = page.locator(settings_page.FILE_TRANSFER_ONLY).all()
         for el in file_only_elements:
-            # Elements should not be hidden via display:none
-            display = el.evaluate("el => getComputedStyle(el).display")
-            assert display != "none", "File-transfer-only element should be visible by default"
+            display = el.evaluate("el => el.style.display")
+            assert display == "none", "File-transfer-only element should be hidden by default"
 
-        # Torrent config should be hidden
+        # Torrent config should be visible
         torrent_config = page.locator(settings_page.TORRENT_TRANSFER_CONFIG)
-        expect(torrent_config).to_be_hidden()
-        print("  ✓ File Transfer is selected by default")
+        expect(torrent_config).to_be_visible()
+        print("  ✓ Torrent is selected by default")
 
     def test_switching_to_torrent_hides_sftp_config(self, settings_page, page: Page):
         """Test that selecting Torrent hides SFTP config and path sections."""
@@ -597,6 +609,12 @@ class TestTorrentConnectionForm:
         # Can type in the field
         dest_path.fill("/custom/downloads")
         assert dest_path.input_value() == "/custom/downloads"
+
+        # Magnet-only checkbox should be visible and unchecked by default
+        magnet_only = page.locator(settings_page.TORRENT_MAGNET_ONLY)
+        expect(magnet_only).to_be_visible()
+        expect(magnet_only).not_to_be_checked()
+
         print("  ✓ Torrent destination path visible under Advanced Options")
 
     def test_torrent_type_shows_tracker_info_note(self, settings_page, page: Page):
@@ -634,6 +652,12 @@ class TestTorrentConnectionForm:
         page.select_option(settings_page.CONNECTION_FROM_SELECT, "source-deluge")
         page.select_option(settings_page.CONNECTION_TO_SELECT, "target-deluge")
 
+        # Enable magnet-only mode so test doesn't fail on empty SFTP fields
+        page.click(settings_page.TORRENT_ADVANCED_TOGGLE)
+        page.wait_for_timeout(UI_TIMEOUTS['modal_animation'])
+        page.locator(settings_page.TORRENT_MAGNET_ONLY).check()
+        page.wait_for_timeout(UI_TIMEOUTS['js_processing'])
+
         # Test connection
         with page.expect_response(
             lambda r: "/api/v1/connections/test" in r.url,
@@ -660,12 +684,13 @@ class TestTorrentConnectionForm:
         try:
             settings_page.goto()
             settings_page.wait_for_clients_loaded()
-            # Save without destination_path — should use client default
+            # Save with magnet-only mode (no SFTP)
             add_torrent_connection_via_ui(
                 settings_page, page,
                 connection_name=connection_name,
                 from_client="source-deluge",
                 to_client="target-deluge",
+                magnet_only=True,
             )
 
             # Verify the config via API
@@ -676,6 +701,9 @@ class TestTorrentConnectionForm:
             # destination_path should not be in config when not provided
             assert "destination_path" not in conn.get("transfer_config", {}), \
                 f"Expected no destination_path in config, got: {conn.get('transfer_config')}"
+            # source should not be in config when magnet-only
+            assert "source" not in conn.get("transfer_config", {}), \
+                f"Expected no source in magnet-only config, got: {conn.get('transfer_config')}"
             print("  ✓ Saved torrent connection has correct config structure")
         finally:
             delete_connection_via_api(connection_name)
@@ -690,7 +718,7 @@ class TestTorrentConnectionForm:
         delete_connection_via_api(connection_name)
 
         try:
-            # Create a torrent connection first
+            # Create a torrent connection with magnet-only and destination_path
             settings_page.goto()
             settings_page.wait_for_clients_loaded()
             add_torrent_connection_via_ui(
@@ -699,6 +727,7 @@ class TestTorrentConnectionForm:
                 from_client="source-deluge",
                 to_client="target-deluge",
                 destination_path="/downloads",
+                magnet_only=True,
             )
 
             # Now reload and edit it
@@ -730,6 +759,7 @@ class TestTorrentConnectionForm:
                 assert display == "none", "File-transfer-only should be hidden in torrent edit mode"
 
             # Advanced options should be auto-expanded since destination_path was set
+            # and magnet-only was enabled (no source config)
             advanced_section = page.locator(settings_page.TORRENT_ADVANCED_OPTIONS)
             expect(advanced_section).to_be_visible()
 
@@ -737,6 +767,18 @@ class TestTorrentConnectionForm:
             dest_path = page.locator(settings_page.TORRENT_DESTINATION_PATH)
             assert dest_path.input_value() == "/downloads", \
                 f"Expected '/downloads', got '{dest_path.input_value()}'"
+
+            # Magnet-only should be checked (no source config in this connection)
+            magnet_only = page.locator(settings_page.TORRENT_MAGNET_ONLY)
+            expect(magnet_only).to_be_checked()
+
+            # Source SFTP config should be hidden when magnet-only is checked
+            sftp_config = page.locator(settings_page.TORRENT_SOURCE_SFTP_CONFIG)
+            display = sftp_config.evaluate("el => el.style.display")
+            assert display == "none", "Source SFTP should be hidden when magnet-only is checked"
+
+            # Magnet-only warning should be visible
+            expect(page.locator(settings_page.TORRENT_MAGNET_ONLY_WARNING)).to_be_visible()
 
             print("  ✓ Edit torrent connection populates form correctly")
         finally:
@@ -752,7 +794,7 @@ class TestTorrentConnectionForm:
         delete_connection_via_api(connection_name)
 
         try:
-            # Create a torrent connection first (without destination_path)
+            # Create a torrent connection first (magnet-only, without destination_path)
             settings_page.goto()
             settings_page.wait_for_clients_loaded()
             add_torrent_connection_via_ui(
@@ -760,6 +802,7 @@ class TestTorrentConnectionForm:
                 connection_name=connection_name,
                 from_client="source-deluge",
                 to_client="target-deluge",
+                magnet_only=True,
             )
 
             # Verify it was created without destination_path
@@ -782,10 +825,13 @@ class TestTorrentConnectionForm:
             page.wait_for_timeout(UI_TIMEOUTS['modal_animation'])
 
             # Expand advanced options and set destination path
-            advanced_toggle = page.locator(settings_page.TORRENT_ADVANCED_TOGGLE)
-            expect(advanced_toggle).to_be_visible()
-            advanced_toggle.click()
-            page.wait_for_timeout(UI_TIMEOUTS['modal_animation'])
+            # (may already be expanded from magnet-only auto-expand)
+            advanced_section = page.locator(settings_page.TORRENT_ADVANCED_OPTIONS)
+            if not advanced_section.is_visible():
+                advanced_toggle = page.locator(settings_page.TORRENT_ADVANCED_TOGGLE)
+                expect(advanced_toggle).to_be_visible()
+                advanced_toggle.click()
+                page.wait_for_timeout(UI_TIMEOUTS['modal_animation'])
 
             dest_path = page.locator(settings_page.TORRENT_DESTINATION_PATH)
             expect(dest_path).to_be_visible()
@@ -811,5 +857,261 @@ class TestTorrentConnectionForm:
                 f"Expected destination_path='/custom/downloads', got: {conn.get('transfer_config')}"
 
             print("  ✓ Edit torrent connection saves changes correctly")
+        finally:
+            delete_connection_via_api(connection_name)
+
+    def test_source_sftp_fields_visible_by_default(self, settings_page, page: Page):
+        """Test that Source SFTP config fields are visible by default for torrent method."""
+        log_test_step("Test: Source SFTP fields visible by default")
+        self._open_connection_modal(settings_page, page)
+
+        # Switch to torrent
+        page.select_option(settings_page.TRANSFER_METHOD, "torrent")
+        page.wait_for_timeout(UI_TIMEOUTS['js_processing'])
+
+        # Source type selector should default to 'sftp'
+        source_type = page.locator(settings_page.TORRENT_SOURCE_TYPE)
+        expect(source_type).to_be_visible()
+        assert source_type.input_value() == "sftp", \
+            f"Expected default source type 'sftp', got: {source_type.input_value()}"
+
+        # Source SFTP config section should be visible (shown by default)
+        sftp_config = page.locator(settings_page.TORRENT_SOURCE_SFTP_CONFIG)
+        expect(sftp_config).to_be_visible()
+
+        # Individual SFTP fields should be visible
+        expect(page.locator(settings_page.TORRENT_SOURCE_SFTP_HOST)).to_be_visible()
+        expect(page.locator(settings_page.TORRENT_SOURCE_SFTP_PORT)).to_be_visible()
+        expect(page.locator(settings_page.TORRENT_SOURCE_SFTP_USERNAME)).to_be_visible()
+        expect(page.locator(settings_page.TORRENT_SOURCE_SFTP_PASSWORD)).to_be_visible()
+
+        # Port should default to 22
+        port_value = page.locator(settings_page.TORRENT_SOURCE_SFTP_PORT).input_value()
+        assert port_value == "22", f"Expected default port 22, got: {port_value}"
+
+        print("  ✓ Source SFTP fields visible by default for torrent method")
+
+    def test_source_type_local_hides_sftp_fields(self, settings_page, page: Page):
+        """Test that switching source type to local hides SFTP fields."""
+        log_test_step("Test: Source type local hides SFTP fields")
+        self._open_connection_modal(settings_page, page)
+
+        # Switch to torrent
+        page.select_option(settings_page.TRANSFER_METHOD, "torrent")
+        page.wait_for_timeout(UI_TIMEOUTS['js_processing'])
+
+        # Verify SFTP is visible initially
+        sftp_config = page.locator(settings_page.TORRENT_SOURCE_SFTP_CONFIG)
+        expect(sftp_config).to_be_visible()
+
+        # Switch source type to local
+        page.select_option(settings_page.TORRENT_SOURCE_TYPE, "local")
+        page.wait_for_timeout(UI_TIMEOUTS['js_processing'])
+
+        # SFTP config should be hidden
+        display = sftp_config.evaluate("el => el.style.display")
+        assert display == "none", f"SFTP config should be hidden for local type, got: {display}"
+
+        # State dir input should be enabled (directly editable for local)
+        state_dir = page.locator(settings_page.TORRENT_SOURCE_STATE_DIR)
+        expect(state_dir).to_be_enabled()
+
+        print("  ✓ Source type local hides SFTP fields")
+
+    def test_source_type_switch_back_to_sftp_restores_fields(self, settings_page, page: Page):
+        """Test that switching from local back to sftp restores SFTP fields."""
+        log_test_step("Test: Switch back to SFTP restores fields")
+        self._open_connection_modal(settings_page, page)
+
+        # Switch to torrent
+        page.select_option(settings_page.TRANSFER_METHOD, "torrent")
+        page.wait_for_timeout(UI_TIMEOUTS['js_processing'])
+
+        # Switch to local, then back to sftp
+        page.select_option(settings_page.TORRENT_SOURCE_TYPE, "local")
+        page.wait_for_timeout(UI_TIMEOUTS['js_processing'])
+        page.select_option(settings_page.TORRENT_SOURCE_TYPE, "sftp")
+        page.wait_for_timeout(UI_TIMEOUTS['js_processing'])
+
+        # SFTP config should be visible again
+        sftp_config = page.locator(settings_page.TORRENT_SOURCE_SFTP_CONFIG)
+        display = sftp_config.evaluate("el => el.style.display")
+        assert display == "block", f"SFTP config should be visible after switching back, got: {display}"
+
+        print("  ✓ Switching back to SFTP restores fields")
+
+    def test_magnet_only_checkbox_under_advanced(self, settings_page, page: Page):
+        """Test that magnet-only checkbox exists under Advanced Options and is unchecked."""
+        log_test_step("Test: Magnet-only checkbox under Advanced Options")
+        self._open_connection_modal(settings_page, page)
+
+        # Switch to torrent
+        page.select_option(settings_page.TRANSFER_METHOD, "torrent")
+        page.wait_for_timeout(UI_TIMEOUTS['js_processing'])
+
+        # Magnet-only checkbox should be hidden (inside collapsed Advanced)
+        magnet_only = page.locator(settings_page.TORRENT_MAGNET_ONLY)
+        expect(magnet_only).to_be_hidden()
+
+        # Warning should be hidden
+        expect(page.locator(settings_page.TORRENT_MAGNET_ONLY_WARNING)).to_be_hidden()
+
+        # Expand advanced options
+        page.click(settings_page.TORRENT_ADVANCED_TOGGLE)
+        page.wait_for_timeout(UI_TIMEOUTS['modal_animation'])
+
+        # Now magnet-only checkbox should be visible and unchecked
+        expect(magnet_only).to_be_visible()
+        expect(magnet_only).not_to_be_checked()
+
+        # Warning should still be hidden (checkbox not checked)
+        expect(page.locator(settings_page.TORRENT_MAGNET_ONLY_WARNING)).to_be_hidden()
+
+        print("  ✓ Magnet-only checkbox visible under Advanced, unchecked by default")
+
+    def test_magnet_only_hides_sftp_shows_warning(self, settings_page, page: Page):
+        """Test that checking magnet-only hides source config and shows warning."""
+        log_test_step("Test: Magnet-only hides source config and shows warning")
+        self._open_connection_modal(settings_page, page)
+
+        # Switch to torrent
+        page.select_option(settings_page.TRANSFER_METHOD, "torrent")
+        page.wait_for_timeout(UI_TIMEOUTS['js_processing'])
+
+        # Verify source type selector and SFTP are visible initially
+        source_type = page.locator(settings_page.TORRENT_SOURCE_TYPE)
+        expect(source_type).to_be_visible()
+        sftp_config = page.locator(settings_page.TORRENT_SOURCE_SFTP_CONFIG)
+        expect(sftp_config).to_be_visible()
+
+        # Expand advanced and check magnet-only
+        page.click(settings_page.TORRENT_ADVANCED_TOGGLE)
+        page.wait_for_timeout(UI_TIMEOUTS['modal_animation'])
+        page.locator(settings_page.TORRENT_MAGNET_ONLY).check()
+        page.wait_for_timeout(UI_TIMEOUTS['js_processing'])
+
+        # Source type selector should be hidden (its ancestor .mb-3)
+        source_type_mb3 = source_type.locator("xpath=ancestor::div[contains(@class,'mb-3')]")
+        display = source_type_mb3.evaluate("el => el.style.display")
+        assert display == "none", f"Source type selector should be hidden, got display: {display}"
+
+        # SFTP config should also be hidden
+        display = sftp_config.evaluate("el => el.style.display")
+        assert display == "none", f"SFTP config should be hidden, got display: {display}"
+
+        # Warning should be visible
+        warning = page.locator(settings_page.TORRENT_MAGNET_ONLY_WARNING)
+        expect(warning).to_be_visible()
+
+        # Warning text should mention private tracker
+        warning_text = warning.text_content()
+        assert "private" in warning_text.lower(), \
+            f"Warning should mention private trackers, got: {warning_text}"
+
+        print("  ✓ Magnet-only hides source config and shows private tracker warning")
+
+    def test_uncheck_magnet_only_restores_sftp(self, settings_page, page: Page):
+        """Test that unchecking magnet-only restores source config and hides warning."""
+        log_test_step("Test: Uncheck magnet-only restores source config")
+        self._open_connection_modal(settings_page, page)
+
+        # Switch to torrent
+        page.select_option(settings_page.TRANSFER_METHOD, "torrent")
+        page.wait_for_timeout(UI_TIMEOUTS['js_processing'])
+
+        # Expand advanced and check magnet-only
+        page.click(settings_page.TORRENT_ADVANCED_TOGGLE)
+        page.wait_for_timeout(UI_TIMEOUTS['modal_animation'])
+        page.locator(settings_page.TORRENT_MAGNET_ONLY).check()
+        page.wait_for_timeout(UI_TIMEOUTS['js_processing'])
+
+        # Verify SFTP and source type selector are hidden
+        sftp_config = page.locator(settings_page.TORRENT_SOURCE_SFTP_CONFIG)
+        display = sftp_config.evaluate("el => el.style.display")
+        assert display == "none", "SFTP should be hidden after checking magnet-only"
+
+        source_type = page.locator(settings_page.TORRENT_SOURCE_TYPE)
+        source_type_mb3 = source_type.locator("xpath=ancestor::div[contains(@class,'mb-3')]")
+        display = source_type_mb3.evaluate("el => el.style.display")
+        assert display == "none", "Source type selector should be hidden after checking magnet-only"
+
+        # Uncheck magnet-only
+        page.locator(settings_page.TORRENT_MAGNET_ONLY).uncheck()
+        page.wait_for_timeout(UI_TIMEOUTS['js_processing'])
+
+        # Source type selector should be visible again
+        display = source_type_mb3.evaluate("el => el.style.display")
+        assert display != "none", f"Source type selector should be visible, got display: {display}"
+
+        # SFTP config should be visible again (default source type is sftp)
+        display = sftp_config.evaluate("el => el.style.display")
+        assert display == "block", f"SFTP should be visible after unchecking magnet-only, got: {display}"
+
+        # Warning should be hidden
+        warning = page.locator(settings_page.TORRENT_MAGNET_ONLY_WARNING)
+        display = warning.evaluate("el => el.style.display")
+        assert display == "none", "Warning should be hidden after unchecking magnet-only"
+
+        print("  ✓ Unchecking magnet-only restores source config")
+
+    @pytest.mark.timeout(120)
+    def test_save_with_sftp_includes_source_config(self, settings_page, page: Page):
+        """Test that saving with SFTP fields filled includes source config with nested sftp."""
+        log_test_step("Test: Save with SFTP includes source config")
+        connection_name = "test-torrent-sftp-save"
+
+        # Cleanup any leftover
+        delete_connection_via_api(connection_name)
+
+        try:
+            settings_page.goto()
+            settings_page.wait_for_clients_loaded()
+            # Save with SFTP fields filled (no magnet-only)
+            add_torrent_connection_via_ui(
+                settings_page, page,
+                connection_name=connection_name,
+                from_client="source-deluge",
+                to_client="target-deluge",
+                source_sftp={
+                    'host': 'sftp-server',
+                    'port': 2222,
+                    'username': 'testuser',
+                    'password': 'testpass',
+                },
+                state_dir='/home/abc/deluge/state',
+            )
+
+            # Verify the config via API
+            conn = get_connection_config_via_api(connection_name)
+            assert conn is not None, f"Connection '{connection_name}' not found via API"
+
+            transfer_config = conn.get("transfer_config", {})
+            assert transfer_config.get("type") == "torrent", \
+                f"Expected type='torrent', got: {transfer_config}"
+
+            # source should be present with nested structure
+            source = transfer_config.get("source")
+            assert source is not None, \
+                f"Expected source in config, got: {transfer_config}"
+            assert source.get("type") == "sftp", \
+                f"Expected source.type='sftp', got: {source}"
+            assert source.get("state_dir") == "/home/abc/deluge/state", \
+                f"Expected state_dir='/home/abc/deluge/state', got: {source}"
+
+            # SFTP credentials should be nested under source.sftp
+            sftp = source.get("sftp")
+            assert sftp is not None, \
+                f"Expected source.sftp in config, got: {source}"
+            assert sftp.get("host") == "sftp-server", \
+                f"Expected host='sftp-server', got: {sftp}"
+            assert sftp.get("port") == 2222, \
+                f"Expected port=2222, got: {sftp}"
+            assert sftp.get("username") == "testuser", \
+                f"Expected username='testuser', got: {sftp}"
+            # Password should be masked in GET response
+            assert sftp.get("password") == "***", \
+                f"Expected password='***' (masked), got: {sftp}"
+
+            print("  ✓ Save with SFTP includes source config")
         finally:
             delete_connection_via_api(connection_name)

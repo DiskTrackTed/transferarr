@@ -23,10 +23,12 @@ class TorrentState(Enum):
     TARGET_ERROR = 19
     ERROR = 20
     MISSING = 21
+    TORRENT_CREATE_QUEUE = 29
     TORRENT_CREATING = 30
     TORRENT_TARGET_ADDING = 31
     TORRENT_DOWNLOADING = 32
     TORRENT_SEEDING = 33
+    TRANSFER_FAILED = 34  # Failed after max retries, requires user action
 
 class Torrent:
     _state = None
@@ -37,7 +39,7 @@ class Torrent:
                  home_client=None, target_client=None,
                  home_client_info=None, home_client_name=None, target_client_info=None, 
                  target_client_name=None, save_callback=None, media_manager=None,
-                 transfer=None, _transfer_id=None):
+                 transfer=None, _transfer_id=None, delete_source_cross_seeds=None):
         self.name = name
         self.id = id
         self.state = state
@@ -57,6 +59,7 @@ class Torrent:
         self.total_files = 0
         self.transfer = transfer  # dict with hash, name, retry_count, etc.
         self._transfer_id = _transfer_id  # History service transfer ID
+        self.delete_source_cross_seeds = delete_source_cross_seeds  # Whether to remove cross-seed siblings on source removal
 
     def set_home_client_info(self, home_client_info):
         self.home_client_info = home_client_info
@@ -136,6 +139,10 @@ class Torrent:
         if self._transfer_id is not None:
             result["_transfer_id"] = self._transfer_id
         
+        # Include cross-seed deletion flag if explicitly set
+        if self.delete_source_cross_seeds is not None:
+            result["delete_source_cross_seeds"] = self.delete_source_cross_seeds
+        
         return result
     
     def _get_display_progress(self) -> int:
@@ -212,6 +219,7 @@ class Torrent:
             media_manager=media_manager,
             transfer=data.get("transfer"),  # Restore transfer data if present
             _transfer_id=data.get("_transfer_id"),  # Restore history transfer ID
+            delete_source_cross_seeds=data.get("delete_source_cross_seeds"),  # Restore cross-seed flag
         )
         torrent.transfer_speed = data.get("transfer_speed", 0)
         torrent.progress = data.get("progress", 0)

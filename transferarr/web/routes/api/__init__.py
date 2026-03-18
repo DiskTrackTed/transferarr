@@ -82,6 +82,7 @@ from . import connections
 from . import torrents
 from . import utilities
 from . import transfers
+from . import manual_transfers
 from . import auth
 from . import tracker
 
@@ -92,5 +93,6 @@ connections.register_routes(api_bp)
 torrents.register_routes(api_bp)
 utilities.register_routes(api_bp)
 transfers.register_routes(api_bp)
+manual_transfers.register_routes(api_bp)
 auth.register_routes(api_bp)
 tracker.register_routes(api_bp)

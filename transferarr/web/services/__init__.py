@@ -39,6 +39,7 @@ class ConfigSaveError(ServiceError):
 from .download_client_service import DownloadClientService
 from .connection_service import ConnectionService
 from .torrent_service import TorrentService
+from .manual_transfer_service import ManualTransferService
 
 __all__ = [
     'ServiceError',
@@ -49,4 +50,5 @@ __all__ = [
     'DownloadClientService',
     'ConnectionService',
     'TorrentService',
+    'ManualTransferService',
 ]

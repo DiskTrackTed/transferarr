@@ -70,6 +70,7 @@ def validate_config(config):
     tracker_config.setdefault("enabled", True)
     tracker_config.setdefault("port", 6969)
     # external_url has no default - must be set if torrent connections are used
+    # internal_url has no default - optional URL for clients on same network as tracker
 
     return config
 
