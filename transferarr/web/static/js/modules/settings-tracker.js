@@ -29,6 +29,7 @@ export function initTrackerSettings() {
         { id: 'tracker-enabled', event: 'change' },
         { id: 'tracker-port', event: 'input' },
         { id: 'tracker-external-url', event: 'input' },
+        { id: 'tracker-internal-url', event: 'input' },
         { id: 'tracker-announce-interval', event: 'input' },
         { id: 'tracker-peer-expiry', event: 'input' }
     ];
@@ -84,6 +85,9 @@ function populateTrackerSettings(data) {
     const externalUrlInput = document.getElementById('tracker-external-url');
     if (externalUrlInput) externalUrlInput.value = config.external_url || '';
 
+    const internalUrlInput = document.getElementById('tracker-internal-url');
+    if (internalUrlInput) internalUrlInput.value = config.internal_url || '';
+
     const announceIntervalInput = document.getElementById('tracker-announce-interval');
     if (announceIntervalInput) announceIntervalInput.value = config.announce_interval || '';
 
@@ -95,6 +99,7 @@ function populateTrackerSettings(data) {
         enabled: config.enabled || false,
         port: String(config.port || ''),
         external_url: config.external_url || '',
+        internal_url: config.internal_url || '',
         announce_interval: String(config.announce_interval || ''),
         peer_expiry: String(config.peer_expiry || '')
     };
@@ -114,6 +119,7 @@ function getCurrentValues() {
         enabled: document.getElementById('tracker-enabled')?.checked || false,
         port: document.getElementById('tracker-port')?.value || '',
         external_url: document.getElementById('tracker-external-url')?.value || '',
+        internal_url: document.getElementById('tracker-internal-url')?.value || '',
         announce_interval: document.getElementById('tracker-announce-interval')?.value || '',
         peer_expiry: document.getElementById('tracker-peer-expiry')?.value || ''
     };
@@ -189,6 +195,7 @@ async function saveTrackerSettings() {
             enabled: document.getElementById('tracker-enabled')?.checked || false,
             port: parseInt(document.getElementById('tracker-port')?.value) || 6969,
             external_url: document.getElementById('tracker-external-url')?.value || null,
+            internal_url: document.getElementById('tracker-internal-url')?.value || null,
             announce_interval: parseInt(document.getElementById('tracker-announce-interval')?.value) || 60,
             peer_expiry: parseInt(document.getElementById('tracker-peer-expiry')?.value) || 120
         };
@@ -216,6 +223,7 @@ async function saveTrackerSettings() {
                 enabled: payload.enabled,
                 port: String(payload.port),
                 external_url: payload.external_url || '',
+                internal_url: payload.internal_url || '',
                 announce_interval: String(payload.announce_interval),
                 peer_expiry: String(payload.peer_expiry)
             };

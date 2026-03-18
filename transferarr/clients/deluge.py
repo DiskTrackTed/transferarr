@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 import time
 import requests
@@ -169,7 +171,21 @@ class DelugeClient(DownloadClientBase):
             # Don't fail the operation if labeling fails
             logger.warning(f"Failed to apply label to torrent on {self.name}: {e}")
 
-    def add_torrent_file(self, torrent_file_path, torrent_file_data, options):
+    def add_torrent_file(self, torrent_file_path, torrent_file_data, options) -> str:
+        """Add a torrent from a .torrent file.
+        
+        Args:
+            torrent_file_path: Filename for the torrent (used for display)
+            torrent_file_data: Base64 encoded .torrent file contents
+            options: Dict of torrent options (download_location, add_paused, etc.)
+            
+        Returns:
+            The torrent hash of the added torrent
+            
+        Raises:
+            ConnectionError: If not connected to Deluge
+            Exception: If adding fails
+        """
         with self._lock:
             if not self.ensure_connected():
                 raise ConnectionError(f"Not connected to {self.name} deluge")
@@ -180,11 +196,17 @@ class DelugeClient(DownloadClientBase):
                         [torrent_file_path, decode_bytes(torrent_file_data), options],
                         id=3
                     )
-                    if not result.get("result"):
-                        logger.error(f"Failed to add torrent file via web: {result.get('error', 'Unknown error')}")
-                        raise Exception(f"Web client error: {result.get('error', 'Unknown error')}")
-                elif self.connection_type == "rpc":
-                    self.rpc_client.core.add_torrent_file(torrent_file_path, torrent_file_data, options)
+                    torrent_hash = result.get("result")
+                    if not torrent_hash:
+                        error = result.get("error", {})
+                        error_msg = error.get("message", str(error)) if isinstance(error, dict) else str(error)
+                        raise Exception(f"Failed to add torrent file: {error_msg}")
+                    return torrent_hash
+                else:
+                    torrent_hash = self.rpc_client.core.add_torrent_file(torrent_file_path, torrent_file_data, options)
+                    if not torrent_hash:
+                        raise Exception("Failed to add torrent file: no hash returned")
+                    return decode_bytes(torrent_hash) if isinstance(torrent_hash, bytes) else torrent_hash
             except Exception as e:
                 logger.error(f"Error adding torrent file: {e}")
                 raise e
@@ -332,7 +354,9 @@ class DelugeClient(DownloadClientBase):
             try:
                 # Use a minimal set of fields to reduce memory usage
                 # save_path is needed for cross-seed detection in manual transfers
-                fields = ['name', 'state', 'progress', 'save_path', 'total_size']
+                # time_added is needed to identify the original torrent in cross-seed groups
+                # trackers is needed to show tracker names in the transfer modal
+                fields = ['name', 'state', 'progress', 'save_path', 'total_size', 'time_added', 'trackers']
                 retry_count = 0
                 max_retries = 3
                 
@@ -475,6 +499,59 @@ class DelugeClient(DownloadClientBase):
                 logger.error(f"Error getting magnet URI for torrent {torrent_hash} from {self.name}: {e}")
                 raise
 
+    def is_private_torrent(self, torrent_hash: str) -> bool:
+        """Check if a torrent has the private flag set.
+        
+        Uses the all-torrents status query (same pattern as has_torrent and
+        get_torrent_info) which is more reliable than the single-torrent
+        get_torrent_status lookup that can return empty results.
+        
+        Private torrents use private trackers and cannot be added via
+        magnet links on a different client (the target won't be able to
+        reach the private tracker to download metadata).
+        
+        Args:
+            torrent_hash: Hash of the torrent to check
+            
+        Returns:
+            True if the torrent is private, False otherwise
+            
+        Raises:
+            ConnectionError: If not connected to Deluge
+            Exception: If API call fails
+        """
+        with self._lock:
+            if not self.ensure_connected():
+                raise ConnectionError(f"Not connected to {self.name} deluge")
+            
+            try:
+                fields = ["private"]
+                if self.connection_type == "web":
+                    result = self._send_web_request(
+                        "web.update_ui",
+                        [fields, {}],
+                        id=3
+                    )
+                    if not result.get('result') or not result['result'].get('torrents'):
+                        return False
+                    current_torrents = result['result']['torrents']
+                else:
+                    current_torrents = decode_bytes(
+                        self.rpc_client.core.get_torrents_status({}, fields)
+                    )
+                    if current_torrents is None:
+                        return False
+                
+                for key in current_torrents:
+                    if key.lower() == torrent_hash.lower():
+                        return bool(current_torrents[key].get('private', False))
+                
+                logger.warning(f"Torrent {torrent_hash} not found on {self.name} when checking private flag")
+                return False
+            except Exception as e:
+                logger.error(f"Error checking private flag for {torrent_hash} from {self.name}: {e}")
+                raise
+
     def add_torrent_magnet(self, magnet_uri: str, options: dict = None, label: str = None) -> str:
         """Add a torrent from a magnet URI.
         
@@ -522,74 +599,101 @@ class DelugeClient(DownloadClientBase):
                 logger.error(f"Error adding magnet to {self.name}: {e}")
                 raise
 
-    def create_torrent(
+    @staticmethod
+    def _calculate_create_timeout(total_size: int) -> int:
+        """Calculate polling timeout for create_torrent based on file size.
+        
+        Deluge must SHA1-hash every byte with 256KB pieces before the torrent
+        appears in the session. Timeout scales with size, with generous margins
+        for slow/network-attached storage.
+        
+        Args:
+            total_size: Total file size in bytes (0 = unknown)
+            
+        Returns:
+            Timeout in seconds (minimum 30, maximum 600)
+        """
+        if total_size <= 0:
+            return 240  # Unknown size: use generous default
+        
+        gb = total_size / (1024 ** 3)
+        
+        if gb <= 0.1:       # ≤100MB — tiny, hash is near-instant
+            return 30
+        elif gb <= 1:       # ≤1GB
+            return 60
+        elif gb <= 10:      # ≤10GB
+            return 120
+        elif gb <= 50:      # ≤50GB
+            return 240
+        else:               # >50GB — very large
+            return 600
+
+    def start_create_torrent(
         self,
         path: str,
-        name: str,
         trackers: list[str],
         private: bool = True,
         add_to_session: bool = True,
-        label: str = None
-    ) -> str:
-        """Create a new torrent from existing files.
+        label: str = None,
+        total_size: int = 0
+    ) -> dict:
+        """Fire the Deluge create_torrent RPC and return a poll spec.
         
-        Uses Deluge's core.create_torrent with add_to_session=True, then polls
-        for the new torrent to appear in the session. Deluge 2.1.x returns None
-        from create_torrent (no return value), so we must discover the hash by
-        comparing torrent lists before and after creation.
+        Issues the RPC call then returns immediately.  Deluge 2.1.x hashes the
+        files asynchronously; the caller must use :meth:`poll_created_torrent`
+        to discover the info hash once hashing completes.
         
         Args:
             path: Path to the file or directory to create torrent from
-            name: Name for the torrent (used for logging, does not affect hash)
-            trackers: List of tracker URLs
+            trackers: List of tracker URLs (embedded in torrent; also used to
+                identify it during polling)
             private: Whether to create a private torrent (disables DHT/PEX)
             add_to_session: Whether to add the created torrent to Deluge
-            label: Optional label to apply (requires Label plugin)
+            label: Optional label to apply when the torrent is found by poll
+            total_size: Total size in bytes for dynamic timeout (0 = unknown)
             
         Returns:
-            The info_hash of the created torrent
+            Poll spec dict with keys:
+            - ``expected_name`` (str): basename of *path* — the name Deluge
+              will assign to the torrent
+            - ``tracker_urls`` (list[str]): tracker URLs to match against
+            - ``timeout`` (int): seconds before the caller should give up
             
         Raises:
             ConnectionError: If not connected to Deluge
-            Exception: If torrent creation fails
+            Exception: If the RPC call itself fails
         """
         import os
         import time
+        import tempfile
         
         with self._lock:
             if not self.ensure_connected():
                 raise ConnectionError(f"Not connected to {self.name} deluge")
             
+            piece_length = 262144  # 256KB pieces
+            tracker = trackers[0] if trackers else ""
+            # Deluge expects trackers as list of lists (tiers), not a flat list.
+            # Put all URLs in the same tier so clients try them in parallel.
+            tracker_tiers = [trackers] if trackers else []
+            # Use system temp directory - works on both Docker and bare-metal installs
+            target = os.path.join(tempfile.gettempdir(), f"transfer_{int(time.time() * 1000)}.torrent")
+            
+            expected_name = os.path.basename(path.rstrip('/'))
+            
+            logger.debug(
+                f"Creating transfer torrent for '{expected_name}' on {self.name}"
+            )
+            logger.debug(
+                f"start_create_torrent params: path={path}, tracker={tracker}, "
+                f"piece_length={piece_length}, target={target}, private={private}, "
+                f"tracker_tiers={tracker_tiers}, add_to_session={add_to_session}"
+            )
+            
             try:
-                piece_length = 262144  # 256KB pieces
-                tracker = trackers[0] if trackers else ""
-                target = f"/config/transfer_{int(time.time() * 1000)}.torrent"
-                
-                # The torrent name in Deluge will be the basename of the path
-                expected_name = os.path.basename(path.rstrip('/'))
-                
-                # Snapshot existing torrent hashes BEFORE creating the new one
                 if self.connection_type == "web":
-                    result = self._send_web_request(
-                        "web.update_ui",
-                        [["name"], {}],
-                        id=3
-                    )
-                    existing = set(result.get('result', {}).get('torrents', {}).keys())
-                else:
-                    existing = set(
-                        decode_bytes(self.rpc_client.core.get_torrents_status({}, ['name'])).keys()
-                    )
-                
-                logger.info(
-                    f"Creating transfer torrent for '{expected_name}' on {self.name} "
-                    f"({len(existing)} existing torrents)"
-                )
-                
-                # Call create_torrent with add_to_session=True
-                # Deluge 2.1.x returns None (no return value from _create_torrent_thread)
-                if self.connection_type == "web":
-                    self._send_web_request(
+                    create_result = self._send_web_request(
                         "core.create_torrent",
                         [
                             path,           # path
@@ -600,13 +704,19 @@ class DelugeClient(DownloadClientBase):
                             [],             # webseeds
                             private,        # private
                             "transferarr",  # created_by
-                            trackers,       # trackers (full list)
+                            tracker_tiers,
                             add_to_session  # add_to_session
                         ],
                         id=3
                     )
+                    api_error = create_result.get("error")
+                    logger.debug(f"web create_torrent response: {create_result}")
+                    
+                    if api_error:
+                        error_msg = api_error.get("message", str(api_error)) if isinstance(api_error, dict) else str(api_error)
+                        raise Exception(f"Deluge create_torrent failed: {error_msg}")
                 else:
-                    self.rpc_client.core.create_torrent(
+                    create_result = self.rpc_client.core.create_torrent(
                         path,           # path
                         tracker,        # tracker (primary)
                         piece_length,   # piece_length
@@ -615,55 +725,86 @@ class DelugeClient(DownloadClientBase):
                         [],             # webseeds
                         private,        # private
                         "transferarr",  # created_by
-                        trackers,       # trackers (full list)
+                        tracker_tiers,
                         add_to_session  # add_to_session
                     )
-                
-                # Poll for the new torrent to appear in the session.
-                # We compare against the pre-existing snapshot to find the new hash.
-                max_wait = 60  # seconds
-                poll_interval = 1
-                for attempt in range(max_wait // poll_interval):
-                    time.sleep(poll_interval)
-                    
-                    if self.connection_type == "web":
-                        result = self._send_web_request(
-                            "web.update_ui",
-                            [["name"], {}],
-                            id=3
-                        )
-                        torrents = result.get('result', {}).get('torrents', {})
-                    else:
-                        torrents = decode_bytes(
-                            self.rpc_client.core.get_torrents_status({}, ['name'])
-                        )
-                    
-                    # Find a NEW torrent (not in snapshot) whose name matches
-                    for torrent_hash, info in torrents.items():
-                        torrent_name = info.get('name', '')
-                        if torrent_name == expected_name and torrent_hash not in existing:
-                            logger.info(
-                                f"Created torrent found: {expected_name} "
-                                f"(hash: {torrent_hash[:8]}..., poll {attempt + 1}s)"
-                            )
-                            if label:
-                                self._apply_label(torrent_hash, label)
-                            return torrent_hash
-                    
-                    if attempt > 0 and (attempt + 1) % 10 == 0:
-                        logger.debug(
-                            f"Still waiting for torrent '{expected_name}' "
-                            f"({attempt + 1}s, {len(torrents)} torrents seen)"
-                        )
-                
-                raise Exception(
-                    f"Torrent creation timed out - '{expected_name}' not found "
-                    f"after {max_wait}s polling"
-                )
-                
+                    logger.debug(f"rpc create_torrent response: {create_result}")
             except Exception as e:
                 logger.error(f"Error creating torrent on {self.name}: {e}")
                 raise
+        
+        timeout = self._calculate_create_timeout(total_size)
+        size_label = f"{total_size / (1024**3):.1f}GB" if total_size > 0 else "unknown size"
+        logger.debug(
+            f"RPC fired for '{expected_name}' (timeout {timeout}s for {size_label})"
+        )
+        
+        return {
+            "expected_name": expected_name,
+            "tracker_urls": list(trackers) if trackers else [],
+            "timeout": timeout,
+        }
+
+    def poll_created_torrent(
+        self,
+        expected_name: str,
+        tracker_urls: list[str],
+        label: str = None
+    ) -> str | None:
+        """Perform one non-blocking check for a created torrent.
+        
+        Queries Deluge for all torrents and scans for one whose name matches
+        *expected_name* and whose tracker URLs overlap with *tracker_urls*.
+        This is idempotent and cross-seed safe.
+        
+        Args:
+            expected_name: The torrent name to look for (basename of path)
+            tracker_urls: Our tracker URLs to match against
+            label: Optional label to apply if the torrent is found
+            
+        Returns:
+            The info hash if found, None otherwise
+        """
+        our_tracker_urls = set(tracker_urls) if tracker_urls else set()
+        
+        with self._lock:
+            if not self.ensure_connected():
+                raise ConnectionError(f"Not connected to {self.name} deluge")
+            
+            if self.connection_type == "web":
+                result = self._send_web_request(
+                    "web.update_ui",
+                    [["name", "trackers"], {}],
+                    id=3
+                )
+                torrents = result.get('result', {}).get('torrents', {})
+            else:
+                torrents = decode_bytes(
+                    self.rpc_client.core.get_torrents_status({}, ['name', 'trackers'])
+                )
+        
+        for torrent_hash, info in torrents.items():
+            torrent_name = info.get('name', '')
+            if torrent_name != expected_name:
+                continue
+            
+            torrent_trackers = info.get('trackers', []) or []
+            torrent_urls = {
+                t.get('url', '') if isinstance(t, dict) else ''
+                for t in torrent_trackers
+            }
+            
+            if our_tracker_urls & torrent_urls:
+                logger.debug(
+                    f"Created torrent found: {expected_name} "
+                    f"(hash: {torrent_hash[:8]}...)"
+                )
+                if label:
+                    with self._lock:
+                        self._apply_label(torrent_hash, label)
+                return torrent_hash
+        
+        return None
 
     def get_transfer_progress(self, torrent_hash: str) -> dict:
         """Get download progress for a transfer torrent.
@@ -740,6 +881,73 @@ class DelugeClient(DownloadClientBase):
                 
             except Exception as e:
                 logger.error(f"Error forcing reannounce for {torrent_hash[:8]}... on {self.name}: {e}")
+                return False
+
+    def force_recheck(self, torrent_hash: str) -> bool:
+        """Force the torrent to recheck its files on disk.
+        
+        This is useful when files already exist (e.g., after a transfer torrent
+        download) and we want Deluge to verify them instead of re-downloading.
+        
+        Args:
+            torrent_hash: Hash of the torrent to recheck
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        with self._lock:
+            if not self.ensure_connected():
+                logger.warning(f"Cannot recheck: not connected to {self.name}")
+                return False
+            
+            try:
+                logger.info(f"Forcing recheck for {torrent_hash[:8]}... on {self.name}")
+                
+                if self.connection_type == "web":
+                    self._send_web_request(
+                        "core.force_recheck",
+                        [[torrent_hash]],
+                        id=3
+                    )
+                else:
+                    self.rpc_client.core.force_recheck([torrent_hash])
+                
+                return True
+                
+            except Exception as e:
+                logger.error(f"Error forcing recheck for {torrent_hash[:8]}... on {self.name}: {e}")
+                return False
+
+    def resume_torrent(self, torrent_hash: str) -> bool:
+        """Resume a paused torrent.
+        
+        Args:
+            torrent_hash: Hash of the torrent to resume
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        with self._lock:
+            if not self.ensure_connected():
+                logger.warning(f"Cannot resume: not connected to {self.name}")
+                return False
+            
+            try:
+                logger.debug(f"Resuming torrent {torrent_hash[:8]}... on {self.name}")
+                
+                if self.connection_type == "web":
+                    self._send_web_request(
+                        "core.resume_torrent",
+                        [[torrent_hash]],
+                        id=3
+                    )
+                else:
+                    self.rpc_client.core.resume_torrent([torrent_hash])
+                
+                return True
+                
+            except Exception as e:
+                logger.error(f"Error resuming torrent {torrent_hash[:8]}... on {self.name}: {e}")
                 return False
 
     def test_connection(self):

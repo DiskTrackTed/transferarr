@@ -205,22 +205,20 @@
 
 /* Transfer Modal Styles */
 .transfer-summary {
-    margin-bottom: 16px;
-    padding: 12px;
+    margin-bottom: 8px;
+    padding: 8px 12px;
     background-color: #f8f9fa;
     border-radius: 6px;
 }
 
-.cross-seed-notice {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-top: 8px;
-    padding: 8px 12px;
-    background-color: #e8dff5;
-    color: #7c3aed;
-    border-radius: 4px;
-    font-size: 13px;
+.transfer-summary p {
+    margin: 0;
+}
+
+.transfer-summary-hint {
+    font-size: 0.78em;
+    color: #6b7280;
+    margin-top: 2px !important;
 }
 
 .transfer-torrent-list {
@@ -250,10 +248,89 @@
 
 .transfer-item-name {
     flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    padding-right: 8px;
+}
+
+.transfer-item-name-text {
+    display: block;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    padding-right: 12px;
+}
+
+.transfer-item-tracker {
+    display: block;
+    font-size: 11px;
+    color: #888;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    margin-top: 1px;
+}
+
+.transfer-item-badges {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding-right: 8px;
+}
+
+.original-badge {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 600;
+    color: #fff;
+    background-color: #2563eb;
+    border-radius: 3px;
+    padding: 1px 5px;
+    white-space: nowrap;
+    vertical-align: middle;
+}
+
+.selected-badge {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 600;
+    color: #fff;
+    background-color: #6366f1;
+    border-radius: 3px;
+    padding: 1px 5px;
+    white-space: nowrap;
+    vertical-align: middle;
+}
+
+/* Action badges for cross-seed items */
+.action-badge {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 600;
+    border-radius: 3px;
+    padding: 1px 5px;
+    white-space: nowrap;
+    vertical-align: middle;
+}
+
+.action-badge-transfer {
+    color: #fff;
+    background-color: #059669;
+}
+
+.action-badge-delete {
+    color: #fff;
+    background-color: #dc2626;
+}
+
+.action-badge-none {
+    color: #888;
+    background-color: #e5e7eb;
+}
+
+/* Dimmed state for cross-seed items with no action */
+.transfer-list-item.cross-seed-inactive {
+    opacity: 0.55;
 }
 
 .transfer-item-size {

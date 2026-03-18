@@ -54,6 +54,9 @@ def register_routes(bp):
                         type: string
                         enum: [rpc, web]
                         description: Connection method (RPC or Web UI)
+                      delete_cross_seeds:
+                        type: boolean
+                        description: Whether to remove cross-seed siblings on source removal
           500:
             description: Server error
         """
@@ -108,6 +111,10 @@ def register_routes(bp):
                   type: string
                   enum: [rpc, web]
                   description: Connection method
+                delete_cross_seeds:
+                  type: boolean
+                  default: true
+                  description: Whether to remove cross-seed siblings on source removal
         responses:
           201:
             description: Client added successfully
@@ -184,6 +191,10 @@ def register_routes(bp):
                 connection_type:
                   type: string
                   enum: [rpc, web]
+                delete_cross_seeds:
+                  type: boolean
+                  default: true
+                  description: Whether to remove cross-seed siblings on source removal
         responses:
           200:
             description: Client updated successfully

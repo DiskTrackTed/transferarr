@@ -63,7 +63,8 @@ All configuration is JSON-based (`config.json`). Structure:
 ### Tracker Configuration
 - `tracker.enabled` (default: `true`) - Enable/disable the BitTorrent tracker
 - `tracker.port` (default: `6969`) - Tracker listen port
-- `tracker.external_url` (required for torrent transfers) - URL clients use to reach tracker (e.g., `http://transferarr:6969/announce`)
+- `tracker.external_url` (required for torrent transfers) - URL remote clients use to reach tracker (e.g., `http://public-ip:6969/announce`)
+- `tracker.internal_url` (optional) - URL for clients on the same network as the tracker (e.g., `http://transferarr:6969/announce`). Useful when a client (like home Deluge behind VPN) can't reach the external URL. When set, both URLs are included in transfer torrents so each client uses whichever responds.
 - `tracker.announce_interval` (default: `60`) - Seconds between peer re-announces
 - `tracker.peer_expiry` (default: `120`) - Seconds before a peer is considered expired
 
@@ -77,14 +78,22 @@ Torrent-based transfers use BitTorrent protocol instead of SFTP. **No filesystem
 - **`TransferConnection.is_torrent_transfer`** - Property to check transfer type
 
 **Transfer Flow:**
-1. Create transfer torrent on source (unique hash via tracker URL, `private=False` for BEP 9)
-2. Register hash with tracker whitelist
-3. Get magnet URI from source, add to target
-4. Target announces to tracker, discovers source as peer
-5. Target downloads files via BitTorrent P2P
-6. Add original torrent to target via magnet (hash check passes instantly)
-7. Transition to COPIED → TARGET_CHECKING → TARGET_SEEDING
-8. Clean up transfer torrents from both clients, unregister from tracker
+1. Queue torrent for creation (`TORRENT_CREATE_QUEUE` — serialized, only one creation at a time)
+2. Create transfer torrent on source (unique hash via tracker URL, `private=False` for BEP 9)
+3. Register hash with tracker whitelist
+4. Get magnet URI from source, add to target
+5. Target announces to tracker, discovers source as peer
+6. Target downloads files via BitTorrent P2P
+7. Add original torrent to target via magnet (hash check passes instantly)
+8. Transition to COPIED → TARGET_CHECKING → TARGET_SEEDING
+9. Clean up transfer torrents from both clients, unregister from tracker
+
+**Creation Serialization:**
+- `TorrentTransferHandler._creating_slots` is a `dict[str, str]` mapping `client_name → torrent.id` for the torrent currently in `TORRENT_CREATING` on that client
+- Slots are per-client so different source Deluge instances can create concurrently — only concurrent RPCs to the *same* instance are serialized
+- `handle_create_queue()` checks the slot for `torrent.home_client.name`; acquires it and transitions to `TORRENT_CREATING` if free
+- On retry (sub-max), the torrent is re-queued to `TORRENT_CREATE_QUEUE` (not `TORRENT_CREATING`)
+- Slot is released via `_release_creation_slot(torrent)` on success, failure, or exception
 
 **Connection Config for Torrent Transfer:**
 ```json
@@ -93,13 +102,23 @@ Torrent-based transfers use BitTorrent protocol instead of SFTP. **No filesystem
   "to": "target-deluge",
   "transfer_config": {
     "type": "torrent",
-    "destination_path": "/downloads"
+    "destination_path": "/downloads",
+    "source": {
+      "type": "sftp",
+      "sftp": {"host": "...", "port": 22, "username": "...", "password": "..."},
+      "state_dir": "/path/to/deluge/state"
+    }
   }
 }
 ```
 
-**Key Constraint:** No filesystem access to source or target. Everything via Deluge API:
-- `create_torrent()` - Creates transfer torrent from existing files
+The `source` block is optional. Three modes:
+- **`source.type = "sftp"`**: Fetch `.torrent` file from Deluge state dir via SFTP, add to target via `add_torrent_file()`. Requires `source.sftp` credentials and `source.state_dir`.
+- **`source.type = "local"`**: Read `.torrent` file from a locally-mounted Deluge state dir. Requires `source.state_dir` only.
+- **No `source`** (magnet-only): Add original torrent to target via `add_torrent_magnet()`. Works on private trackers where the target has access.
+
+**Key Constraint (magnet-only mode):** No filesystem access to source or target. Everything via Deluge API:
+- `start_create_torrent()` / `poll_created_torrent()` - Non-blocking two-phase transfer torrent creation
 - `get_magnet_uri()` - Gets magnet link for torrent
 - `add_torrent_magnet()` - Adds torrent via magnet link
 - `get_transfer_progress()` - Gets download progress
@@ -144,9 +163,10 @@ Torrent-based transfers use BitTorrent protocol instead of SFTP. **No filesystem
 - `_transfer_id` (history service ID) is serialized to state.json so history tracking survives restarts
 
 **Restart Recovery:**
-- `_reregister_pending_transfers()` runs after `load_torrents_state()` on startup
+- `_reregister_pending_transfers()` runs after `load_torrents_state()` on startup and after tracker apply
 - Scans loaded torrents for TORRENT_* states or COPIED/TARGET_* with un-cleaned transfer data
 - Re-registers transfer hashes with tracker (tracker state is in-memory only, lost on restart)
+- Restores `_creating_slots` on the handler for any torrent in `TORRENT_CREATING` state (prevents concurrent creation RPCs to the same Deluge after restart)
 - Forces re-announce on source and target clients so peers rediscover each other
 
 ### State Persistence
@@ -321,14 +341,18 @@ The tracker has a settings API for viewing and updating configuration.
 **PUT with `apply` flag:**
 The PUT endpoint accepts an `apply: true` field in the JSON body. When set:
 - If `port` or `enabled` changed: stops the running tracker and starts a new one with updated config
+- After recreation, calls `_reregister_pending_transfers()` to restore tracker whitelist, creation slots, and re-announce peers
 - Returns updated `status` object and `applied: true` in response
-- Live-updatable settings (`announce_interval`, `peer_expiry`) are always applied to the running tracker instance without restart, regardless of the `apply` flag
+- Live-updatable settings (`announce_interval`, `peer_expiry`, `external_url`, `internal_url`) are always applied to the running tracker instance without restart, regardless of the `apply` flag
 
 There is **no separate restart endpoint**. The restart logic is integrated into the PUT with the `apply` flag.
 
 **BitTorrentTracker runtime updates:**
 - `tracker.announce_interval` - Instance attribute on `BitTorrentTracker`, also must update `TrackerRequestHandler.announce_interval` (class variable) for the HTTP handler to use the new value
 - `tracker.state.peer_expiry` - Instance attribute on `TrackerState`
+- `tracker.external_url` / `tracker.internal_url` - Instance attributes, used when creating transfer torrents
+- `ThreadingHTTPServer` is used instead of `HTTPServer` — critical because BitTorrent clients (libtorrent/Deluge) may hold HTTP/1.1 keep-alive connections open, which would block a single-threaded server from accepting other requests
+- `TrackerRequestHandler.protocol_version = "HTTP/1.0"` defaults to `Connection: close` to prevent keep-alive blocking
 - `HTTPServer.shutdown()` only works with `serve_forever()`, NOT manual `handle_request()` loops (causes deadlock). The tracker uses `serve_forever()` in its `_serve()` thread.
 - `server_close()` must be called after `shutdown()` to release the socket and prevent "Address already in use" errors on restart
 
@@ -439,7 +463,7 @@ GitHub Actions workflow in `.github/workflows/tests.yml` runs the full test suit
 - `integration-persistence-torrent-large` - Large file torrent restart tests
 - `integration-persistence-manual-restart` - Manual transfer restart recovery tests
 - `integration-transfers-torrent-infra` - Torrent infra and setup tests
-- `integration-transfers-torrent-lifecycle` - Torrent download and lifecycle tests
+- `integration-transfers-torrent-lifecycle` - Torrent download, lifecycle, and source access tests
 - `integration-transfers-concurrent` - Concurrent and transfer type tests
 - `integration-config` - Client routing tests
 - `integration-edge` - Edge case/error tests
@@ -520,6 +544,7 @@ Torrents progress through states defined in `models/torrent.py`. The `TorrentMan
              ├─── Torrent transfer ─────────┐    │
              │                               │    │
              │  ┌─────────────────────────┐  │    │
+             │  │  TORRENT_CREATE_QUEUE   │  │    │
              │  │  TORRENT_CREATING       │  │    │
              │  │  TORRENT_TARGET_ADDING  │  │    │
              │  │  TORRENT_DOWNLOADING    │  │    │
@@ -550,13 +575,15 @@ Torrents progress through states defined in `models/torrent.py`. The `TorrentMan
     ────────────────────────
     Max retries → _cleanup_failed_transfer (remove from clients + tracker)
                → Reset to HOME_SEEDING for future retry
+    Sub-max retries → _handle_retry + re-queue to TORRENT_CREATE_QUEUE
 ```
 
 **Key transition logic** (in `torrent_service.py`):
 - `MANAGER_QUEUED` → `HOME_*`: When torrent found on a download client via `client.has_torrent()`
 - `HOME_SEEDING` → `TARGET_*`: Shortcut when torrent already exists on target (skips transfer entirely)
 - `HOME_SEEDING` → `COPYING`: When SFTP/local connection, `connection.enqueue_copy_torrent()` is called
-- `HOME_SEEDING` → `TORRENT_CREATING`: When torrent connection, handler begins transfer torrent creation
+- `HOME_SEEDING` → `TORRENT_CREATE_QUEUE`: When torrent connection, torrent queued for creation (serialized)
+- `TORRENT_CREATE_QUEUE` → `TORRENT_CREATING`: When creation slot is free for that client (`torrent.home_client.name` not in `TorrentTransferHandler._creating_slots`)
 - `TORRENT_CREATING` → `TORRENT_TARGET_ADDING` → `TORRENT_DOWNLOADING` → `TORRENT_SEEDING` → `COPIED`: Torrent transfer states
 - `TORRENT_*` → `ERROR`: If no transfer handler available or no connection found for torrent
 - `COPYING` → `COPIED`: Set by `TransferConnection._do_copy_torrent()` on success
@@ -707,6 +734,7 @@ curl http://localhost:9696/torrents
 - `docker/fixtures/config.torrent-transfer.json` - Config for torrent-based transfer tests (uses tracker, no SFTP)
 - `docker/fixtures/config.sftp-to-sftp-no-tracker.json` - SFTP config with tracker explicitly disabled (for testing no-handler error paths)
 - `docker/fixtures/config.torrent-transfer-no-tracker.json` - Torrent-type connection config with tracker disabled (for testing tracker validation error paths)
+- `docker/fixtures/config.torrent-transfer-local-source.json` - Torrent transfer config using local filesystem access to .torrent files (source.type='local')
 
 ### Running Transferarr with Test Environment
 ```bash
@@ -829,7 +857,7 @@ The conftest uses internal helper functions (prefixed with `_`) to reduce duplic
 - `deluge_source`, `deluge_target` - RPC clients for Deluge instances
 - `deluge_target_2` - RPC client for second target Deluge (skip if not running)
 - `create_torrent` - Factory to create test torrents via torrent-creator container (supports `size_mb` and `multi_file` params)
-- `transferarr` - Manager to start/stop/restart transferarr container (supports `config_type` and `history_config` params). Config types: `sftp-to-local`, `local-to-sftp`, `sftp-to-sftp`, `sftp-to-sftp-no-tracker`, `local-to-local`, `multi-target`, `torrent-transfer`, `torrent-transfer-no-tracker`. Defaults to `sftp-to-sftp`.
+- `transferarr` - Manager to start/stop/restart transferarr container (supports `config_type` and `history_config` params). Config types: `sftp-to-local`, `local-to-sftp`, `sftp-to-sftp`, `sftp-to-sftp-no-tracker`, `local-to-local`, `multi-target`, `torrent-transfer`, `torrent-transfer-no-tracker`, `torrent-transfer-local-source`. Defaults to `sftp-to-sftp`.
 - `clean_test_environment` - Standard setup/teardown fixture for all integration tests
 - `lifecycle_runner` - Unified runner for standardized migration tests (Radarr/Sonarr)
 

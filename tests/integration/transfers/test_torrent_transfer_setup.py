@@ -1,7 +1,12 @@
 """Integration tests for torrent transfer setup (Phase 5).
 
-Tests the TORRENT_CREATING and TORRENT_TARGET_ADDING states, verifying that
-transfer torrents are created on source and added to target via magnet.
+Tests the TORRENT_TARGET_ADDING and later states, verifying that transfer
+torrents are created on source and added to target via magnet.
+
+Note: TORRENT_CREATING only means the RPC has been *requested*; the transfer
+torrent may not yet exist in Deluge.  Tests therefore wait for
+TORRENT_TARGET_ADDING or later, where the transfer torrent is guaranteed to
+exist on source.
 """
 
 import pytest
@@ -18,6 +23,16 @@ from tests.utils import (
     wait_for_transferarr_state,
     decode_bytes,
 )
+
+# States where the transfer torrent is guaranteed to exist on source.
+# TORRENT_CREATING is excluded because the RPC fires asynchronously.
+TRANSFER_TORRENT_PRESENT_STATES = [
+    'TORRENT_TARGET_ADDING',
+    'TORRENT_DOWNLOADING',
+    'TORRENT_SEEDING',
+    'COPIED',
+    'TARGET_CHECKING',
+]
 
 
 def find_transfer_torrent(deluge_client, original_name: str, original_hash: str = None):
@@ -57,6 +72,40 @@ def find_transfer_torrent(deluge_client, original_name: str, original_hash: str 
             if 'transferarr' in tracker_url:
                 return hash_id, info
     
+    return None, None
+
+
+def wait_for_transfer_torrent(
+    deluge_client,
+    original_name: str,
+    original_hash: str = None,
+    fields: list = None,
+    timeout: int = 30,
+):
+    """Poll Deluge until the transfer torrent appears (or timeout).
+
+    This is needed because the transfer torrent may be created *and* cleaned up
+    between two polling intervals of the test.  Polling Deluge directly with a
+    short interval gives the best chance of catching it.
+
+    Args:
+        deluge_client: Deluge RPC client
+        original_name: Name of the original torrent
+        original_hash: Hash of the original torrent (to exclude)
+        fields: Extra Deluge fields to request (appended to defaults)
+        timeout: Seconds to poll before giving up
+
+    Returns:
+        Tuple of (hash, info_dict) if found, or (None, None)
+    """
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        transfer_hash, transfer_info = find_transfer_torrent(
+            deluge_client, original_name, original_hash
+        )
+        if transfer_hash is not None:
+            return transfer_hash, transfer_info
+        time.sleep(1)
     return None, None
 
 
@@ -107,15 +156,15 @@ class TestTorrentTransferSetup:
         # Start transferarr with torrent-transfer config
         transferarr.start(config_type=torrent_transfer_config, wait_healthy=True)
         
-        # Wait for TORRENT_CREATING or TORRENT_TARGET_ADDING state
+        # Wait for a state where the transfer torrent is guaranteed on source
         wait_for_transferarr_state(
-            transferarr, torrent_name, 
-            ['TORRENT_CREATING', 'TORRENT_TARGET_ADDING', 'TORRENT_DOWNLOADING'],
+            transferarr, torrent_name,
+            TRANSFER_TORRENT_PRESENT_STATES,
             timeout=120
         )
         
-        # Check source Deluge for transfer torrent using helper
-        transfer_hash, transfer_info = find_transfer_torrent(
+        # Poll source Deluge for the transfer torrent
+        transfer_hash, transfer_info = wait_for_transfer_torrent(
             deluge_source, torrent_name, original_hash
         )
         
@@ -150,12 +199,14 @@ class TestTorrentTransferSetup:
         
         wait_for_transferarr_state(
             transferarr, torrent_name,
-            ['TORRENT_CREATING', 'TORRENT_TARGET_ADDING', 'TORRENT_DOWNLOADING'],
+            TRANSFER_TORRENT_PRESENT_STATES,
             timeout=120
         )
         
-        # Get transfer torrent using helper (which excludes original by hash)
-        transfer_hash, _ = find_transfer_torrent(deluge_source, torrent_name, original_hash)
+        # Poll for transfer torrent (excludes original by hash)
+        transfer_hash, _ = wait_for_transfer_torrent(
+            deluge_source, torrent_name, original_hash
+        )
         
         assert transfer_hash is not None, "Transfer torrent not found"
         assert transfer_hash.lower() != original_hash, \
@@ -189,12 +240,12 @@ class TestTorrentTransferSetup:
         
         wait_for_transferarr_state(
             transferarr, torrent_name,
-            ['TORRENT_CREATING', 'TORRENT_TARGET_ADDING', 'TORRENT_DOWNLOADING'],
+            TRANSFER_TORRENT_PRESENT_STATES,
             timeout=120
         )
         
-        # Get transfer torrent and check private flag
-        transfer_hash, transfer_info = find_transfer_torrent(
+        # Poll for transfer torrent and check private flag
+        transfer_hash, transfer_info = wait_for_transfer_torrent(
             deluge_source, torrent_name, original_hash
         )
         
@@ -230,13 +281,12 @@ class TestTorrentTransferSetup:
         
         wait_for_transferarr_state(
             transferarr, torrent_name,
-            ['TORRENT_CREATING', 'TORRENT_TARGET_ADDING', 'TORRENT_DOWNLOADING'],
+            TRANSFER_TORRENT_PRESENT_STATES,
             timeout=120
         )
         
-        # Get transfer torrent and check trackers
-        # The helper already verifies the transferarr tracker URL
-        transfer_hash, transfer_info = find_transfer_torrent(
+        # Poll for transfer torrent — helper already verifies tracker URL
+        transfer_hash, transfer_info = wait_for_transfer_torrent(
             deluge_source, torrent_name, original_hash
         )
         
@@ -278,13 +328,14 @@ class TestTorrentTransferSetup:
         
         wait_for_transferarr_state(
             transferarr, torrent_name,
-            ['TORRENT_CREATING', 'TORRENT_TARGET_ADDING', 'TORRENT_DOWNLOADING'],
+            TRANSFER_TORRENT_PRESENT_STATES,
             timeout=120
         )
         
-        # Get transfer torrent tracker status
-        # We need to query tracker_status which isn't returned by the helper
-        transfer_hash, _ = find_transfer_torrent(deluge_source, torrent_name, original_hash)
+        # Poll for transfer torrent then check tracker_status
+        transfer_hash, _ = wait_for_transfer_torrent(
+            deluge_source, torrent_name, original_hash
+        )
         assert transfer_hash is not None, "Transfer torrent not found"
         
         torrents = deluge_source.core.get_torrents_status(
@@ -334,7 +385,7 @@ class TestTorrentTransferSetup:
         
         # Check target Deluge for transfer torrent
         # On target, we look for the same torrent (it'll have same name)
-        transfer_hash, _ = find_transfer_torrent(
+        transfer_hash, _ = wait_for_transfer_torrent(
             deluge_target, torrent_name, None  # No original_hash to exclude on target
         )
         
@@ -385,7 +436,8 @@ class TestTorrentTransferSetup:
                         # If we've reached TORRENT_DOWNLOADING, we've passed through the setup states
                         if state in ['TORRENT_DOWNLOADING', 'TORRENT_SEEDING']:
                             # Verify we saw at least TORRENT_CREATING or TORRENT_TARGET_ADDING
-                            torrent_states = {'TORRENT_CREATING', 'TORRENT_TARGET_ADDING', 
+                            torrent_states = {'TORRENT_CREATE_QUEUE', 'TORRENT_CREATING',
+                                            'TORRENT_TARGET_ADDING', 
                                             'TORRENT_DOWNLOADING', 'TORRENT_SEEDING'}
                             assert seen_states & torrent_states, \
                                 f"Should have seen torrent transfer states, saw: {seen_states}"
@@ -419,32 +471,20 @@ class TestTorrentTransferSetup:
         
         transferarr.start(config_type=torrent_transfer_config, wait_healthy=True)
         
-        # Wait for torrent transfer to start
-        wait_for_transferarr_state(
+        # Wait for a state where transfer hash is guaranteed to be set.
+        # TORRENT_CREATING only means the RPC was requested; hash is set
+        # when Phase B of handle_creating succeeds (→ TORRENT_TARGET_ADDING).
+        torrent_data = wait_for_transferarr_state(
             transferarr, torrent_name,
-            ['TORRENT_CREATING', 'TORRENT_TARGET_ADDING', 'TORRENT_DOWNLOADING'],
+            TRANSFER_TORRENT_PRESENT_STATES,
             timeout=120
         )
         
-        # Check API response for transfer data
-        response = requests.get(
-            f"http://{SERVICES['transferarr']['host']}:{SERVICES['transferarr']['port']}/api/v1/torrents",
-            timeout=10
-        )
-        assert response.status_code == 200
-        
-        torrents = response.json().get('data', [])
-        
-        for t in torrents:
-            if torrent_name in t.get('name', ''):
-                transfer = t.get('transfer')
-                assert transfer is not None, "Transfer data should be present"
-                assert 'hash' in transfer, "Transfer should have hash"
-                assert 'name' in transfer, "Transfer should have name"
-                assert transfer['name'].startswith('[TR-'), \
-                    f"Transfer name should have prefix: {transfer['name']}"
-                assert 'on_source' in transfer, "Transfer should have on_source flag"
-                assert 'started_at' in transfer, "Transfer should have started_at"
-                return
-        
-        pytest.fail(f"Torrent {torrent_name} not found in API response")
+        transfer = torrent_data.get('transfer')
+        assert transfer is not None, "Transfer data should be present"
+        assert transfer.get('hash'), "Transfer should have non-empty hash"
+        assert 'name' in transfer, "Transfer should have name"
+        assert transfer['name'].startswith('[TR-'), \
+            f"Transfer name should have prefix: {transfer['name']}"
+        assert 'on_source' in transfer, "Transfer should have on_source flag"
+        assert 'started_at' in transfer, "Transfer should have started_at"

@@ -42,6 +42,7 @@ function updateDashboardStats(torrents) {
     const activeTorrents = torrents.length;
     const transferringStates = [
         'COPYING',
+        'TORRENT_CREATE_QUEUE',
         'TORRENT_CREATING',
         'TORRENT_TARGET_ADDING',
         'TORRENT_DOWNLOADING'
@@ -97,6 +98,7 @@ function updateRecentTorrents(torrents) {
     const sortedTorrents = [...torrents].sort((a, b) => {
         const stateOrder = {
             'COPYING': 1,
+            'TORRENT_CREATE_QUEUE': 1,
             'TORRENT_CREATING': 1,
             'TORRENT_TARGET_ADDING': 1,
             'TORRENT_DOWNLOADING': 1,
@@ -178,10 +180,19 @@ function updateCardContent(card, torrent, isCompact = false) {
             statusText = 'Transferring';
             progressBarClass = 'progress-copying';
             break;
+        case 'TORRENT_CREATE_QUEUE':
+            progressPercentage = 0;
+            statusText = 'Queued for Creation';
+            progressBarClass = 'progress-creating';
+            break;
         case 'TORRENT_CREATING':
+            progressPercentage = 0;
+            statusText = 'Creating Torrent';
+            progressBarClass = 'progress-creating';
+            break;
         case 'TORRENT_TARGET_ADDING':
             progressPercentage = 0;
-            statusText = 'Transferring';
+            statusText = 'Starting Transfer';
             progressBarClass = 'progress-copying';
             break;
         case 'TORRENT_DOWNLOADING':
@@ -193,6 +204,11 @@ function updateCardContent(card, torrent, isCompact = false) {
             progressPercentage = 100;
             statusText = 'Copied';
             progressBarClass = 'progress-copied';
+            break;
+        case 'TRANSFER_FAILED':
+            progressPercentage = 0;
+            statusText = 'Transfer Failed';
+            progressBarClass = 'progress-failed';
             break;
         default:
             progressPercentage = torrent.progress || 0;
@@ -237,16 +253,44 @@ function updateCardContent(card, torrent, isCompact = false) {
         }
     }
     
-    // Add progress bar
+    // For TORRENT_CREATE_QUEUE or TORRENT_CREATING, show a hint about what's happening
+    if (torrent.state === 'TORRENT_CREATE_QUEUE') {
+        cardContent += `<span class="file-name">Waiting for creation slot\u2026</span>`;
+    }
+    if (torrent.state === 'TORRENT_CREATING') {
+        cardContent += `<span class="file-name">Hashing files on source\u2026</span>`;
+    }
+    
+    // Add progress bar - use indeterminate display for creating/queued states
+    const isIndeterminate = torrent.state === 'TORRENT_CREATING' || torrent.state === 'TORRENT_CREATE_QUEUE';
+    const progressText = isIndeterminate ? (torrent.state === 'TORRENT_CREATE_QUEUE' ? 'Queued' : 'Hashing\u2026') : `${progressPercentage.toFixed(1)}%`;
     cardContent += `
             <div class="progress-container">
                 <div class="progress-bar">
                     <span class="progress-fill ${progressBarClass}" style="width: ${progressPercentage}%"></span>
-                    <span class="progress-text">${progressPercentage.toFixed(1)}%</span>
+                    <span class="progress-text">${progressText}</span>
                 </div>
             </div>
         </div>
     `;
+    
+    // Add action buttons for failed transfers
+    if (torrent.state === 'TRANSFER_FAILED') {
+        cardContent += `
+            <div class="torrent-actions">
+                <button class="btn btn-sm btn-primary retry-transfer-btn" 
+                        data-hash="${torrent.id}"
+                        title="Retry transfer">
+                    <i class="fas fa-redo"></i> Retry
+                </button>
+                <button class="btn btn-sm btn-outline-danger remove-transfer-btn" 
+                        data-hash="${torrent.id}"
+                        title="Remove from tracking">
+                    <i class="fas fa-trash"></i> Remove
+                </button>
+            </div>
+        `;
+    }
     
     // Update the card's HTML content
     card.innerHTML = cardContent;
@@ -269,3 +313,60 @@ function formatTransferSpeed(bytesPerSecond) {
     const i = Math.floor(Math.log(bytesPerSecond) / Math.log(k));
     return parseFloat((bytesPerSecond / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
+
+// Event delegation for retry/remove buttons on failed transfers
+document.addEventListener('click', async (e) => {
+    // Retry failed transfer
+    if (e.target.closest('.retry-transfer-btn')) {
+        const btn = e.target.closest('.retry-transfer-btn');
+        const hash = btn.dataset.hash;
+        
+        btn.disabled = true;
+        try {
+            const response = await fetch(`/api/v1/torrents/${hash}/retry`, {
+                method: 'POST'
+            });
+            const data = await response.json();
+            
+            if (response.ok) {
+                window.TransferarrNotifications.success('Retry Initiated', data.data.message);
+                fetchTorrents();  // Refresh dashboard
+            } else {
+                window.TransferarrNotifications.error('Retry Failed', data.error?.message || 'Unknown error');
+            }
+        } catch (err) {
+            window.TransferarrNotifications.error('Error', 'Failed to retry transfer');
+        } finally {
+            btn.disabled = false;
+        }
+    }
+    
+    // Remove failed transfer
+    if (e.target.closest('.remove-transfer-btn')) {
+        const btn = e.target.closest('.remove-transfer-btn');
+        const hash = btn.dataset.hash;
+        
+        if (!confirm('Remove this torrent from tracking?\n\nThe torrent will remain on the source client but will no longer be tracked for transfer.')) {
+            return;
+        }
+        
+        btn.disabled = true;
+        try {
+            const response = await fetch(`/api/v1/torrents/${hash}`, {
+                method: 'DELETE'
+            });
+            const data = await response.json();
+            
+            if (response.ok) {
+                window.TransferarrNotifications.success('Removed', data.data.message);
+                fetchTorrents();  // Refresh dashboard
+            } else {
+                window.TransferarrNotifications.error('Remove Failed', data.error?.message || 'Unknown error');
+            }
+        } catch (err) {
+            window.TransferarrNotifications.error('Error', 'Failed to remove torrent');
+        } finally {
+            btn.disabled = false;
+        }
+    }
+});

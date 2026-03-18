@@ -31,6 +31,8 @@ document.addEventListener('DOMContentLoaded', function() {
         .addEventListener('change', onDestinationChange);
     document.getElementById('includeCrossSeeds')
         .addEventListener('change', updateTransferSummary);
+    document.getElementById('deleteCrossSeeds')
+        .addEventListener('change', updateTransferSummary);
 
     // Close modal on backdrop click
     document.getElementById('transferModal')
@@ -119,21 +121,25 @@ function updateSelectionUI() {
 // Cross-seed Detection
 // ============================================================================
 /**
- * Build cross-seed path groups from a client's torrent data.
+ * Build cross-seed groups from a client's torrent data.
+ * Cross-seeds share the same name and total_size (may be in different
+ * directories when the cross-seed tool creates symlinks).
  * @param {Object} clientTorrents - hash→info object for a single client
- * @returns {Object<string, string[]>} save_path → [hashes] (only groups with 2+ members)
+ * @returns {Object<string, string[]>} groupKey → [hashes] (only groups with 2+ members)
  */
 function buildCrossSeedPathGroups(clientTorrents) {
-    const pathGroups = {};
+    const groups = {};
     for (const [hash, info] of Object.entries(clientTorrents)) {
-        const savePath = info.save_path;
-        if (!savePath) continue;
-        if (!pathGroups[savePath]) pathGroups[savePath] = [];
-        pathGroups[savePath].push(hash);
+        const name = info.name;
+        const totalSize = info.total_size;
+        if (!name || totalSize == null) continue;
+        const key = name + '|' + totalSize;
+        if (!groups[key]) groups[key] = [];
+        groups[key].push(hash);
     }
     const result = {};
-    for (const [path, hashes] of Object.entries(pathGroups)) {
-        if (hashes.length > 1) result[path] = hashes;
+    for (const [key, hashes] of Object.entries(groups)) {
+        if (hashes.length > 1) result[key] = hashes;
     }
     return result;
 }
@@ -165,9 +171,12 @@ function getCrossSeedExpansion() {
     for (const hash of selectedHashes) {
         const info = lowerMap[hash];
         if (!info) continue;
-        const savePath = info.save_path;
-        if (savePath && groups[savePath]) {
-            for (const sibling of groups[savePath]) {
+        const name = info.name;
+        const totalSize = info.total_size;
+        if (name && totalSize != null) {
+            const key = name + '|' + totalSize;
+            if (!groups[key]) continue;
+            for (const sibling of groups[key]) {
                 const sibLower = sibling.toLowerCase();
                 if (!selectedHashes.has(sibLower)) {
                     const sibInfo = lowerMap[sibLower];
@@ -179,6 +188,27 @@ function getCrossSeedExpansion() {
         }
     }
     return [...extra];
+}
+
+/**
+ * Find the original (oldest) torrent in a cross-seed group by time_added.
+ * @param {string[]} hashes - All hashes in the cross-seed group
+ * @param {Object} lowerMap - lowercase hash → torrent info
+ * @returns {string|null} The hash of the oldest torrent, or null
+ */
+function findOriginalHash(hashes, lowerMap) {
+    let oldest = null;
+    let oldestTime = Infinity;
+    for (const h of hashes) {
+        const info = lowerMap[h.toLowerCase()];
+        if (!info) continue;
+        const timeAdded = info.time_added;
+        if (timeAdded != null && timeAdded < oldestTime) {
+            oldestTime = timeAdded;
+            oldest = h.toLowerCase();
+        }
+    }
+    return oldest;
 }
 
 // ============================================================================
@@ -256,6 +286,7 @@ function onDestinationChange() {
 
 function updateTransferSummary() {
     const includeCrossSeeds = document.getElementById('includeCrossSeeds').checked;
+    const deleteCrossSeeds = document.getElementById('deleteCrossSeeds')?.checked ?? true;
     const clientTorrents = allTorrentsCache[selectionSourceClient] || {};
 
     // Build lowercase-keyed lookup for O(1) access
@@ -265,66 +296,234 @@ function updateTransferSummary() {
     }
 
     const directHashes = [...selectedHashes];
-    const crossSeedHashes = includeCrossSeeds ? getCrossSeedExpansion() : [];
+    // Always compute cross-seed siblings regardless of checkbox state
+    const crossSeedHashes = getCrossSeedExpansion();
 
     document.getElementById('modal-selected-count').textContent = directHashes.length;
 
-    // Cross-seed notice (shown when including cross-seeds)
-    const csNotice = document.getElementById('cross-seed-notice');
-    if (crossSeedHashes.length > 0) {
-        document.getElementById('cross-seed-count').textContent = crossSeedHashes.length;
-        csNotice.style.display = 'flex';
-    } else {
-        csNotice.style.display = 'none';
-    }
-
-    // Cross-seed warning (shown when NOT including cross-seeds but siblings exist)
+    // Cross-seed warning (shown when including cross-seeds and siblings exist)
     const csWarning = document.getElementById('cross-seed-warning');
     if (csWarning) {
-        // Check if any selected torrent has cross-seed siblings
-        const potentialExpansion = getCrossSeedExpansion();
-        const hasSiblings = potentialExpansion.length > 0;
-        csWarning.style.display = (!includeCrossSeeds && hasSiblings) ? 'flex' : 'none';
+        csWarning.style.display = (includeCrossSeeds && crossSeedHashes.length > 0) ? 'flex' : 'none';
     }
 
-    // Build torrent list
+    // Determine cross-seed groups and find the original (oldest) in each
+    const groups = getCrossSeedGroups();
+    const allInvolved = [...directHashes, ...crossSeedHashes];
+    const originalHashes = new Set();
+    const hashToGroupKey = {};
+    const processedGroupKeys = new Set();
+
+    for (const hash of allInvolved) {
+        const info = lowerMap[hash];
+        if (!info) continue;
+        const name = info.name;
+        const totalSize = info.total_size;
+        if (!name || totalSize == null) continue;
+        const key = name + '|' + totalSize;
+        if (!groups[key]) continue;
+        hashToGroupKey[hash] = key;
+        if (!processedGroupKeys.has(key)) {
+            processedGroupKeys.add(key);
+            const orig = findOriginalHash(groups[key], lowerMap);
+            if (orig) originalHashes.add(orig);
+        }
+    }
+
+    // Show/hide delete-cross-seeds option
+    const deleteCsGroup = document.getElementById('deleteCrossSeeds')?.closest('.form-group');
+    if (deleteCsGroup) {
+        deleteCsGroup.style.display = processedGroupKeys.size > 0 ? 'block' : 'none';
+    }
+
+    // Determine action for non-selected siblings based on checkboxes
+    let csAction = 'none';
+    if (includeCrossSeeds && deleteCrossSeeds) csAction = 'transfer-delete';
+    else if (includeCrossSeeds) csAction = 'transfer';
+    else if (deleteCrossSeeds) csAction = 'delete';
+
+    // Build top section and cross-seed section.
+    // Original (oldest) of each group is always promoted to the top.
+    // All other siblings go to the cross-seed section.
+    // Standalone selected torrents (not in any group) go to the top.
+    // Action badges are NOT shown on top-section items — the section
+    // subtitle ("Transferred to destination and removed from source")
+    // already communicates their fate.
+    const topItems = [];
+    const csItems = [];
+    const placedHashes = new Set();
+
+    // 1. Place group originals in the top section
+    for (const hash of allInvolved) {
+        if (placedHashes.has(hash) || !originalHashes.has(hash)) continue;
+        const isSelected = selectedHashes.has(hash);
+        topItems.push({
+            hash,
+            isOriginal: true,
+            isSelected,
+            action: null,
+        });
+        placedHashes.add(hash);
+    }
+
+    // 2. Standalone directly-selected hashes (not in any group)
+    for (const hash of directHashes) {
+        if (placedHashes.has(hash) || hashToGroupKey[hash]) continue;
+        topItems.push({
+            hash,
+            isOriginal: false,
+            isSelected: false,
+            action: null,
+        });
+        placedHashes.add(hash);
+    }
+
+    // 3. Remaining hashes → cross-seed section
+    //    (directly-selected non-originals + non-selected siblings)
+    for (const hash of allInvolved) {
+        if (placedHashes.has(hash)) continue;
+        const isSelected = selectedHashes.has(hash);
+        csItems.push({
+            hash,
+            isOriginal: false,
+            isSelected,
+            action: csAction,
+        });
+        placedHashes.add(hash);
+    }
+
+    // Render the list
     const listEl = document.getElementById('transfer-torrent-list');
     listEl.innerHTML = '';
 
-    for (const hash of directHashes) {
-        const info = lowerMap[hash];
+    for (const item of topItems) {
+        const info = lowerMap[item.hash];
         if (!info) continue;
-        listEl.appendChild(createTransferListItem(info, false));
+        listEl.appendChild(createTransferListItem(
+            info, false, item.isOriginal, item.action, item.isSelected,
+        ));
     }
 
-    if (crossSeedHashes.length > 0) {
+    if (csItems.length > 0) {
         const divider = document.createElement('div');
         divider.className = 'cross-seed-divider';
         divider.innerHTML = '<i class="fas fa-link"></i> Cross-seeds';
         listEl.appendChild(divider);
 
-        for (const hash of crossSeedHashes) {
-            const info = lowerMap[hash];
+        for (const item of csItems) {
+            const info = lowerMap[item.hash];
             if (!info) continue;
-            listEl.appendChild(createTransferListItem(info, true));
+            listEl.appendChild(createTransferListItem(
+                info, true, item.isOriginal, item.action, item.isSelected,
+            ));
         }
     }
 }
 
-function createTransferListItem(torrentInfo, isCrossSeed) {
+/**
+ * Extract a readable tracker hostname from Deluge tracker data.
+ * Deluge returns trackers as [{url, tier}, ...] or sometimes a flat list.
+ * @param {Object} torrentInfo
+ * @returns {string} Tracker hostname or empty string
+ */
+function getTrackerName(torrentInfo) {
+    const trackers = torrentInfo.trackers;
+    if (!trackers || !Array.isArray(trackers) || trackers.length === 0) return '';
+    try {
+        const entry = trackers[0];
+        const url = (typeof entry === 'string') ? entry : (entry.url || '');
+        if (!url) return '';
+        const hostname = new URL(url).hostname;
+        return hostname || '';
+    } catch {
+        return '';
+    }
+}
+
+function createTransferListItem(torrentInfo, isCrossSeed, isOriginal, action, isSelected) {
     const item = document.createElement('div');
-    item.className = 'transfer-list-item' + (isCrossSeed ? ' cross-seed-item' : '');
-    
-    const name = document.createElement('span');
-    name.className = 'transfer-item-name';
-    name.textContent = torrentInfo.name || 'Unknown';
+    let className = 'transfer-list-item';
+    if (isCrossSeed) {
+        className += ' cross-seed-item';
+        // Dim only non-selected siblings with no meaningful action
+        if (!isSelected && (!action || action === 'none')) className += ' cross-seed-inactive';
+    }
+    item.className = className;
+
+    // Left section: name (truncates) + tracker label
+    const nameCol = document.createElement('div');
+    nameCol.className = 'transfer-item-name';
+
+    const nameText = document.createElement('span');
+    nameText.className = 'transfer-item-name-text';
+    nameText.textContent = torrentInfo.name || 'Unknown';
+    nameText.title = torrentInfo.name || 'Unknown';
+    nameCol.appendChild(nameText);
+
+    // Tracker label
+    const tracker = getTrackerName(torrentInfo);
+    if (tracker) {
+        const trackerEl = document.createElement('span');
+        trackerEl.className = 'transfer-item-tracker';
+        trackerEl.textContent = tracker;
+        trackerEl.title = tracker;
+        nameCol.appendChild(trackerEl);
+    }
+
+    // Right section: badges + size (never truncated)
+    const badges = document.createElement('span');
+    badges.className = 'transfer-item-badges';
+
+    // Show "Original" badge on the oldest torrent in a cross-seed group
+    if (isOriginal) {
+        const badge = document.createElement('span');
+        badge.className = 'original-badge';
+        badge.title = 'Original torrent (oldest by time added)';
+        badge.textContent = 'Original';
+        badges.appendChild(badge);
+    }
+
+    // Show "Selected" badge on the torrent the user explicitly picked
+    if (isSelected) {
+        const badge = document.createElement('span');
+        badge.className = 'selected-badge';
+        badge.title = 'Directly selected for transfer';
+        badge.textContent = 'Selected';
+        badges.appendChild(badge);
+    }
+
+    // Show action badges for non-selected siblings
+    if (action) {
+        if (action === 'transfer' || action === 'transfer-delete') {
+            const badge = document.createElement('span');
+            badge.className = 'action-badge action-badge-transfer';
+            badge.textContent = 'Transfer';
+            badge.title = 'Will be transferred to destination';
+            badges.appendChild(badge);
+        }
+        if (action === 'delete' || action === 'transfer-delete') {
+            const badge = document.createElement('span');
+            badge.className = 'action-badge action-badge-delete';
+            badge.textContent = 'Delete';
+            badge.title = 'Will be deleted from source';
+            badges.appendChild(badge);
+        }
+        if (action === 'none') {
+            const badge = document.createElement('span');
+            badge.className = 'action-badge action-badge-none';
+            badge.textContent = 'No action';
+            badge.title = 'This cross-seed will remain unchanged';
+            badges.appendChild(badge);
+        }
+    }
 
     const size = document.createElement('span');
     size.className = 'transfer-item-size';
     const totalSize = torrentInfo.total_size || 0;
     size.textContent = formatBytes(totalSize);
 
-    item.appendChild(name);
+    item.appendChild(nameCol);
+    item.appendChild(badges);
     item.appendChild(size);
     return item;
 }
@@ -342,11 +541,13 @@ async function confirmTransfer() {
     error.style.display = 'none';
 
     try {
+        const deleteCrossSeeds = document.getElementById('deleteCrossSeeds')?.checked ?? true;
         const result = await API.initiateManualTransfer({
             hashes: [...selectedHashes],
             source_client: selectionSourceClient,
             destination_client: destSelect.value,
             include_cross_seeds: includeCrossSeeds,
+            delete_source_cross_seeds: deleteCrossSeeds,
         });
 
         closeTransferModal();

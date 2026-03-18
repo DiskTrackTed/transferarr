@@ -223,6 +223,9 @@ function editClient(name, client) {
     document.getElementById('clientPassword').value = '';
     document.getElementById('clientPassword').placeholder = 'Leave blank to keep current password';
     
+    // Set cross-seed deletion checkbox (defaults to true if not set)
+    document.getElementById('clientDeleteCrossSeeds').checked = client.delete_cross_seeds !== false;
+    
     // Update username field visibility based on connection type
     toggleUsernameField();
     
@@ -255,6 +258,8 @@ function resetClientForm() {
     document.getElementById('saveClientBtn').disabled = true;
     // Reset password placeholder for add mode
     document.getElementById('clientPassword').placeholder = '';
+    // Reset cross-seed checkbox to default (checked)
+    document.getElementById('clientDeleteCrossSeeds').checked = true;
     toggleUsernameField();
 }
 
@@ -281,7 +286,8 @@ function saveClient() {
         connection_type: connectionType,
         host: document.getElementById('clientHost').value,
         port: parseInt(document.getElementById('clientPort').value),
-        password: document.getElementById('clientPassword').value
+        password: document.getElementById('clientPassword').value,
+        delete_cross_seeds: document.getElementById('clientDeleteCrossSeeds').checked,
     };
     
     // Only include username if using RPC connection
@@ -388,7 +394,8 @@ function testConnection() {
         connection_type: connectionType,
         host: document.getElementById('clientHost').value,
         port: parseInt(document.getElementById('clientPort').value),
-        password: document.getElementById('clientPassword').value
+        password: document.getElementById('clientPassword').value,
+        delete_cross_seeds: document.getElementById('clientDeleteCrossSeeds').checked,
     };
     
     // Only include username if using RPC connection

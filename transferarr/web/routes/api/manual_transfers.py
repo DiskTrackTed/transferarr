@@ -103,8 +103,12 @@ def register_routes(bp):
                   description: Name of the destination download client
                 include_cross_seeds:
                   type: boolean
-                  default: true
+                  default: false
                   description: Whether to auto-include cross-seed siblings
+                delete_source_cross_seeds:
+                  type: boolean
+                  default: true
+                  description: Whether to remove cross-seed siblings from source when the torrent is removed after transfer
         responses:
           200:
             description: Transfer initiated successfully

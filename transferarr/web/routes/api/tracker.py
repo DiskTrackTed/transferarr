@@ -40,6 +40,8 @@ def register_routes(api_bp):
                           type: integer
                         external_url:
                           type: string
+                        internal_url:
+                          type: string
                         announce_interval:
                           type: integer
                         peer_expiry:
@@ -100,7 +102,10 @@ def register_routes(api_bp):
                   description: Tracker listen port
                 external_url:
                   type: string
-                  description: URL clients use to reach the tracker
+                  description: URL remote clients use to reach the tracker
+                internal_url:
+                  type: string
+                  description: URL for clients on same network as tracker (e.g. Docker)
                 announce_interval:
                   type: integer
                   description: Seconds between peer announces
@@ -145,6 +150,14 @@ def register_routes(api_bp):
                     return error_response('BAD_REQUEST', 'External URL must start with http:// or https://', status_code=400)
             updates['external_url'] = url if url else None
 
+        if 'internal_url' in data:
+            url = data['internal_url']
+            if url is not None:
+                url = str(url).strip()
+                if url and not url.startswith(('http://', 'https://')):
+                    return error_response('BAD_REQUEST', 'Internal URL must start with http:// or https://', status_code=400)
+            updates['internal_url'] = url if url else None
+
         if 'announce_interval' in data:
             try:
                 interval = int(data['announce_interval'])
@@ -177,6 +190,8 @@ def register_routes(api_bp):
                 torrent_manager.tracker.state.peer_expiry = updates['peer_expiry']
             if 'external_url' in updates:
                 torrent_manager.tracker.external_url = updates['external_url'] or f"http://localhost:{torrent_manager.tracker.port}/announce"
+            if 'internal_url' in updates:
+                torrent_manager.tracker.internal_url = updates['internal_url']
 
         # If apply is requested, stop/start the tracker as needed
         should_apply = data.get('apply', False)
@@ -202,6 +217,9 @@ def register_routes(api_bp):
                             history_service=torrent_manager.history_service,
                             history_config=torrent_manager.history_config
                         )
+
+                # Re-register pending transfers with the new tracker/handler
+                torrent_manager._reregister_pending_transfers()
 
                 # Get updated status
                 if torrent_manager.tracker:

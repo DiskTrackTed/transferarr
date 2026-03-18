@@ -9,7 +9,7 @@ import socket
 import struct
 import threading
 import time
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import HTTPServer, ThreadingHTTPServer, BaseHTTPRequestHandler
 from typing import Optional
 from urllib.parse import parse_qs, urlparse, unquote_to_bytes
 import re
@@ -351,20 +351,34 @@ class TrackerRequestHandler(BaseHTTPRequestHandler):
     tracker_state: TrackerState = None
     announce_interval: int = 60
     
+    # Prevent keep-alive connections from blocking the server.
+    # BitTorrent clients (especially libtorrent-based like Deluge) may hold
+    # connections open with HTTP/1.1 keep-alive. With a single-threaded server
+    # this would block ALL other requests (announces, curl, etc.).
+    timeout = 10  # Socket timeout per connection (seconds)
+    protocol_version = "HTTP/1.0"  # Default to Connection: close
+    
     def log_message(self, format, *args):
         """Override to use our logger."""
         logger.debug(f"Tracker: {args[0]}")
     
     def do_GET(self):
         """Handle GET requests (announce and scrape)."""
-        parsed = urlparse(self.path)
-        
-        if parsed.path == "/announce":
-            self._handle_announce(parsed.query)
-        elif parsed.path == "/scrape":
-            self._handle_scrape(parsed.query)
-        else:
-            self.send_error(404, "Not Found")
+        try:
+            parsed = urlparse(self.path)
+            
+            if parsed.path == "/announce":
+                self._handle_announce(parsed.query)
+            elif parsed.path == "/scrape":
+                self._handle_scrape(parsed.query)
+            else:
+                self.send_error(404, "Not Found")
+        except Exception as e:
+            logger.error(f"Tracker request handler error: {e}", exc_info=True)
+            try:
+                self.send_error(500, "Internal Server Error")
+            except Exception:
+                pass
     
     def _handle_announce(self, query_string: str):
         """Handle announce request.
@@ -388,6 +402,10 @@ class TrackerRequestHandler(BaseHTTPRequestHandler):
             # Handle event
             if request.event == "stopped":
                 self.tracker_state.remove_peer(request.info_hash, request.peer_id)
+                logger.debug(
+                    f"Tracker: peer stopped {request.ip}:{request.port} "
+                    f"for hash {request.info_hash.hex()[:8]}..."
+                )
             else:
                 # Update peer (started, completed, or regular announce)
                 self.tracker_state.update_peer(
@@ -397,9 +415,20 @@ class TrackerRequestHandler(BaseHTTPRequestHandler):
                     request.port,
                     request.left
                 )
+                event_str = f" ({request.event})" if request.event else ""
+                logger.debug(
+                    f"Tracker: announce from {request.ip}:{request.port}{event_str} "
+                    f"for hash {request.info_hash.hex()[:8]}... "
+                    f"(left={request.left})"
+                )
             
             # Get peers (excluding the requesting peer)
             peers = self.tracker_state.get_peers(request.info_hash, request.peer_id)
+            
+            logger.debug(
+                f"Tracker: returning {len(peers)} peer(s) to {request.ip}:{request.port}: "
+                f"{', '.join(f'{ip}:{p}' for ip, p in peers) if peers else 'none'}"
+            )
             
             # Build and send response
             response = self._build_response(peers, request.compact)
@@ -507,6 +536,7 @@ class BitTorrentTracker:
         self,
         port: int = DEFAULT_PORT,
         external_url: Optional[str] = None,
+        internal_url: Optional[str] = None,
         announce_interval: int = DEFAULT_ANNOUNCE_INTERVAL,
         peer_expiry: int = DEFAULT_PEER_EXPIRY
     ):
@@ -514,12 +544,16 @@ class BitTorrentTracker:
         
         Args:
             port: Port to listen on
-            external_url: URL clients use to reach tracker (for magnet URIs)
+            external_url: URL remote clients use to reach tracker
+            internal_url: URL for clients on the same network as tracker
+                (e.g. Docker network address). If set, both URLs are included
+                in transfer torrents so each client uses whichever responds.
             announce_interval: Seconds between client announces
             peer_expiry: Seconds after which peers are considered expired
         """
         self.port = port
         self.external_url = external_url or f"http://localhost:{port}/announce"
+        self.internal_url = internal_url
         self.announce_interval = announce_interval
         self.state = TrackerState(peer_expiry=peer_expiry)
         
@@ -544,7 +578,12 @@ class BitTorrentTracker:
         TrackerRequestHandler.announce_interval = self.announce_interval
         
         try:
-            self._server = HTTPServer(("0.0.0.0", self.port), TrackerRequestHandler)
+            # ThreadingHTTPServer handles each connection in its own thread.
+            # Critical because BitTorrent clients (libtorrent/Deluge) may hold
+            # connections open, which would block a single-threaded HTTPServer
+            # from accepting any other requests.
+            self._server = ThreadingHTTPServer(("0.0.0.0", self.port), TrackerRequestHandler)
+            self._server.daemon_threads = True  # Don't block shutdown on open connections
         except OSError as e:
             raise RuntimeError(f"Failed to start tracker on port {self.port}: {e}")
         
@@ -576,8 +615,14 @@ class BitTorrentTracker:
         """Server loop (runs in background thread).
         
         Uses serve_forever() which cooperates with shutdown() for clean stopping.
+        Wrapped in try/except so the thread doesn't die silently — a dead thread
+        with a bound socket causes curl to hang (connection accepted but never handled).
         """
-        self._server.serve_forever()
+        try:
+            self._server.serve_forever()
+        except Exception as e:
+            logger.error(f"Tracker server thread crashed: {e}", exc_info=True)
+            self._running = False
     
     def register_transfer(self, info_hash: bytes) -> None:
         """Register a transfer torrent hash (add to whitelist).
@@ -645,6 +690,7 @@ def get_tracker_config(config: dict) -> dict:
         "enabled": tracker_config.get("enabled", True),
         "port": tracker_config.get("port", BitTorrentTracker.DEFAULT_PORT),
         "external_url": tracker_config.get("external_url"),
+        "internal_url": tracker_config.get("internal_url"),
         "announce_interval": tracker_config.get("announce_interval", BitTorrentTracker.DEFAULT_ANNOUNCE_INTERVAL),
         "peer_expiry": tracker_config.get("peer_expiry", BitTorrentTracker.DEFAULT_PEER_EXPIRY)
     }
@@ -667,6 +713,7 @@ def create_tracker_from_config(config: dict) -> Optional[BitTorrentTracker]:
     return BitTorrentTracker(
         port=tracker_config["port"],
         external_url=tracker_config["external_url"],
+        internal_url=tracker_config["internal_url"],
         announce_interval=tracker_config["announce_interval"],
         peer_expiry=tracker_config["peer_expiry"]
     )

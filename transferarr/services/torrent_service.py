@@ -121,12 +121,16 @@ class TorrentManager:
             self.torrent_transfer_handler = None
 
     def _reregister_pending_transfers(self):
-        """Re-register pending transfer hashes with tracker on startup.
+        """Re-register pending transfer hashes with tracker and restore creation slots.
         
-        Tracker state is in-memory only, so after a restart all registered
-        hashes are lost. This method scans loaded torrents for any in TORRENT_*
-        states (or COPIED/TARGET_* with un-cleaned transfer data) and
-        re-registers their transfer hashes with the tracker.
+        Tracker state is in-memory only, so after a restart (or tracker apply)
+        all registered hashes are lost. This method scans loaded torrents for
+        any in TORRENT_* states (or COPIED/TARGET_* with un-cleaned transfer
+        data) and re-registers their transfer hashes with the tracker.
+        
+        Also restores _creating_slots on the handler for any torrent in
+        TORRENT_CREATING state, preventing concurrent creation RPCs to the
+        same Deluge instance.
         
         Also forces re-announce on both source and target clients so the
         tracker learns the peers again.
@@ -135,6 +139,7 @@ class TorrentManager:
             return
         
         torrent_states = {
+            TorrentState.TORRENT_CREATE_QUEUE,
             TorrentState.TORRENT_CREATING,
             TorrentState.TORRENT_TARGET_ADDING,
             TorrentState.TORRENT_DOWNLOADING,
@@ -143,6 +148,16 @@ class TorrentManager:
         
         reregistered = 0
         for torrent in self.torrents:
+            # Restore creation slot for TORRENT_CREATING torrents
+            if (torrent.state == TorrentState.TORRENT_CREATING and
+                    torrent.home_client and hasattr(torrent.home_client, 'name')):
+                client_name = torrent.home_client.name
+                self.torrent_transfer_handler._creating_slots[client_name] = torrent.id
+                logger.debug(
+                    f"Restored creation slot for {client_name} -> {torrent.id} "
+                    f"({torrent.name})"
+                )
+
             if not torrent.transfer or not torrent.transfer.get("hash"):
                 continue
             
@@ -192,40 +207,62 @@ class TorrentManager:
             logger.info(f"Re-registered {reregistered} pending transfer(s) with tracker")
 
     def _migrate_connections_config(self):
-        """Migrate connections from array format to dict format if needed.
+        """Migrate connections config to latest format.
         
-        Auto-generates names as "{from} -> {to}".
-        Handles duplicates by appending numbers: "source -> target 2", etc.
+        Handles two migrations:
+        1. Array → dict format (auto-generates names as "{from} -> {to}")
+        2. source_sftp (flat) → source (nested) for torrent transfer configs
         """
         connections = self.config.get("connections")
-        if not isinstance(connections, list):
-            return  # Already migrated or no connections
         
-        logger.info("Migrating connections from array to dict format...")
-        migrated = {}
-        name_counts = {}  # Track how many times each base name has been used
-        
-        for conn in connections:
-            base_name = f"{conn['from']} -> {conn['to']}"
+        # Migration 1: array → dict
+        if isinstance(connections, list):
+            logger.info("Migrating connections from array to dict format...")
+            migrated = {}
+            name_counts = {}  # Track how many times each base name has been used
             
-            # Check if this base name was already used
-            if base_name in name_counts:
-                name_counts[base_name] += 1
-                name = f"{base_name} {name_counts[base_name]}"
-            else:
-                name_counts[base_name] = 1
-                name = base_name
+            for conn in connections:
+                base_name = f"{conn['from']} -> {conn['to']}"
+                
+                # Check if this base name was already used
+                if base_name in name_counts:
+                    name_counts[base_name] += 1
+                    name = f"{base_name} {name_counts[base_name]}"
+                else:
+                    name_counts[base_name] = 1
+                    name = base_name
+                
+                migrated[name] = conn
+                logger.debug(f"Migrated connection: {name}")
             
-            migrated[name] = conn
-            logger.debug(f"Migrated connection: {name}")
+            self.config["connections"] = migrated
+            connections = migrated
         
-        self.config["connections"] = migrated
+        # Migration 2: source_sftp → source for torrent transfer configs
+        if isinstance(connections, dict):
+            migrated_source = False
+            for name, conn in connections.items():
+                tc = conn.get("transfer_config", {})
+                if tc.get("type") == "torrent" and "source_sftp" in tc:
+                    old = tc.pop("source_sftp")
+                    state_dir = old.pop("state_dir", None)
+                    # Remaining keys (host, port, username, password, etc.) are SFTP connection params
+                    new_source = {"type": "sftp", "sftp": old}
+                    if state_dir:
+                        new_source["state_dir"] = state_dir
+                    tc["source"] = new_source
+                    migrated_source = True
+                    logger.debug(f"Migrated source_sftp → source for connection '{name}'")
+            
+            if migrated_source:
+                logger.info("Migrated torrent connection(s) from source_sftp to source format")
         
         # Save the migrated config
-        if self.save_config(self.config):
-            logger.info(f"Successfully migrated {len(migrated)} connections")
-        else:
-            logger.error("Failed to save migrated connections config")
+        if isinstance(self.config.get("connections"), dict):
+            if self.save_config(self.config):
+                logger.info(f"Successfully saved migrated connections config")
+            else:
+                logger.error("Failed to save migrated connections config")
 
     def load_torrents_state(self):
         """Load the torrents state from a JSON file."""
@@ -257,6 +294,110 @@ class TorrentManager:
         except Exception as e:
             logger.error(f"Failed to save torrents state: {e}")
 
+    def _should_delete_cross_seeds(self, torrent):
+        """Determine whether cross-seed siblings should be removed for a torrent.
+        
+        For manual transfers, the per-transfer `delete_source_cross_seeds` flag
+        is checked. For automatic (media-manager) transfers, the per-client
+        `delete_cross_seeds` config is checked.
+        
+        Uses the current client instance from self.download_clients (rather than
+        the torrent's cached home_client reference) so that runtime config
+        changes via the API are picked up immediately.
+        
+        Returns:
+            bool: True if siblings should be removed.
+        """
+        if torrent.delete_source_cross_seeds is not None:
+            # Manual transfer: per-transfer flag was explicitly set
+            return torrent.delete_source_cross_seeds
+        # Automatic transfer: look up current client config
+        # (torrent.home_client may be a stale reference after API updates)
+        client_name = getattr(torrent, 'home_client_name', None)
+        if client_name and client_name in self.download_clients:
+            return self.download_clients[client_name].delete_cross_seeds
+        return torrent.home_client.delete_cross_seeds
+
+    def _remove_source_cross_seeds(self, torrent):
+        """Remove cross-seed siblings from the source client before removing
+        the original torrent.
+        
+        Cross-seed siblings are identified as torrents on the same client with
+        the same name and total_size but a different info_hash.
+        
+        Siblings that are currently being tracked for transfer (i.e. in
+        self.torrents) are skipped — they will handle their own cleanup
+        when their transfer completes.
+        
+        Siblings are removed with remove_data=True. This is safe because:
+        - Hardlinked files: removing one set of paths doesn't affect the other
+        - Symlinked files: removing symlinks doesn't affect the actual data
+        """
+        if not self._should_delete_cross_seeds(torrent):
+            return
+        
+        try:
+            all_torrents = torrent.home_client.get_all_torrents_status()
+            if not all_torrents:
+                return
+            
+            # Find the torrent's info in the full list
+            torrent_info = all_torrents.get(torrent.id)
+            if not torrent_info:
+                return
+            
+            torrent_name = torrent_info.get("name")
+            torrent_size = torrent_info.get("total_size")
+            if not torrent_name or torrent_size is None:
+                return
+            
+            # Build set of hashes currently tracked for transfer so we
+            # don't remove a sibling that is mid-transfer.
+            tracked_hashes = {t.id.lower() for t in self.torrents}
+            
+            # Find siblings: same name + total_size, different hash
+            siblings = []
+            for h, info in all_torrents.items():
+                if h == torrent.id:
+                    continue
+                if (info.get("name") == torrent_name
+                        and info.get("total_size") == torrent_size):
+                    # Skip siblings that are currently being transferred
+                    if h.lower() in tracked_hashes:
+                        logger.debug(
+                            f"Skipping cross-seed sibling {h[:8]} for "
+                            f"'{torrent.name}' — currently tracked for transfer"
+                        )
+                        continue
+                    siblings.append(h)
+            
+            if not siblings:
+                return
+            
+            logger.info(
+                f"Removing {len(siblings)} cross-seed sibling(s) for "
+                f"'{torrent.name}' from {torrent.home_client.name}"
+            )
+            for sibling_hash in siblings:
+                try:
+                    torrent.home_client.remove_torrent(
+                        sibling_hash, remove_data=True
+                    )
+                    logger.debug(
+                        f"Removed cross-seed sibling {sibling_hash[:8]} "
+                        f"for '{torrent.name}'"
+                    )
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to remove cross-seed sibling "
+                        f"{sibling_hash[:8]} for '{torrent.name}': {e}"
+                    )
+        except Exception as e:
+            logger.warning(
+                f"Failed to query cross-seed siblings for "
+                f"'{torrent.name}': {e}"
+            )
+
     def save_config(self, updated_config):
         """Save the updated configuration to the config file."""
         try:
@@ -268,7 +409,7 @@ class TorrentManager:
             return False
 
     def create_manual_transfers(self, hashes, source_client, dest_client,
-                                connection):
+                                connection, delete_source_cross_seeds=True):
         """Create and initiate manual transfers for the given torrent hashes.
 
         Creates Torrent objects from raw client data (no media manager),
@@ -280,6 +421,8 @@ class TorrentManager:
             source_client: Source DownloadClientBase instance
             dest_client: Target DownloadClientBase instance
             connection: TransferConnection instance to use
+            delete_source_cross_seeds: Whether to remove cross-seed siblings
+                when removing the source torrent after transfer (default True)
 
         Returns:
             Dict with transfer summary: initiated count, skipped, errors
@@ -311,6 +454,7 @@ class TorrentManager:
                 torrent.media_manager = None  # Manual transfer — no media manager
                 torrent.size = int(info.get("total_size", 0))
                 torrent.progress = int(info.get("progress", 0))
+                torrent.delete_source_cross_seeds = delete_source_cross_seeds
                 torrent.state = TorrentState.HOME_SEEDING  # no save_callback yet
                 torrent.save_callback = self.save_torrents_state
 
@@ -320,10 +464,33 @@ class TorrentManager:
                 # Initiate transfer based on connection type
                 if connection.is_torrent_transfer:
                     if self.torrent_transfer_handler:
-                        torrent.state = TorrentState.TORRENT_CREATING
-                        self.torrent_transfer_handler.handle_creating(
-                            torrent, connection
-                        )
+                        # Early gate: reject private torrents in magnet-only mode
+                        if connection.source_type is None:
+                            try:
+                                is_private = source_client.is_private_torrent(torrent_hash)
+                            except Exception as e:
+                                logger.warning(
+                                    f"Could not check private flag for {torrent.name}: {e}. "
+                                    f"Proceeding (will re-check in handle_seeding)."
+                                )
+                                is_private = False
+                            if is_private:
+                                self.torrents.remove(torrent)
+                                torrent.state = TorrentState.TRANSFER_FAILED
+                                errors.append({
+                                    "hash": torrent_hash,
+                                    "error": (
+                                        "Private tracker torrent cannot be transferred "
+                                        "via magnet links — configure source access "
+                                        "(SFTP or local) on the connection."
+                                    ),
+                                })
+                                continue
+                        # Just set the state — the update_torrents() loop will
+                        # call handle_create_queue() on its next cycle.  Calling it
+                        # here would block the HTTP request for up to 120s while
+                        # Deluge hashes the torrent.
+                        torrent.state = TorrentState.TORRENT_CREATE_QUEUE
                         initiated.append({
                             "hash": torrent_hash,
                             "name": torrent.name,
@@ -406,6 +573,10 @@ class TorrentManager:
         """Update the state of all torrents"""
         torrents_to_remove = []
         for torrent in self.torrents:
+            # Skip TRANSFER_FAILED — requires explicit user action (Retry or Remove)
+            if torrent.state == TorrentState.TRANSFER_FAILED:
+                continue
+
             ### First case is a torrent that was just added to the radarr queue, state is RADARR_QUEUE
             if torrent.state in [TorrentState.MANAGER_QUEUED, TorrentState.UNCLAIMED, TorrentState.ERROR]:
                 ### Check if this is one of our transfer torrents (picked up by Radarr/Sonarr)
@@ -486,8 +657,26 @@ class TorrentManager:
                                 # Check if this is a torrent-based transfer
                                 if connection.is_torrent_transfer:
                                     if self.torrent_transfer_handler:
-                                        torrent.state = TorrentState.TORRENT_CREATING
-                                        self.torrent_transfer_handler.handle_creating(torrent, connection)
+                                        # Early gate: reject private torrents in magnet-only mode
+                                        # before creating any transfer torrents.
+                                        if connection.source_type is None:
+                                            try:
+                                                is_private = torrent.home_client.is_private_torrent(torrent.id)
+                                            except Exception as e:
+                                                logger.warning(
+                                                    f"Could not check private flag for {torrent.name}: {e}. "
+                                                    f"Proceeding (will re-check in handle_seeding)."
+                                                )
+                                                is_private = False
+                                            if is_private:
+                                                logger.error(
+                                                    f"Torrent '{torrent.name}' is a private tracker torrent but "
+                                                    f"connection '{connection.name}' has no source access configured. "
+                                                    f"Configure source access (SFTP or local) to transfer private torrents."
+                                                )
+                                                torrent.state = TorrentState.TRANSFER_FAILED
+                                                break
+                                        torrent.state = TorrentState.TORRENT_CREATE_QUEUE
                                     else:
                                         logger.error(
                                             f"Torrent {torrent.name} needs torrent transfer but tracker is disabled. "
@@ -501,7 +690,7 @@ class TorrentManager:
                 # Check if the torrent is in any connection's active transfers
                 already_in_queue = False
                 for connection in self.connections.values(): 
-                    if any(t.name == torrent.name for t in connection.get_active_transfers()):
+                    if any(t.id == torrent.id for t in connection.get_active_transfers()):
                         already_in_queue = True
                         logger.debug(f"Torrent {torrent.name} is already in the transfer queue")
                 
@@ -519,7 +708,8 @@ class TorrentManager:
                     if not connection_found:
                         logger.warning(f"Could not find appropriate connection for torrent {torrent.name} from {torrent.home_client.name} to {torrent.target_client.name}")
             ### Handle torrent-based transfer states
-            elif torrent.state in [TorrentState.TORRENT_CREATING, TorrentState.TORRENT_TARGET_ADDING,
+            elif torrent.state in [TorrentState.TORRENT_CREATE_QUEUE, TorrentState.TORRENT_CREATING,
+                                   TorrentState.TORRENT_TARGET_ADDING,
                                    TorrentState.TORRENT_DOWNLOADING, TorrentState.TORRENT_SEEDING]:
                 if not self.torrent_transfer_handler:
                     logger.error(f"Torrent {torrent.name} in {torrent.state.name} but no transfer handler available")
@@ -540,7 +730,9 @@ class TorrentManager:
                     continue
                 
                 # Handle current state
-                if torrent.state == TorrentState.TORRENT_CREATING:
+                if torrent.state == TorrentState.TORRENT_CREATE_QUEUE:
+                    self.torrent_transfer_handler.handle_create_queue(torrent)
+                elif torrent.state == TorrentState.TORRENT_CREATING:
                     self.torrent_transfer_handler.handle_creating(torrent, connection)
                 elif torrent.state == TorrentState.TORRENT_TARGET_ADDING:
                     self.torrent_transfer_handler.handle_target_adding(torrent, connection)
@@ -591,6 +783,8 @@ class TorrentManager:
                     if ready_to_remove:
                         if torrent.target_client.has_torrent(torrent):
                             if torrent.home_client.has_torrent(torrent):
+                                # Remove cross-seed siblings from source before removing original
+                                self._remove_source_cross_seeds(torrent)
                                 torrent.home_client.remove_torrent(torrent.id, remove_data=True)
                                 logger.debug(f"Torrent {torrent.name} removed from home client {torrent.home_client.name}, and from watchlist")
                             else:

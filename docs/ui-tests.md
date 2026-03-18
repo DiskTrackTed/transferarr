@@ -562,13 +562,14 @@ Manual transfer UI: transfer button, torrent selection, transfer modal elements,
 
 | Test | Description |
 |------|-------------|
-| `test_cross_seeds_checked_by_default` | Checkbox checked by default |
-| `test_can_uncheck_cross_seeds` | Can uncheck cross-seeds |
-| `test_can_recheck_cross_seeds` | Can re-check after unchecking |
-| `test_cross_seed_warning_hidden_when_checked` | Cross-seed warning hidden when checkbox is checked |
-| `test_cross_seed_warning_hidden_when_no_siblings` | Warning stays hidden when unchecking if no siblings |
-| `test_cross_seed_warning_shows_on_uncheck_with_siblings` | Warning appears when unchecking with sibling torrents |
-| `test_cross_seed_warning_hides_on_recheck` | Warning disappears when re-checking Include Cross-Seeds |
+| `test_cross_seeds_unchecked_by_default` | Checkbox unchecked by default |
+| `test_can_check_cross_seeds` | Can check cross-seeds |
+| `test_can_uncheck_after_checking` | Can uncheck after checking |
+| `test_cross_seed_warning_hidden_when_unchecked` | Cross-seed warning hidden when checkbox is unchecked (default) |
+| `test_cross_seed_warning_hidden_when_no_siblings` | Warning stays hidden when checking if no siblings |
+| `test_cross_seed_warning_shows_on_check_with_siblings` | Warning does not appear when no siblings exist (different names) |
+| `test_cross_seed_warning_hides_on_uncheck` | Warning stays hidden through toggle cycle with no siblings |
+| `test_different_name_torrents_not_cross_seeds` | Different-name torrents in same directory are NOT cross-seeds |
 
 **TestInlineTransferButton** - Per-torrent inline transfer button:
 
@@ -581,6 +582,39 @@ Manual transfer UI: transfer button, torrent selection, transfer modal elements,
 | `test_inline_button_selects_single_torrent` | Modal shows exactly 1 torrent selected |
 | `test_inline_button_clears_previous_selection` | Inline button resets any multi-selection |
 | `test_inline_button_has_tooltip` | Button has descriptive title attribute |
+
+**TestDeleteCrossSeedsCheckbox** - Delete Cross-Seeds checkbox visibility and default:
+
+| Test | Description |
+|------|-------------|
+| `test_checkbox_hidden_for_standalone_torrent` | Checkbox hidden when torrent has no siblings |
+| `test_checkbox_visible_for_cross_seed_torrent` | Checkbox visible when torrent has siblings |
+| `test_checkbox_checked_by_default` | Checkbox is checked (True) by default |
+| `test_can_uncheck_checkbox` | Can uncheck the checkbox |
+| `test_can_recheck_after_unchecking` | Can re-check after unchecking |
+| `test_checkbox_has_descriptive_label` | Checkbox has label and help text |
+
+**TestOriginalTorrentIndicator** - Original badge on oldest cross-seed torrent:
+
+| Test | Description |
+|------|-------------|
+| `test_original_badge_present_on_cross_seed` | Cross-seed torrent shows Original badge |
+| `test_original_badge_text` | Badge contains text 'Original' |
+| `test_no_original_badge_for_standalone` | Standalone torrents have no badge |
+| `test_original_badge_has_tooltip` | Badge has descriptive title attribute |
+| `test_original_at_top_when_non_original_selected` | Selecting a non-original still shows Original badge at top |
+| `test_original_at_top_has_no_action_badge_when_not_selected` | Promoted original has no action badges (subtitle covers it) |
+
+**TestSelectedBadge** - Selected badge on the user's directly picked torrent:
+
+| Test | Description |
+|------|-------------|
+| `test_selected_badge_on_original_when_original_selected` | Selecting original shows both Original and Selected badges |
+| `test_selected_badge_on_non_original_in_cross_seed_section` | Selecting non-original shows Selected badge in cross-seed section |
+| `test_selected_badge_text` | Badge contains text 'Selected' |
+| `test_selected_badge_has_tooltip` | Badge has descriptive title attribute |
+| `test_no_selected_badge_for_standalone` | Standalone torrents have no Selected badge |
+| `test_non_original_selected_has_action_badge` | Selected non-original also gets action badges |
 
 ### crud/
 
@@ -602,6 +636,16 @@ Full client CRUD workflows: add, edit, delete, test connection, form validation.
 | `test_connection_type_toggles_username_field` | Username field shows/hides based on type |
 | `test_modal_close_button_works` | Modal close button works |
 | `test_form_changes_disable_save_button` | Form changes require re-testing connection |
+
+**TestClientDeleteCrossSeedsCheckbox** - Delete Cross-Seeds checkbox in client modal:
+
+| Test | Description |
+|------|-------------|
+| `test_checkbox_visible_in_add_modal` | Checkbox visible in Add Client modal |
+| `test_checkbox_checked_by_default` | Checkbox checked by default |
+| `test_checkbox_has_label` | Checkbox has descriptive label |
+| `test_checkbox_has_help_text` | Checkbox has help text |
+| `test_checkbox_populated_on_edit` | Checkbox state populated from existing client |
 
 #### [test_connection_crud.py](../tests/ui/crud/test_connection_crud.py)
 Connection CRUD workflows: add, edit, delete, test connection.
@@ -638,11 +682,19 @@ Connection CRUD workflows: add, edit, delete, test connection.
 | `test_transfer_method_defaults_to_torrent` | Torrent is selected by default |
 | `test_switching_to_torrent_hides_sftp_config` | Selecting Torrent hides SFTP config and path sections |
 | `test_switching_to_file_transfer_shows_sftp_config` | Switching back to File Transfer restores SFTP config |
-| `test_torrent_type_shows_destination_path` | Torrent type shows destination path under Advanced Options |
+| `test_torrent_type_shows_destination_path` | Torrent type shows destination path and magnet-only checkbox under Advanced Options |
 | `test_torrent_type_shows_tracker_info_note` | Torrent type shows tracker requirement note |
-| `test_torrent_test_connection_checks_clients_and_tracker` | Test Connection for torrent verifies clients + tracker |
-| `test_save_torrent_connection_creates_correct_config` | Saving torrent connection creates correct config structure |
-| `test_edit_torrent_connection_populates_form` | Editing existing torrent connection populates form correctly |
+| `test_torrent_test_connection_checks_clients_and_tracker` | Test Connection for torrent verifies clients + tracker (uses magnet-only mode) |
+| `test_save_torrent_connection_creates_correct_config` | Saving magnet-only torrent connection creates correct config (no source) |
+| `test_edit_torrent_connection_populates_form` | Editing magnet-only torrent connection populates form with correct state |
+| `test_edit_torrent_connection_saves_changes` | Edited torrent connection changes persist |
+| `test_source_sftp_fields_visible_by_default` | Source SFTP config fields visible by default for torrent method |
+| `test_source_type_local_hides_sftp_fields` | Switching source type to local hides SFTP fields |
+| `test_source_type_switch_back_to_sftp_restores_fields` | Switching from local back to SFTP restores fields |
+| `test_magnet_only_checkbox_under_advanced` | Magnet-only checkbox under Advanced Options, unchecked by default |
+| `test_magnet_only_hides_sftp_shows_warning` | Checking magnet-only hides source config and shows private tracker warning |
+| `test_uncheck_magnet_only_restores_sftp` | Unchecking magnet-only restores source config and hides warning |
+| `test_save_with_sftp_includes_source_config` | Saving with SFTP fields includes source config with nested sftp |
 
 ### e2e/
 
@@ -723,7 +775,7 @@ Located in `tests/ui/helpers.py`. These are shared utilities for UI tests:
 | Function | Purpose |
 |----------|--------|
 | `add_connection_via_ui()` | Add a transfer connection via the Settings UI modal. Handles all transfer type combinations (local/sftp). |
-| `add_torrent_connection_via_ui()` | Add a torrent-type connection via the Settings UI modal. Selects torrent method, fills clients. Optionally expands Advanced Options to set destination path. |
+| `add_torrent_connection_via_ui()` | Add a torrent-type connection via the Settings UI modal. Selects torrent method, fills clients. Optionally fills Source SFTP fields, sets destination path, or enables magnet-only mode under Advanced Options. |
 | `get_connection_config_via_api()` | Get a connection's config by name via the REST API. Used for verification. |
 | `delete_connection_via_api()` | Delete a connection by name via the REST API. Used for cleanup. |
 | `delete_client_via_api()` | Delete a download client by name via the REST API. Used for cleanup. |

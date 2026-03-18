@@ -250,6 +250,27 @@ class TestDownloadClientBase:
         assert mock_connection not in client.connections
         assert len(client.connections) == 0
 
+    def test_delete_cross_seeds_defaults_to_true(self):
+        """delete_cross_seeds property defaults to True when not set."""
+        CompleteClient = make_complete_client_class()
+        config = make_config()
+        client = CompleteClient(config)
+        assert client.delete_cross_seeds is True
+
+    def test_delete_cross_seeds_explicit_false(self):
+        """delete_cross_seeds property returns False when explicitly set."""
+        CompleteClient = make_complete_client_class()
+        config = make_config(delete_cross_seeds=False)
+        client = CompleteClient(config)
+        assert client.delete_cross_seeds is False
+
+    def test_delete_cross_seeds_explicit_true(self):
+        """delete_cross_seeds property returns True when explicitly set."""
+        CompleteClient = make_complete_client_class()
+        config = make_config(delete_cross_seeds=True)
+        client = CompleteClient(config)
+        assert client.delete_cross_seeds is True
+
 
 class TestClientRegistry:
     """Tests for the client registry."""

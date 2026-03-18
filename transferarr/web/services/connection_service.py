@@ -1,7 +1,7 @@
 """
 Service for transfer connection CRUD operations.
 """
-from transferarr.services.transfer_connection import TransferConnection, test_torrent_client_connectivity, is_torrent_transfer
+from transferarr.services.transfer_connection import TransferConnection, test_torrent_client_connectivity, _test_sftp_connectivity, _test_local_state_dir, is_torrent_transfer
 from . import NotFoundError, ConflictError, ConfigSaveError
 import copy
 
@@ -9,11 +9,14 @@ import copy
 def _mask_sftp_passwords(transfer_config: dict) -> dict:
     """Deep copy transfer_config and mask any SFTP passwords.
     
-    Torrent configs have no from/to keys and no passwords to mask.
+    Handles both file transfer configs (from/to SFTP) and
+    torrent configs (source.sftp).
     """
     safe_config = copy.deepcopy(transfer_config)
-    if "from" not in safe_config:
-        return safe_config
+    # Torrent config: mask source.sftp password
+    if (safe_config.get("source", {}) or {}).get("sftp", {}).get("password"):
+        safe_config["source"]["sftp"]["password"] = "***"
+    # File transfer config: mask from/to SFTP passwords
     if (safe_config.get("from", {}).get("sftp") or {}).get("password"):
         safe_config["from"]["sftp"]["password"] = "***"
     if (safe_config.get("to", {}).get("sftp") or {}).get("password"):
@@ -174,9 +177,8 @@ class ConnectionService:
         updated_config = dict(self.torrent_manager.config)
         existing_conn_config = updated_config.get("connections", {}).get(actual_name, {})
         
-        # Preserve SFTP passwords if masked/empty (only for file transfers)
-        if not is_torrent_transfer(transfer_config):
-            transfer_config = self._preserve_sftp_passwords(transfer_config, existing_conn_config)
+        # Preserve SFTP passwords if masked/empty (handles both file from/to and torrent source.sftp)
+        transfer_config = self._preserve_sftp_passwords(transfer_config, existing_conn_config)
         
         # Build config
         connection_config = {
@@ -269,7 +271,17 @@ class ConnectionService:
         
         # Torrent transfer: check clients + tracker (no filesystem access needed)
         if is_torrent_transfer(transfer_config):
-            return self._test_torrent_connection(from_client_obj, to_client_obj)
+            source = transfer_config.get("source")
+            # Resolve stored SFTP password if editing an existing connection
+            if source and source.get("type") == "sftp" and source.get("sftp") and existing_name:
+                actual_name, _ = _find_connection_by_name(self.torrent_manager.connections, existing_name)
+                if actual_name:
+                    stored_config = self.torrent_manager.config.get("connections", {}).get(actual_name, {})
+                    stored_source = stored_config.get("transfer_config", {}).get("source", {})
+                    stored_sftp = stored_source.get("sftp", {})
+                    if stored_sftp and source["sftp"].get("password") in (None, "", "***"):
+                        source["sftp"]["password"] = stored_sftp.get("password", "")
+            return self._test_torrent_connection(from_client_obj, to_client_obj, source_config=source)
         
         # File transfer: create temp TransferConnection and test SFTP/local connectivity
         # Look up stored passwords if editing
@@ -284,11 +296,12 @@ class ConnectionService:
         
         return temp_connection.test_connection()
     
-    def _test_torrent_connection(self, from_client, to_client) -> dict:
-        """Test a torrent-type connection by checking clients and tracker.
+    def _test_torrent_connection(self, from_client, to_client, source_config=None) -> dict:
+        """Test a torrent-type connection by checking clients, tracker, and optional source access.
         
         Uses the shared client connectivity helper, then appends the
-        tracker status check (only available in the service layer).
+        tracker status check (only available in the service layer),
+        and source access check (SFTP or local) if configured.
         
         Returns:
             Dict with success (bool), message (str), and details (list of component results)
@@ -317,6 +330,14 @@ class ConnectionService:
                 "message": f"Running on port {tracker.port}"
             })
         
+        # Check source access (SFTP or local) for .torrent file retrieval
+        if source_config:
+            source_type = source_config.get("type")
+            if source_type == "sftp" and source_config.get("sftp"):
+                details.extend(_test_sftp_connectivity(source_config["sftp"]))
+            elif source_type == "local":
+                details.extend(_test_local_state_dir(source_config))
+        
         failed = [d for d in details if not d["success"]]
         if failed:
             summary = "; ".join(f"{d['component']}: {d['message']}" for d in failed)
@@ -325,9 +346,21 @@ class ConnectionService:
         return {"success": True, "message": "All components reachable", "details": details}
     
     def _preserve_sftp_passwords(self, transfer_config: dict, existing_config: dict) -> dict:
-        """Preserve SFTP passwords if new value is masked or empty."""
+        """Preserve SFTP passwords if new value is masked or empty.
+        
+        Handles both file transfer from/to SFTP and torrent source.sftp.
+        """
         existing_transfer = existing_config.get("transfer_config", {})
         
+        # Handle torrent transfer source.sftp
+        if transfer_config.get("source", {}).get("sftp"):
+            new_password = transfer_config["source"]["sftp"].get("password", "")
+            if not new_password or new_password == "***":
+                existing_password = (existing_transfer.get("source", {}).get("sftp") or {}).get("password", "")
+                if existing_password:
+                    transfer_config["source"]["sftp"]["password"] = existing_password
+        
+        # Handle file transfer from/to SFTP
         for side in ["from", "to"]:
             if transfer_config.get(side, {}).get("sftp"):
                 new_password = transfer_config[side]["sftp"].get("password", "")

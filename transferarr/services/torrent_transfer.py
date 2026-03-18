@@ -4,6 +4,7 @@ Implements the torrent-based transfer states for transferring files
 between Deluge instances using BitTorrent protocol.
 
 States handled:
+- TORRENT_CREATE_QUEUE: Waiting for creation slot (serialized)
 - TORRENT_CREATING: Create transfer torrent on source
 - TORRENT_TARGET_ADDING: Add transfer torrent to target via magnet
 - TORRENT_DOWNLOADING: Monitor download progress on target
@@ -22,6 +23,21 @@ if TYPE_CHECKING:
     from transferarr.services.tracker import BitTorrentTracker
 
 logger = logging.getLogger("transferarr")
+
+# Keys accepted by SFTPClient.__init__()
+_SFTP_CLIENT_KEYS = frozenset({
+    'host', 'port', 'username', 'password', 'private_key',
+    'ssh_config_host', 'ssh_config_file',
+})
+
+
+def _sftp_client_params(config: dict) -> dict:
+    """Filter an SFTP config dict to only the keys SFTPClient accepts.
+    
+    Extra keys like ``state_dir`` are stripped so they don't cause
+    a TypeError when passed as **kwargs to :class:`SFTPClient`.
+    """
+    return {k: v for k, v in config.items() if k in _SFTP_CLIENT_KEYS}
 
 
 def is_transfer_torrent_name(name: str) -> bool:
@@ -81,16 +97,72 @@ class TorrentTransferHandler:
         self.tracker = tracker
         self.history_service = history_service
         self.history_config = history_config or {}
+        # Per-client creation slots: only one torrent may be in TORRENT_CREATING
+        # per source client at a time.  Maps client name → torrent.id.
+        self._creating_slots: dict[str, str] = {}
+    
+    def handle_create_queue(self, torrent: Torrent) -> bool:
+        """Handle TORRENT_CREATE_QUEUE state.
+        
+        Checks whether the creation slot for this torrent's source client is
+        free.  If so, acquires it and transitions the torrent to
+        TORRENT_CREATING.  Otherwise the torrent stays queued and will be
+        checked again on the next loop iteration.
+        
+        Slots are per-client so that different source Deluge instances can
+        create transfer torrents concurrently — only concurrent RPCs to the
+        *same* instance are serialized (Deluge hashes files serially anyway).
+        
+        Args:
+            torrent: Torrent waiting to create a transfer torrent
+            
+        Returns:
+            True if transitioned to TORRENT_CREATING, False if still queued
+        """
+        client_name = torrent.home_client.name
+        current_holder = self._creating_slots.get(client_name)
+        if current_holder is not None:
+            logger.debug(
+                f"Creation slot for {client_name} occupied (by {current_holder}), "
+                f"{torrent.name} stays in TORRENT_CREATE_QUEUE"
+            )
+            return False
+        
+        self._creating_slots[client_name] = torrent.id
+        torrent.state = TorrentState.TORRENT_CREATING
+        logger.debug(f"Creation slot for {client_name} acquired by {torrent.name}")
+        return True
+    
+    def _release_creation_slot(self, torrent: Torrent) -> None:
+        """Release the creation slot for the torrent's source client.
+        
+        Only releases if the slot is currently held by this torrent.
+        
+        Args:
+            torrent: The torrent releasing its slot
+        """
+        client_name = torrent.home_client.name
+        if self._creating_slots.get(client_name) == torrent.id:
+            del self._creating_slots[client_name]
+            logger.debug(f"Creation slot for {client_name} released by {torrent.id}")
     
     def handle_creating(
         self,
         torrent: Torrent,
         connection: TransferConnection
     ) -> bool:
-        """Handle TORRENT_CREATING state.
+        """Handle TORRENT_CREATING state (non-blocking, two-phase).
         
-        Creates a transfer torrent on the source client with a unique name
-        that produces a different hash from the original.
+        Called every ~2 seconds by the main loop.
+        
+        **Phase A** (first call): Fires the Deluge create_torrent RPC and
+        stores a poll spec in ``torrent.transfer["creating"]``.  Returns
+        False so the main loop can continue processing other torrents.
+        
+        **Phase B** (subsequent calls): Performs one poll to check whether
+        Deluge has finished hashing.  Returns False if still waiting, True
+        when the torrent is found and the state transitions to
+        TORRENT_TARGET_ADDING.
         
         Args:
             torrent: Torrent being transferred
@@ -98,7 +170,7 @@ class TorrentTransferHandler:
             
         Returns:
             True if successful and state transitioned to TORRENT_TARGET_ADDING,
-            False if failed (stays in current state or ERROR)
+            False if still waiting or failed (stays in current state)
         """
         try:
             # Initialize transfer data if not present
@@ -120,68 +192,94 @@ class TorrentTransferHandler:
             
             transfer_data = torrent.transfer
             transfer_name = transfer_data["name"]
-            
-            # Check if transfer torrent already exists on source (restart scenario)
             source_client = connection.from_client
+            
+            # --- Restart recovery: hash already known ---
             if transfer_data.get("hash") and transfer_data.get("on_source"):
-                # Verify it still exists
                 existing_info = self._get_torrent_by_hash(
                     source_client, transfer_data["hash"]
                 )
                 if existing_info:
-                    logger.info(f"Transfer torrent already exists on source: {transfer_name}")
-                    # Ensure tracker registration
+                    logger.debug(f"Transfer torrent already exists on source: {transfer_name}")
                     self._register_with_tracker(transfer_data["hash"])
+                    self._release_creation_slot(torrent)
                     torrent.state = TorrentState.TORRENT_TARGET_ADDING
                     return True
             
-            # Get the data path from the original torrent
-            torrent_info = source_client.get_torrent_info(torrent)
-            if not torrent_info:
-                logger.error(f"Could not get torrent info for {torrent.name}")
-                return self._handle_retry(torrent, connection)
+            # --- Phase A: Fire RPC (first call only) ---
+            if "creating" not in transfer_data:
+                torrent_info = source_client.get_torrent_info(torrent)
+                if not torrent_info:
+                    logger.error(f"Could not get torrent info for {torrent.name}")
+                    self._release_creation_slot(torrent)
+                    result = self._handle_retry(torrent, connection)
+                    if torrent.transfer:  # Not at max retries, re-queue
+                        torrent.state = TorrentState.TORRENT_CREATE_QUEUE
+                    return result
+                
+                save_path = torrent_info.get("save_path", "")
+                torrent_name = torrent_info.get("name", torrent.name)
+                data_path = f"{save_path}/{torrent_name}".rstrip("/")
+                total_size = torrent.size or torrent_info.get("total_size", 0)
+                
+                tracker_urls = self._get_tracker_urls()
+                
+                logger.debug(f"Creating transfer torrent '{transfer_name}' from {data_path}")
+                logger.debug(f"Tracker URLs for transfer: {tracker_urls}")
+                
+                poll_spec = source_client.start_create_torrent(
+                    path=data_path,
+                    trackers=tracker_urls,
+                    private=False,
+                    add_to_session=True,
+                    label="transferarr_tmp",
+                    total_size=total_size,
+                )
+                
+                # Store poll spec with wall-clock started_at for persistence
+                poll_spec["started_at"] = datetime.now(timezone.utc).isoformat()
+                transfer_data["creating"] = poll_spec
+                transfer_data["total_size"] = total_size
+                
+                logger.debug(
+                    f"RPC fired for '{transfer_name}', polling with "
+                    f"timeout={poll_spec['timeout']}s"
+                )
+                return False  # Main loop continues to next torrent
             
-            # The path to create torrent from
-            # For single file: save_path/name, for directory: save_path/name
-            save_path = torrent_info.get("save_path", "")
-            torrent_name = torrent_info.get("name", torrent.name)
-            data_path = f"{save_path}/{torrent_name}".rstrip("/")
+            # --- Phase B: Poll (subsequent calls) ---
+            creating = transfer_data["creating"]
+            started_at = datetime.fromisoformat(creating["started_at"])
+            elapsed = (datetime.now(timezone.utc) - started_at).total_seconds()
             
-            # Create the transfer torrent with unique name
-            tracker_url = self.tracker.external_url
+            if elapsed >= creating["timeout"]:
+                logger.warning(
+                    f"Torrent creation timed out for {torrent.name} "
+                    f"after {elapsed:.0f}s (timeout={creating['timeout']}s)"
+                )
+                # Clean up creating state so retry starts fresh
+                del transfer_data["creating"]
+                self._release_creation_slot(torrent)
+                result = self._handle_retry(torrent, connection)
+                if torrent.transfer:  # Not at max retries, re-queue
+                    torrent.state = TorrentState.TORRENT_CREATE_QUEUE
+                return result
             
-            logger.info(f"Creating transfer torrent '{transfer_name}' from {data_path}")
-            
-            # Deluge 2.x create_torrent doesn't take a name parameter -
-            # the torrent name comes from the path. So we create with original path
-            # and get a unique hash because of the tracker URL.
-            # private=False allows BEP 9 (ut_metadata) metadata exchange so the
-            # target can resolve the torrent info dict from the magnet URI.
-            
-            transfer_hash = source_client.create_torrent(
-                path=data_path,
-                name=transfer_name,  # This doesn't affect hash, just for logging
-                trackers=[tracker_url],
-                private=False,
-                add_to_session=True,
-                label="transferarr_tmp"
+            transfer_hash = source_client.poll_created_torrent(
+                creating["expected_name"],
+                creating["tracker_urls"],
+                label="transferarr_tmp",
             )
             
             if not transfer_hash:
-                logger.error(f"Failed to create transfer torrent for {torrent.name}")
-                return self._handle_retry(torrent, connection)
+                return False  # Try again next iteration
             
-            # Update transfer data with the new hash
+            # --- Found! Complete the creation ---
+            del transfer_data["creating"]
             transfer_data["hash"] = transfer_hash
             transfer_data["on_source"] = True
-            transfer_data["total_size"] = torrent.size or torrent_info.get("total_size", 0)
             
-            # Register with tracker for peer discovery
             self._register_with_tracker(transfer_hash)
-            
-            # Force re-announce so source's peer info gets stored.
-            # The source already announced immediately after create_torrent,
-            # but the hash wasn't registered yet so the tracker ignored it.
             source_client.force_reannounce(transfer_hash)
             
             logger.info(
@@ -192,25 +290,29 @@ class TorrentTransferHandler:
             # Create history record
             if self.history_service:
                 try:
-                    transfer_id = self.history_service.create_transfer(
+                    history_id = self.history_service.create_transfer(
                         torrent=torrent,
                         source_client=connection.from_client.name,
                         target_client=connection.to_client.name,
                         connection_name=connection.name,
                         transfer_method='torrent'
                     )
-                    torrent._transfer_id = transfer_id
-                    self.history_service.start_transfer(transfer_id)
+                    torrent._transfer_id = history_id
+                    self.history_service.start_transfer(history_id)
                 except Exception as e:
                     logger.warning(f"Failed to create history record: {e}")
             
-            # Transition to next state
+            self._release_creation_slot(torrent)
             torrent.state = TorrentState.TORRENT_TARGET_ADDING
             return True
             
         except Exception as e:
             logger.error(f"Error in TORRENT_CREATING for {torrent.name}: {e}")
-            return self._handle_retry(torrent, connection)
+            self._release_creation_slot(torrent)
+            result = self._handle_retry(torrent, connection)
+            if torrent.transfer:  # Not at max retries, re-queue
+                torrent.state = TorrentState.TORRENT_CREATE_QUEUE
+            return result
     
     def handle_target_adding(
         self,
@@ -238,16 +340,24 @@ class TorrentTransferHandler:
         target_client = connection.to_client
         
         try:
-            # Check if already on target (restart scenario)
-            if transfer_data.get("on_target"):
-                existing_info = self._get_torrent_by_hash(target_client, transfer_hash)
-                if existing_info:
-                    logger.info(f"Transfer torrent already on target: {transfer_hash[:8]}...")
-                    torrent.state = TorrentState.TORRENT_DOWNLOADING
-                    return True
-                else:
-                    # Was marked on_target but not actually there - reset flag
-                    transfer_data["on_target"] = False
+            # Always check if transfer torrent already exists on target,
+            # regardless of the on_target flag.  This handles two scenarios:
+            # 1. Restart recovery: transfer data says on_target=True, verify it.
+            # 2. Race condition: magnet was added on a previous attempt but
+            #    on_target was never set (exception before the flag update).
+            #    Without this check, a retry would call add_torrent_magnet
+            #    again, Deluge returns None for the duplicate, and we'd
+            #    incorrectly treat it as a failure.
+            existing_info = self._get_torrent_by_hash(target_client, transfer_hash)
+            if existing_info:
+                logger.debug(f"Transfer torrent already on target: {transfer_hash[:8]}...")
+                transfer_data["on_target"] = True
+                transfer_data["last_progress_at"] = datetime.now(timezone.utc).isoformat()
+                torrent.state = TorrentState.TORRENT_DOWNLOADING
+                return True
+            else:
+                # Not on target (or was removed) - reset flag
+                transfer_data["on_target"] = False
             
             # Get magnet URI from source
             source_client = connection.from_client
@@ -257,7 +367,7 @@ class TorrentTransferHandler:
                 logger.error(f"Failed to get magnet URI for {transfer_hash}")
                 return self._handle_retry(torrent, connection)
             
-            logger.info(f"Adding transfer torrent to target via magnet: {transfer_hash[:8]}...")
+            logger.debug(f"Adding transfer torrent to target via magnet: {transfer_hash[:8]}...")
             
             download_options = {}
             
@@ -291,6 +401,14 @@ class TorrentTransferHandler:
                 f"Transfer torrent added to target {target_client.name}: "
                 f"{transfer_hash[:8]}..."
             )
+            
+            # Force re-announce on source so it discovers the target as a peer.
+            # Without this, the source won't learn about the target until its next
+            # periodic announce (up to 60s). Critical when the source is behind
+            # NAT/VPN and can't accept inbound connections — the source must
+            # initiate the outbound connection to the target.
+            source_client = connection.from_client
+            source_client.force_reannounce(transfer_hash)
             
             # Transition to downloading state
             torrent.state = TorrentState.TORRENT_DOWNLOADING
@@ -380,6 +498,17 @@ class TorrentTransferHandler:
                     f"Transfer download complete for {torrent.name}: "
                     f"{total_done} bytes"
                 )
+                
+                # Log where the transfer torrent downloaded files to
+                try:
+                    logger.debug(
+                        f"Transfer torrent location on target: "
+                        f"save_path={progress.get('save_path')}, "
+                        f"download_location={progress.get('download_location')}"
+                    )
+                except Exception as e:
+                    logger.debug(f"Could not log transfer torrent path: {e}")
+                
                 torrent.state = TorrentState.TORRENT_SEEDING
                 return True
             
@@ -409,10 +538,12 @@ class TorrentTransferHandler:
                     else:
                         logger.error(
                             f"Download stalled for {torrent.name} after "
-                            f"{self.MAX_REANNOUNCE_ATTEMPTS} re-announce attempts"
+                            f"{self.MAX_REANNOUNCE_ATTEMPTS} re-announce attempts, "
+                            f"setting to TRANSFER_FAILED"
                         )
-                        # Mark as stalled but don't fail yet - user can cancel
-                        transfer_data["stalled"] = True
+                        self._cleanup_failed_transfer(torrent, connection)
+                        torrent.transfer = None
+                        torrent.state = TorrentState.TRANSFER_FAILED
             
             return False
             
@@ -420,6 +551,113 @@ class TorrentTransferHandler:
             logger.error(f"Error in TORRENT_DOWNLOADING for {torrent.name}: {e}")
             return False
     
+    def _fetch_torrent_file_via_sftp(
+        self,
+        torrent_hash: str,
+        source_config: dict
+    ) -> Optional[str]:
+        """Fetch a .torrent file from the source via SFTP.
+        
+        Deluge stores .torrent files in its state directory as {hash}.torrent.
+        The ``state_dir`` key in source_config provides the path to the state
+        directory *as seen from the SFTP server*.
+        
+        Args:
+            torrent_hash: Hash of the torrent to fetch
+            source_config: Source access config dict with ``sftp`` (connection
+                params) and ``state_dir`` (Deluge state directory path)
+            
+        Returns:
+            Base64-encoded .torrent file data, or None on failure
+        """
+        import os
+        import base64
+        from transferarr.clients.ftp import SFTPClient
+        
+        try:
+            state_dir = source_config.get("state_dir")
+            if not state_dir:
+                logger.error("No state_dir configured in source — cannot locate .torrent files")
+                return None
+            
+            torrent_path = os.path.join(state_dir, f"{torrent_hash}.torrent")
+            logger.debug(f"Torrent file path (from state_dir): {torrent_path}")
+            
+            # Read the file via SFTP using the sftp sub-dict
+            sftp_params = source_config.get("sftp", {})
+            sftp = SFTPClient(**sftp_params)
+            file_data = sftp.read_file(torrent_path)
+            
+            if not file_data:
+                logger.warning(f"Empty torrent file read from {torrent_path}")
+                return None
+            
+            # Validate bencoded format (starts with 'd')
+            if file_data[:1] != b'd':
+                logger.warning(
+                    f"Torrent file doesn't look bencoded (first byte: {file_data[:1]!r}): {torrent_path}"
+                )
+                return None
+            
+            encoded = base64.b64encode(file_data).decode('utf-8')
+            logger.debug(f"Successfully fetched torrent file via SFTP ({len(file_data)} bytes)")
+            return encoded
+            
+        except Exception as e:
+            logger.warning(f"Failed to fetch torrent file via SFTP: {e}")
+            return None
+
+    def _fetch_torrent_file_locally(
+        self,
+        torrent_hash: str,
+        state_dir: str
+    ) -> Optional[str]:
+        """Fetch a .torrent file from a locally-mounted state directory.
+        
+        Reads the torrent file directly from the filesystem. Used when
+        Transferarr has local access to the Deluge state directory
+        (Docker volume mount, NFS, same server, etc.).
+        
+        Args:
+            torrent_hash: Hash of the torrent to fetch
+            state_dir: Path to the Deluge state directory
+            
+        Returns:
+            Base64-encoded .torrent file data, or None on failure
+        """
+        import os
+        import base64
+        
+        try:
+            torrent_path = os.path.join(state_dir, f"{torrent_hash}.torrent")
+            logger.debug(f"Reading torrent file locally: {torrent_path}")
+            
+            if not os.path.isfile(torrent_path):
+                logger.warning(f"Torrent file not found: {torrent_path}")
+                return None
+            
+            with open(torrent_path, "rb") as f:
+                file_data = f.read()
+            
+            if not file_data:
+                logger.warning(f"Empty torrent file: {torrent_path}")
+                return None
+            
+            # Validate bencoded format (starts with 'd')
+            if file_data[:1] != b'd':
+                logger.warning(
+                    f"Torrent file doesn't look bencoded (first byte: {file_data[:1]!r}): {torrent_path}"
+                )
+                return None
+            
+            encoded = base64.b64encode(file_data).decode('utf-8')
+            logger.debug(f"Successfully read torrent file locally ({len(file_data)} bytes)")
+            return encoded
+            
+        except Exception as e:
+            logger.warning(f"Failed to read torrent file locally: {e}")
+            return None
+
     def handle_seeding(
         self,
         torrent: Torrent,
@@ -464,7 +702,7 @@ class TorrentTransferHandler:
             if transfer_data.get("original_on_target"):
                 # Verify it still exists
                 if target_client.has_torrent(torrent):
-                    logger.info(f"Original torrent already on target: {torrent.name}")
+                    logger.debug(f"Original torrent already on target: {torrent.name}")
                     # Mark history as complete
                     self._complete_history(torrent)
                     # Transition to COPIED - the normal state machine will then track
@@ -474,32 +712,126 @@ class TorrentTransferHandler:
                 else:
                     transfer_data["original_on_target"] = False
             
-            # Get magnet URI from source for the original torrent
-            # (We can't access the .torrent file since it's inside the Deluge container)
-            logger.info(f"Adding original torrent to target via magnet: {torrent.name}")
-            
-            original_magnet = source_client.get_magnet_uri(torrent.id)
-            if not original_magnet:
-                logger.error(f"Could not get magnet URI for {torrent.name}")
-                return self._handle_retry(torrent, connection)
+            # Get the actual .torrent file from source (if source access configured)
+            # Magnet links require metadata download from peers, which won't work
+            # for private torrents where the target can't reach the tracker.
+            source_config = connection.source_config
+            source_type = connection.source_type
+            if source_type == "local":
+                logger.debug(f"Fetching torrent file locally for: {torrent.name}")
+                torrent_file_data = self._fetch_torrent_file_locally(
+                    torrent.id, source_config["state_dir"]
+                )
+                if not torrent_file_data:
+                    logger.error(
+                        f"Failed to read .torrent file locally for '{torrent.name}'. "
+                        f"Local source is configured — will not fall back to magnet."
+                    )
+                    return self._handle_retry(torrent, connection)
+            elif source_type == "sftp":
+                logger.debug(f"Fetching torrent file via SFTP for: {torrent.name}")
+                torrent_file_data = self._fetch_torrent_file_via_sftp(
+                    torrent.id, source_config
+                )
+                if not torrent_file_data:
+                    logger.error(
+                        f"Failed to fetch .torrent file via SFTP for '{torrent.name}'. "
+                        f"Source SFTP is configured — will not fall back to magnet."
+                    )
+                    return self._handle_retry(torrent, connection)
+            else:
+                # Magnet-only mode — check if the torrent is private first
+                try:
+                    is_private = source_client.is_private_torrent(torrent.id)
+                except Exception as e:
+                    logger.warning(
+                        f"Could not check private flag for {torrent.name}: {e}. "
+                        f"Proceeding with magnet URI (may fail for private torrents)."
+                    )
+                    is_private = False
+                
+                if is_private:
+                    logger.error(
+                        f"Torrent '{torrent.name}' is a private tracker torrent but the "
+                        f"connection '{connection.name}' has no source access configured. "
+                        f"Private torrents cannot be transferred via magnet links — "
+                        f"configure source access (SFTP or local) on the connection to enable .torrent file transfer."
+                    )
+                    self._cleanup_failed_transfer(torrent, connection)
+                    torrent.transfer = None
+                    torrent.state = TorrentState.TRANSFER_FAILED
+                    return False
+                
+                torrent_file_data = None
+                logger.debug(
+                    f"No source access configured for torrent connection '{connection.name}'. "
+                    f"Using magnet URI (torrent is not private)."
+                )
             
             # Add to target with same download location as transfer torrent
             # The files are already there, so it will just verify/seed
+            # Add paused to prevent download attempts before recheck
             download_path = connection.destination_torrent_download_path
-            options = {}
+            options = {"add_paused": True}
             if download_path:
                 options["download_location"] = download_path
             
-            added_hash = target_client.add_torrent_magnet(
-                original_magnet,
-                options
-            )
+            if torrent_file_data:
+                # Use torrent file - has full metadata, no peer discovery needed
+                logger.debug(
+                    f"Adding original torrent to target via .torrent file, "
+                    f"download_path={download_path}, options={options}"
+                )
+                
+                added_hash = target_client.add_torrent_file(
+                    f"{torrent.name}.torrent",
+                    torrent_file_data,
+                    options
+                )
+            else:
+                # Fallback to magnet (may not work for private torrents)
+                original_magnet = source_client.get_magnet_uri(torrent.id)
+                if not original_magnet:
+                    logger.error(f"Could not get magnet URI for {torrent.name}")
+                    return self._handle_retry(torrent, connection)
+                
+                logger.debug(
+                    f"Adding original torrent to target via magnet: {original_magnet[:80]}..., "
+                    f"download_path={download_path}, options={options}"
+                )
+                
+                added_hash = target_client.add_torrent_magnet(
+                    original_magnet,
+                    options
+                )
             
             if not added_hash:
-                logger.error(f"Failed to add original torrent magnet to target: {torrent.name}")
+                logger.error(f"Failed to add original torrent to target: {torrent.name}")
                 return self._handle_retry(torrent, connection)
             
             transfer_data["original_on_target"] = True
+            
+            # Force recheck so Deluge finds the existing files from the transfer torrent
+            # Without this, magnet-added torrents start downloading instead of checking
+            logger.debug(f"Forcing recheck for original torrent: {added_hash[:8]}...")
+            target_client.force_recheck(added_hash)
+            
+            # Resume the torrent now that recheck has been triggered
+            # (it was added paused to prevent download attempts before recheck)
+            target_client.resume_torrent(added_hash)
+            
+            # Get the actual path where target put the torrent for debugging
+            try:
+                temp_torrent = Torrent(id=added_hash)
+                target_info = target_client.get_torrent_info(temp_torrent)
+                logger.debug(
+                    f"Original torrent on target: hash={added_hash[:8]}, "
+                    f"save_path={target_info.get('save_path')}, "
+                    f"download_location={target_info.get('download_location')}, "
+                    f"state={target_info.get('state')}"
+                )
+            except Exception as e:
+                logger.debug(f"Could not get original torrent info: {e}")
             
             logger.info(f"Original torrent added to target: {torrent.name}")
             
@@ -546,6 +878,22 @@ class TorrentTransferHandler:
             logger.debug(f"Error checking torrent {torrent_hash} on {client.name}: {e}")
         return None
     
+    def _get_tracker_urls(self) -> list[str]:
+        """Build list of tracker URLs for transfer torrents.
+        
+        Includes both external and internal URLs (if configured) so clients
+        on different networks can each reach the tracker. For example, a
+        home Deluge behind a VPN can use the internal Docker network URL
+        while a remote seedbox uses the external public URL.
+        
+        Returns:
+            List of tracker announce URLs
+        """
+        urls = [self.tracker.external_url]
+        if self.tracker.internal_url:
+            urls.append(self.tracker.internal_url)
+        return urls
+    
     def _register_with_tracker(self, transfer_hash: str) -> None:
         """Register transfer hash with tracker.
         
@@ -576,12 +924,12 @@ class TorrentTransferHandler:
             if torrent.transfer["retry_count"] >= self.MAX_RETRIES:
                 logger.error(
                     f"Max retries ({self.MAX_RETRIES}) reached for {torrent.name}, "
-                    f"resetting to HOME_SEEDING"
+                    f"setting to TRANSFER_FAILED state"
                 )
-                # Cleanup and reset
+                # Cleanup and set to TRANSFER_FAILED (sticky state requiring user action)
                 self._cleanup_failed_transfer(torrent, connection)
                 torrent.transfer = None
-                torrent.state = TorrentState.HOME_SEEDING
+                torrent.state = TorrentState.TRANSFER_FAILED
                 return False
             
             logger.warning(

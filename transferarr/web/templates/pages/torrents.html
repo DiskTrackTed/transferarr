@@ -41,11 +41,8 @@
             <div class="modal-body">
                 <!-- Transfer summary -->
                 <div id="transfer-summary" class="transfer-summary">
-                    <p><strong>Selected torrents:</strong> <span id="modal-selected-count">0</span></p>
-                    <div id="cross-seed-notice" class="cross-seed-notice" style="display: none;">
-                        <i class="fas fa-link"></i>
-                        <span id="cross-seed-count">0</span> cross-seed(s) will be included
-                    </div>
+                    <p><strong>Torrents to transfer:</strong> <span id="modal-selected-count">0</span></p>
+                    <p class="transfer-summary-hint">Transferred to destination and removed from source</p>
                 </div>
 
                 <!-- Torrent list preview -->
@@ -64,20 +61,33 @@
                 <!-- Cross-seed option -->
                 <div class="form-group">
                     <div class="form-check">
-                        <input class="form-check-input" type="checkbox" id="includeCrossSeeds" checked>
+                        <input class="form-check-input" type="checkbox" id="includeCrossSeeds">
                         <label class="form-check-label" for="includeCrossSeeds">
-                            Include cross-seeds
+                            Transfer cross-seeds
                         </label>
                         <small class="form-text">
-                            Automatically include torrents sharing the same data files
+                            Not recommended. Cross-seeds use hardlinks on source — transferred copies won't have hardlinks.
                         </small>
                     </div>
                 </div>
 
-                <!-- Cross-seed warning (shown when unchecked + siblings exist) -->
+                <!-- Delete cross-seeds from source option -->
+                <div class="form-group">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="deleteCrossSeeds" checked>
+                        <label class="form-check-label" for="deleteCrossSeeds">
+                            Delete cross-seeds from source
+                        </label>
+                        <small class="form-text">
+                            Remove cross-seed siblings from the source client when the transferred torrent is removed. Safe for hardlinks.
+                        </small>
+                    </div>
+                </div>
+
+                <!-- Cross-seed warning (shown when checked + siblings exist) -->
                 <div id="cross-seed-warning" class="alert alert-warning cross-seed-warning" style="display: none;">
                     <i class="fas fa-exclamation-triangle"></i>
-                    <span>Selected torrent(s) have cross-seeds. If you transfer without them, the original data will not be deleted from the source because other torrents still reference it.</span>
+                    <span>Cross-seed siblings will be transferred as independent copies without hardlinks. Deleting any torrent's data on the target could remove files shared by others. Consider using <a href="https://www.cross-seed.org/" target="_blank">cross-seed</a> to rescan the target client instead.</span>
                 </div>
 
                 <!-- Error message -->

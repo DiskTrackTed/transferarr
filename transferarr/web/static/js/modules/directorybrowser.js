@@ -29,9 +29,13 @@ export function initDirectoryBrowser(modals) {
             currentBrowseSide = side;
             
             // Determine connection type based on side
-            browseType = (side === 'from') ? 
-                document.getElementById('fromType').value : 
-                document.getElementById('toType').value;
+            if (side === 'torrent-source') {
+                browseType = document.getElementById('torrentSourceType').value;
+            } else {
+                browseType = (side === 'from') ? 
+                    document.getElementById('fromType').value : 
+                    document.getElementById('toType').value;
+            }
                 
             // Get current path from input if exists
             const currentValue = document.getElementById(targetInput).value;
@@ -76,7 +80,7 @@ export function initDirectoryBrowser(modals) {
 
 /**
  * Prepare SFTP configuration based on the side (from/to)
- * @param {string} side - 'from' or 'to' 
+ * @param {string} side - 'from', 'to', or 'torrent-source'
  * @returns {Object} SFTP configuration
  */
 function prepareSftpConfig(side) {
@@ -96,6 +100,22 @@ function prepareSftpConfig(side) {
                 port: parseInt(document.getElementById('fromSftpPort').value) || 22,
                 username: document.getElementById('fromSftpUsername').value,
                 password: document.getElementById('fromSftpPassword').value
+            };
+        }
+    } else if (side === 'torrent-source') {
+        const useSshConfig = document.getElementById('torrentSourceUseSshConfig').checked;
+        
+        if (useSshConfig) {
+            config.sftp = {
+                ssh_config_file: document.getElementById('torrentSourceSshConfigFile').value,
+                ssh_config_host: document.getElementById('torrentSourceSshConfigHost').value
+            };
+        } else {
+            config.sftp = {
+                host: document.getElementById('torrentSourceSftpHost').value,
+                port: parseInt(document.getElementById('torrentSourceSftpPort').value) || 22,
+                username: document.getElementById('torrentSourceSftpUsername').value,
+                password: document.getElementById('torrentSourceSftpPassword').value
             };
         }
     } else { // side === 'to'

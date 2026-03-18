@@ -47,13 +47,22 @@ class TorrentsPage(BasePage):
     DESTINATION_SELECT = "#destinationClient"
     INCLUDE_CROSS_SEEDS = "#includeCrossSeeds"
     MODAL_SELECTED_COUNT = "#modal-selected-count"
-    CROSS_SEED_NOTICE = "#cross-seed-notice"
-    CROSS_SEED_COUNT = "#cross-seed-count"
     TRANSFER_TORRENT_LIST = "#transfer-torrent-list"
     TRANSFER_LIST_ITEM = ".transfer-list-item"
     CROSS_SEED_DIVIDER = ".cross-seed-divider"
     TRANSFER_ERROR = "#transfer-error"
     CROSS_SEED_WARNING = "#cross-seed-warning"
+    DELETE_CROSS_SEEDS = "#deleteCrossSeeds"
+    ORIGINAL_BADGE = ".original-badge"
+    SELECTED_BADGE = ".selected-badge"
+    ACTION_BADGE = ".action-badge"
+    ACTION_BADGE_TRANSFER = ".action-badge-transfer"
+    ACTION_BADGE_DELETE = ".action-badge-delete"
+    ACTION_BADGE_NONE = ".action-badge-none"
+    CROSS_SEED_INACTIVE = ".cross-seed-inactive"
+    TRANSFER_ITEM_NAME_TEXT = ".transfer-item-name-text"
+    TRANSFER_ITEM_TRACKER = ".transfer-item-tracker"
+    TRANSFER_ITEM_BADGES = ".transfer-item-badges"
     
     def __init__(self, page: Page, base_url: str):
         super().__init__(page, base_url)
@@ -300,10 +309,6 @@ class TorrentsPage(BasePage):
         """Toggle the Include Cross-Seeds checkbox."""
         self.page.locator(self.INCLUDE_CROSS_SEEDS).click()
 
-    def is_cross_seed_notice_visible(self) -> bool:
-        """Check if the cross-seed notice is displayed in the modal."""
-        return self.page.locator(self.CROSS_SEED_NOTICE).is_visible()
-
     def get_transfer_list_items(self):
         """Get all torrent list items inside the modal."""
         return self.page.locator(
@@ -339,3 +344,78 @@ class TorrentsPage(BasePage):
         if el.is_visible():
             return el.text_content().strip()
         return ""
+
+    def is_delete_cross_seeds_checked(self) -> bool:
+        """Check if the Delete Cross-Seeds checkbox is checked."""
+        return self.page.locator(self.DELETE_CROSS_SEEDS).is_checked()
+
+    def is_delete_cross_seeds_visible(self) -> bool:
+        """Check if the Delete Cross-Seeds form group is visible."""
+        group = self.page.locator(
+            f"{self.DELETE_CROSS_SEEDS}"
+        ).locator("xpath=ancestor::div[contains(@class,'form-group')]")
+        return group.is_visible()
+
+    def toggle_delete_cross_seeds(self) -> None:
+        """Toggle the Delete Cross-Seeds checkbox."""
+        self.page.locator(self.DELETE_CROSS_SEEDS).click()
+
+    def get_original_badges(self):
+        """Get all original-badge elements inside the transfer list."""
+        return self.page.locator(
+            f"{self.TRANSFER_TORRENT_LIST} {self.ORIGINAL_BADGE}"
+        ).all()
+
+    def get_selected_badges(self):
+        """Get all selected-badge elements inside the transfer list."""
+        return self.page.locator(
+            f"{self.TRANSFER_TORRENT_LIST} {self.SELECTED_BADGE}"
+        ).all()
+
+    def get_action_badges(self, badge_type=None):
+        """Get action badge elements inside the transfer list.
+
+        Args:
+            badge_type: Optional filter — 'transfer', 'delete', or 'none'.
+                        If None, returns all action badges.
+        """
+        if badge_type == 'transfer':
+            selector = self.ACTION_BADGE_TRANSFER
+        elif badge_type == 'delete':
+            selector = self.ACTION_BADGE_DELETE
+        elif badge_type == 'none':
+            selector = self.ACTION_BADGE_NONE
+        else:
+            selector = self.ACTION_BADGE
+        return self.page.locator(
+            f"{self.TRANSFER_TORRENT_LIST} {selector}"
+        ).all()
+
+    def get_cross_seed_list_items(self):
+        """Get cross-seed items (with .cross-seed-item class) from the transfer list."""
+        return self.page.locator(
+            f"{self.TRANSFER_TORRENT_LIST} .cross-seed-item"
+        ).all()
+
+    def get_inactive_cross_seed_items(self):
+        """Get dimmed/inactive cross-seed items from the transfer list."""
+        return self.page.locator(
+            f"{self.TRANSFER_TORRENT_LIST} {self.CROSS_SEED_INACTIVE}"
+        ).all()
+
+    def get_tracker_labels(self):
+        """Get all tracker label elements inside the transfer list."""
+        return self.page.locator(
+            f"{self.TRANSFER_TORRENT_LIST} {self.TRANSFER_ITEM_TRACKER}"
+        ).all()
+
+    def get_name_tooltips(self):
+        """Get the title attributes from transfer item name texts.
+
+        Returns:
+            List of tooltip strings (one per transfer list item)
+        """
+        elements = self.page.locator(
+            f"{self.TRANSFER_TORRENT_LIST} {self.TRANSFER_ITEM_NAME_TEXT}"
+        ).all()
+        return [el.get_attribute("title") or "" for el in elements]

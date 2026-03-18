@@ -257,12 +257,32 @@ def add_torrent_connection_via_ui(
     from_client: str,
     to_client: str,
     destination_path: str | None = None,
+    source_sftp: dict | None = None,
+    source_type: str = "sftp",
+    state_dir: str | None = None,
+    magnet_only: bool = False,
 ):
     """Add a torrent-type connection via the UI.
 
     This helper selects the Torrent transfer method, fills in the from/to clients,
-    optionally sets a destination path (expanding Advanced Options if provided),
-    tests the connection, and saves.
+    sets the source access type (SFTP or Local), optionally fills Source SFTP fields
+    or state_dir, optionally sets destination path and/or magnet-only mode under
+    Advanced Options, tests the connection, and saves.
+
+    Args:
+        settings_page: SettingsPage object
+        page: Playwright Page
+        connection_name: Name for the connection
+        from_client: Source client name
+        to_client: Target client name
+        destination_path: Optional destination path (under Advanced Options)
+        source_sftp: Optional dict with SFTP creds {host, port, username, password}.
+                     If None and source_type is 'sftp', SFTP fields are left empty.
+        source_type: Source access type - 'sftp' (default) or 'local'
+        state_dir: Optional state directory path. For 'local' type, entered directly.
+                   For 'sftp' type, entered after successful SFTP test.
+        magnet_only: If True, expand Advanced Options and check magnet-only checkbox
+                     (hides source config, skips SFTP test)
     """
     from playwright.sync_api import expect
 
@@ -283,11 +303,39 @@ def add_torrent_connection_via_ui(
     page.select_option(settings_page.CONNECTION_FROM_SELECT, from_client)
     page.select_option(settings_page.CONNECTION_TO_SELECT, to_client)
 
-    # Fill destination path if provided (expand advanced options first)
-    if destination_path:
+    # Set source type (defaults to 'sftp')
+    if not magnet_only:
+        page.select_option("#torrentSourceType", source_type)
+        page.wait_for_timeout(UI_TIMEOUTS['js_processing'])
+
+    # Fill Source SFTP fields if provided (visible when source_type = sftp)
+    if source_sftp and source_type == "sftp" and not magnet_only:
+        page.fill(settings_page.TORRENT_SOURCE_SFTP_HOST, source_sftp.get('host', ''))
+        page.fill(settings_page.TORRENT_SOURCE_SFTP_PORT, str(source_sftp.get('port', 22)))
+        page.fill(settings_page.TORRENT_SOURCE_SFTP_USERNAME, source_sftp.get('username', ''))
+        page.fill(settings_page.TORRENT_SOURCE_SFTP_PASSWORD, source_sftp.get('password', ''))
+
+    # Fill state_dir for local source type (input is enabled immediately)
+    if state_dir and source_type == "local" and not magnet_only:
+        page.fill("#torrentSourceStateDir", state_dir)
+
+    # Note: For SFTP source type, state_dir is filled AFTER test connection
+    # (the input is disabled until the SFTP connection test succeeds)
+
+    # Expand advanced options if needed
+    needs_advanced = destination_path or magnet_only
+    if needs_advanced:
         page.click(settings_page.TORRENT_ADVANCED_TOGGLE)
         page.wait_for_timeout(UI_TIMEOUTS['modal_animation'])
+
+    # Fill destination path if provided
+    if destination_path:
         page.fill(settings_page.TORRENT_DESTINATION_PATH, destination_path)
+
+    # Check magnet-only if requested (hides SFTP fields)
+    if magnet_only:
+        page.locator(settings_page.TORRENT_MAGNET_ONLY).check()
+        page.wait_for_timeout(UI_TIMEOUTS['js_processing'])
 
     # Test connection
     with page.expect_response(
@@ -300,6 +348,10 @@ def add_torrent_connection_via_ui(
     test_result = test_response.get('data', test_response) if isinstance(test_response, dict) and 'data' in test_response else test_response
     assert test_result.get("success"), f"Torrent connection test failed: {test_response}"
     logger.debug("Torrent connection test passed")
+
+    # Fill state_dir for SFTP source type (input is now enabled after successful test)
+    if state_dir and source_type == "sftp" and not magnet_only:
+        page.fill("#torrentSourceStateDir", state_dir)
 
     # Save should be enabled after successful test
     save_btn = page.locator(settings_page.SAVE_CONNECTION_BTN)

@@ -114,6 +114,28 @@ class SFTPClient():
         self.close()
         return new_path
     
+    def read_file(self, remote_path: str) -> bytes:
+        """Read a remote file and return its contents as bytes.
+        
+        Args:
+            remote_path: Absolute path to the file on the remote server
+            
+        Returns:
+            The file contents as bytes
+            
+        Raises:
+            FileNotFoundError: If the remote file doesn't exist
+            Exception: If SFTP connection or read fails
+        """
+        from io import BytesIO
+        try:
+            self.open_connection()
+            flo = BytesIO()
+            self.connection.getfo(remote_path, flo)
+            return flo.getvalue()
+        finally:
+            self.close()
+
     def list_dir(self, path):
         """List directory contents"""
         try:

@@ -55,11 +55,22 @@
                 <div class="setting-row">
                     <div class="setting-label">
                         <label for="tracker-external-url">External URL</label>
-                        <span class="setting-help">URL that download clients use to reach the tracker (e.g. http://transferarr:6969/announce)</span>
+                        <span class="setting-help">URL that remote clients use to reach the tracker (e.g. http://public-ip:6969/announce)</span>
                     </div>
                     <div class="setting-control">
                         <input type="text" id="tracker-external-url" class="form-control" 
                                placeholder="http://host:port/announce">
+                    </div>
+                </div>
+
+                <div class="setting-row">
+                    <div class="setting-label">
+                        <label for="tracker-internal-url">Internal URL</label>
+                        <span class="setting-help">Optional URL for clients on the same network as the tracker (e.g. http://transferarr:6969/announce). Useful when a client can't reach the external URL due to VPN or NAT.</span>
+                    </div>
+                    <div class="setting-control">
+                        <input type="text" id="tracker-internal-url" class="form-control" 
+                               placeholder="http://container:port/announce">
                     </div>
                 </div>
 

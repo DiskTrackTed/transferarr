@@ -177,8 +177,9 @@ class TestManualTransferRestart:
         # Wait for any TORRENT_* state (confirms transfer is in progress)
         wait_for_transferarr_state(
             transferarr, unique_name,
-            ['TORRENT_CREATING', 'TORRENT_TARGET_ADDING', 'TORRENT_DOWNLOADING',
-             'TORRENT_SEEDING', 'COPIED', 'TARGET_CHECKING', 'TARGET_SEEDING'],
+            ['TORRENT_CREATE_QUEUE', 'TORRENT_CREATING', 'TORRENT_TARGET_ADDING',
+             'TORRENT_DOWNLOADING', 'TORRENT_SEEDING', 'COPIED',
+             'TARGET_CHECKING', 'TARGET_SEEDING'],
             timeout=60,
         )
         print("[Step 3] Torrent is in active transfer state")

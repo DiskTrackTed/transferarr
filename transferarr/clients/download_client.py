@@ -192,9 +192,37 @@ class DownloadClientBase(ABC):
         """
         raise NotImplementedError(f"{self.__class__.__name__} does not support verify_torrent")
     
+    def is_private_torrent(self, torrent_hash: str) -> bool:
+        """Check if a torrent has the private flag set.
+        
+        Private torrents use private trackers and cannot be transferred
+        via magnet links alone — they require the .torrent file to be
+        fetched via SFTP from the source.
+        
+        Args:
+            torrent_hash: Hash of the torrent to check
+            
+        Returns:
+            True if the torrent is private, False otherwise
+            
+        Raises:
+            NotImplementedError: If client doesn't support this operation
+        """
+        raise NotImplementedError(f"{self.__class__.__name__} does not support is_private_torrent")
+    
     # -------------------------------------------------------------------------
     # Concrete methods - shared implementation for all clients
     # -------------------------------------------------------------------------
+    
+    @property
+    def delete_cross_seeds(self) -> bool:
+        """Whether to remove cross-seed siblings when removing a torrent from this client.
+        
+        Defaults to True. Configurable per-client via the 'delete_cross_seeds' config field.
+        Cross-seed siblings are identified by matching name + total_size on the same client.
+        When enabled, siblings are removed with remove_data=True (safe for hardlinks).
+        """
+        return self.config.get_extra("delete_cross_seeds", True)
     
     def add_connection(self, connection) -> None:
         """Add a transfer connection that uses this client.

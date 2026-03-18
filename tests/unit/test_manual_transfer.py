@@ -37,16 +37,27 @@ def _make_mock_manager(**overrides):
     return manager
 
 
-def _make_torrents_data(hashes, state="Seeding", save_path="/downloads/movies"):
-    """Build a dict like get_all_torrents_status() returns."""
+def _make_torrents_data(hashes, state="Seeding", save_path="/downloads/movies",
+                        names=None, time_added=None):
+    """Build a dict like get_all_torrents_status() returns.
+
+    Args:
+        hashes: List of torrent hashes
+        state: State for all torrents (default: "Seeding")
+        save_path: Parent directory for all torrents (default: "/downloads/movies")
+        names: Optional list of torrent names (one per hash). If None, auto-generated.
+        time_added: Optional list of epoch timestamps (one per hash). If None, auto-incremented.
+    """
     data = {}
-    for h in hashes:
+    for i, h in enumerate(hashes):
+        name = names[i] if names else f"Torrent-{h[:6]}"
         data[h] = {
-            "name": f"Torrent-{h[:6]}",
+            "name": name,
             "state": state,
             "progress": 100,
             "save_path": save_path,
             "total_size": 1024 * 1024 * 100,
+            "time_added": time_added[i] if time_added else (1700000000 + i),
         }
     return data
 
@@ -130,35 +141,116 @@ class TestGetDestinations:
 class TestDetectCrossSeeds:
     """Tests for ManualTransferService.detect_cross_seeds()."""
 
-    def test_groups_by_save_path(self):
+    def test_groups_by_name_and_size(self):
+        """Torrents sharing both name AND total_size are cross-seeds."""
         data = {
-            "hash1": {"save_path": "/movies/Movie1", "state": "Seeding"},
-            "hash2": {"save_path": "/movies/Movie1", "state": "Seeding"},
-            "hash3": {"save_path": "/movies/Movie2", "state": "Seeding"},
+            "hash1": {"save_path": "/downloads/movies", "name": "Movie.2024.1080p", "state": "Seeding", "total_size": 1000},
+            "hash2": {"save_path": "/downloads/movies", "name": "Movie.2024.1080p", "state": "Seeding", "total_size": 1000},
+            "hash3": {"save_path": "/downloads/movies", "name": "Other.Movie.2023", "state": "Seeding", "total_size": 1000},
         }
         service = ManualTransferService(Mock())
         result = service.detect_cross_seeds("client", data)
 
-        assert "/movies/Movie1" in result
-        assert set(result["/movies/Movie1"]) == {"hash1", "hash2"}
-        assert "/movies/Movie2" not in result  # Only 1 torrent, not a group
+        key = "Movie.2024.1080p|1000"
+        assert key in result
+        assert set(result[key]) == {"hash1", "hash2"}
+        # hash3 has different name — not a cross-seed
+        assert len(result) == 1
 
     def test_ignores_single_torrent_paths(self):
         data = {
-            "hash1": {"save_path": "/movies/Unique", "state": "Seeding"},
+            "hash1": {"save_path": "/downloads/movies", "name": "Unique.Movie", "state": "Seeding", "total_size": 1000},
         }
         service = ManualTransferService(Mock())
         result = service.detect_cross_seeds("client", data)
         assert result == {}
 
-    def test_ignores_missing_save_path(self):
+    def test_ignores_missing_total_size(self):
+        """Torrents without total_size are skipped."""
         data = {
-            "hash1": {"state": "Seeding"},
-            "hash2": {"save_path": None, "state": "Seeding"},
+            "hash1": {"name": "Test", "state": "Seeding"},
+            "hash2": {"name": "Test", "state": "Seeding", "total_size": None},
         }
         service = ManualTransferService(Mock())
         result = service.detect_cross_seeds("client", data)
         assert result == {}
+
+    def test_ignores_missing_name(self):
+        """Torrents without a name field are skipped."""
+        data = {
+            "hash1": {"save_path": "/downloads/movies", "state": "Seeding", "total_size": 1000},
+            "hash2": {"save_path": "/downloads/movies", "name": None, "state": "Seeding", "total_size": 1000},
+        }
+        service = ManualTransferService(Mock())
+        result = service.detect_cross_seeds("client", data)
+        assert result == {}
+
+    def test_same_dir_different_names_not_cross_seeds(self):
+        """Torrents in the same directory but with different names are NOT cross-seeds."""
+        data = {
+            "hash1": {"save_path": "/downloads/movies", "name": "Movie.A.2024", "state": "Seeding", "total_size": 1000},
+            "hash2": {"save_path": "/downloads/movies", "name": "Movie.B.2023", "state": "Seeding", "total_size": 1000},
+            "hash3": {"save_path": "/downloads/movies", "name": "Movie.C.2022", "state": "Seeding", "total_size": 1000},
+        }
+        service = ManualTransferService(Mock())
+        result = service.detect_cross_seeds("client", data)
+        assert result == {}
+
+    def test_same_name_different_dirs_are_cross_seeds(self):
+        """Torrents with the same name+size in different directories ARE cross-seeds.
+        This is the cross-seed symlink scenario: the tool creates symlinks in a
+        separate linkdir, so save_path differs but the data is the same."""
+        data = {
+            "hash1": {"save_path": "/downloads/movies", "name": "Movie.2024", "state": "Seeding", "total_size": 5000},
+            "hash2": {"save_path": "/downloads/linkdir/LST", "name": "Movie.2024", "state": "Seeding", "total_size": 5000},
+        }
+        service = ManualTransferService(Mock())
+        result = service.detect_cross_seeds("client", data)
+        assert len(result) == 1
+        group_hashes = list(result.values())[0]
+        assert set(group_hashes) == {"hash1", "hash2"}
+
+    def test_same_name_different_size_not_cross_seeds(self):
+        """Torrents with the same name but different total_size are NOT cross-seeds."""
+        data = {
+            "hash1": {"save_path": "/downloads/movies", "name": "Movie.2024", "state": "Seeding", "total_size": 5000},
+            "hash2": {"save_path": "/downloads/movies", "name": "Movie.2024", "state": "Seeding", "total_size": 9000},
+        }
+        service = ManualTransferService(Mock())
+        result = service.detect_cross_seeds("client", data)
+        assert result == {}
+
+    def test_three_way_cross_seed_group(self):
+        """Three torrents sharing the same data form a single group."""
+        data = {
+            "hash1": {"save_path": "/downloads/movies", "name": "Movie.2024", "state": "Seeding", "total_size": 5000},
+            "hash2": {"save_path": "/downloads/movies", "name": "Movie.2024", "state": "Seeding", "total_size": 5000},
+            "hash3": {"save_path": "/downloads/linkdir/TL", "name": "Movie.2024", "state": "Seeding", "total_size": 5000},
+        }
+        service = ManualTransferService(Mock())
+        result = service.detect_cross_seeds("client", data)
+        key = "Movie.2024|5000"
+        assert key in result
+        assert set(result[key]) == {"hash1", "hash2", "hash3"}
+
+    def test_mixed_real_world_scenario(self):
+        """Mix of cross-seeds, unique torrents, and different directories."""
+        data = {
+            # Two cross-seeds for same movie (different trackers)
+            "aaa111": {"save_path": "/downloads/movies", "name": "Inception.2010.1080p", "state": "Seeding", "total_size": 8000},
+            "aaa222": {"save_path": "/downloads/linkdir/TL", "name": "Inception.2010.1080p", "state": "Seeding", "total_size": 8000},
+            # Different movie — NOT a cross-seed
+            "bbb111": {"save_path": "/downloads/movies", "name": "Matrix.1999.1080p", "state": "Seeding", "total_size": 7000},
+            # TV show cross-seeds (same name+size, different dirs)
+            "ccc111": {"save_path": "/downloads/tv", "name": "Breaking.Bad.S01E01", "state": "Seeding", "total_size": 3000},
+            "ccc222": {"save_path": "/downloads/tv", "name": "Breaking.Bad.S01E01", "state": "Seeding", "total_size": 3000},
+        }
+        service = ManualTransferService(Mock())
+        result = service.detect_cross_seeds("client", data)
+
+        assert len(result) == 2
+        assert set(result["Inception.2010.1080p|8000"]) == {"aaa111", "aaa222"}
+        assert set(result["Breaking.Bad.S01E01|3000"]) == {"ccc111", "ccc222"}
 
 
 # ──────────────────────────────────────────────────
@@ -323,20 +415,20 @@ class TestValidateAndInitiate:
         manager.create_manual_transfers.assert_called_once()
 
     def test_cross_seed_expansion(self):
-        """When include_cross_seeds=True, siblings sharing save_path are included."""
+        """When include_cross_seeds=True, siblings sharing name+size are included."""
         data = {
             "hash1": {
-                "name": "Torrent 1",
+                "name": "Movie.2024.1080p",
                 "state": "Seeding",
                 "progress": 100,
-                "save_path": "/movies/Movie1",
+                "save_path": "/downloads/movies",
                 "total_size": 100,
             },
             "hash2": {
-                "name": "Torrent 2",
+                "name": "Movie.2024.1080p",  # Same name+path = cross-seed
                 "state": "Seeding",
                 "progress": 100,
-                "save_path": "/movies/Movie1",  # Same path = cross-seed
+                "save_path": "/downloads/movies",
                 "total_size": 100,
             },
         }
@@ -358,17 +450,17 @@ class TestValidateAndInitiate:
         """When include_cross_seeds=False, only selected hashes are transferred."""
         data = {
             "hash1": {
-                "name": "Torrent 1",
+                "name": "Movie.2024.1080p",
                 "state": "Seeding",
                 "progress": 100,
-                "save_path": "/movies/Movie1",
+                "save_path": "/downloads/movies",
                 "total_size": 100,
             },
             "hash2": {
-                "name": "Torrent 2",
+                "name": "Movie.2024.1080p",
                 "state": "Seeding",
                 "progress": 100,
-                "save_path": "/movies/Movie1",
+                "save_path": "/downloads/movies",
                 "total_size": 100,
             },
         }
@@ -389,17 +481,17 @@ class TestValidateAndInitiate:
         """Cross-seed siblings that aren't seeding are not included."""
         data = {
             "hash1": {
-                "name": "Torrent 1",
+                "name": "Movie.2024.1080p",
                 "state": "Seeding",
                 "progress": 100,
-                "save_path": "/movies/Movie1",
+                "save_path": "/downloads/movies",
                 "total_size": 100,
             },
             "hash2": {
-                "name": "Torrent 2",
+                "name": "Movie.2024.1080p",
                 "state": "Downloading",  # Not seeding
                 "progress": 50,
-                "save_path": "/movies/Movie1",
+                "save_path": "/downloads/movies",
                 "total_size": 100,
             },
         }
@@ -420,17 +512,17 @@ class TestValidateAndInitiate:
         """Cross-seed siblings that are already tracked are not included."""
         data = {
             "hash1": {
-                "name": "Torrent 1",
+                "name": "Movie.2024.1080p",
                 "state": "Seeding",
                 "progress": 100,
-                "save_path": "/movies/Movie1",
+                "save_path": "/downloads/movies",
                 "total_size": 100,
             },
             "hash2": {
-                "name": "Torrent 2",
+                "name": "Movie.2024.1080p",
                 "state": "Seeding",
                 "progress": 100,
-                "save_path": "/movies/Movie1",
+                "save_path": "/downloads/movies",
                 "total_size": 100,
             },
         }
@@ -449,6 +541,119 @@ class TestValidateAndInitiate:
         call_kwargs = manager.create_manual_transfers.call_args
         hashes = call_kwargs.kwargs.get("hashes", call_kwargs[1].get("hashes", []))
         assert set(hashes) == {"hash1"}  # hash2 excluded (tracked)
+
+    def test_cross_seed_expansion_same_name_only(self):
+        """Expansion only includes siblings with matching name AND total_size."""
+        data = {
+            "hash1": {
+                "name": "Movie.2024.1080p",
+                "state": "Seeding",
+                "progress": 100,
+                "save_path": "/downloads/movies",
+                "total_size": 100,
+            },
+            "hash2": {
+                "name": "Movie.2024.1080p",  # Same name+path = cross-seed
+                "state": "Seeding",
+                "progress": 100,
+                "save_path": "/downloads/movies",
+                "total_size": 100,
+            },
+            "hash3": {
+                "name": "Different.Movie.2023",  # Different name = NOT a cross-seed
+                "state": "Seeding",
+                "progress": 100,
+                "save_path": "/downloads/movies",
+                "total_size": 100,
+            },
+        }
+        service, manager = self._make_service_with_data(torrents_data=data)
+
+        service.validate_and_initiate({
+            "hashes": ["hash1"],
+            "source_client": "source-deluge",
+            "destination_client": "target-deluge",
+            "include_cross_seeds": True,
+        })
+
+        call_kwargs = manager.create_manual_transfers.call_args
+        hashes = call_kwargs.kwargs.get("hashes", call_kwargs[1].get("hashes", []))
+        assert set(hashes) == {"hash1", "hash2"}  # hash3 excluded (different name)
+
+    def test_cross_seed_expansion_different_dir_same_name(self):
+        """Torrents with the same name+size but different save_path ARE cross-seeds (symlink scenario)."""
+        data = {
+            "hash1": {
+                "name": "Movie.2024.1080p",
+                "state": "Seeding",
+                "progress": 100,
+                "save_path": "/downloads/movies",
+                "total_size": 100,
+            },
+            "hash2": {
+                "name": "Movie.2024.1080p",  # Same name+size, different dir = cross-seed
+                "state": "Seeding",
+                "progress": 100,
+                "save_path": "/downloads/linkdir/LST",
+                "total_size": 100,
+            },
+        }
+        service, manager = self._make_service_with_data(torrents_data=data)
+
+        service.validate_and_initiate({
+            "hashes": ["hash1"],
+            "source_client": "source-deluge",
+            "destination_client": "target-deluge",
+            "include_cross_seeds": True,
+        })
+
+        call_kwargs = manager.create_manual_transfers.call_args
+        hashes = call_kwargs.kwargs.get("hashes", call_kwargs[1].get("hashes", []))
+        assert set(hashes) == {"hash1", "hash2"}  # hash2 included (cross-seed via symlink)
+
+    def test_passes_delete_source_cross_seeds_true(self):
+        """delete_source_cross_seeds=True is forwarded to create_manual_transfers."""
+        data = _make_torrents_data(["abc123"])
+        service, manager = self._make_service_with_data(torrents_data=data)
+
+        service.validate_and_initiate({
+            "hashes": ["abc123"],
+            "source_client": "source-deluge",
+            "destination_client": "target-deluge",
+            "delete_source_cross_seeds": True,
+        })
+
+        call_kwargs = manager.create_manual_transfers.call_args
+        assert call_kwargs.kwargs.get("delete_source_cross_seeds") is True
+
+    def test_passes_delete_source_cross_seeds_false(self):
+        """delete_source_cross_seeds=False is forwarded to create_manual_transfers."""
+        data = _make_torrents_data(["abc123"])
+        service, manager = self._make_service_with_data(torrents_data=data)
+
+        service.validate_and_initiate({
+            "hashes": ["abc123"],
+            "source_client": "source-deluge",
+            "destination_client": "target-deluge",
+            "delete_source_cross_seeds": False,
+        })
+
+        call_kwargs = manager.create_manual_transfers.call_args
+        assert call_kwargs.kwargs.get("delete_source_cross_seeds") is False
+
+    def test_delete_source_cross_seeds_defaults_to_true(self):
+        """When not specified, delete_source_cross_seeds defaults to True."""
+        data = _make_torrents_data(["abc123"])
+        service, manager = self._make_service_with_data(torrents_data=data)
+
+        service.validate_and_initiate({
+            "hashes": ["abc123"],
+            "source_client": "source-deluge",
+            "destination_client": "target-deluge",
+        })
+
+        call_kwargs = manager.create_manual_transfers.call_args
+        assert call_kwargs.kwargs.get("delete_source_cross_seeds") is True
 
 
 # ──────────────────────────────────────────────────
@@ -521,7 +726,11 @@ class TestCreateManualTransfers:
 
         assert result["total_initiated"] == 1
         assert result["initiated"][0]["method"] == "torrent"
-        handler.handle_creating.assert_called_once()
+        # handle_create_queue is NOT called inline (would block the HTTP request);
+        # the torrent is left in TORRENT_CREATE_QUEUE for the update_torrents() loop.
+        handler.handle_creating.assert_not_called()
+        t = manager.torrents[0]
+        assert t.state == TorrentState.TORRENT_CREATE_QUEUE
 
     def test_errors_when_no_handler_for_torrent_transfer(self):
         manager = self._make_manager(handler=None)
@@ -637,6 +846,51 @@ class TestCreateManualTransfers:
 
         manager.save_torrents_state.assert_called_once()
 
+    def test_stores_delete_source_cross_seeds_on_torrent(self):
+        """delete_source_cross_seeds flag is stored on the created Torrent."""
+        manager = self._make_manager()
+        source = Mock()
+        source.name = "source-deluge"
+        source.get_torrent_info.return_value = _make_torrent_info("abc123")
+        dest = Mock()
+        dest.name = "target-deluge"
+        conn = Mock()
+        conn.is_torrent_transfer = False
+        conn.get_history_transfer_method.return_value = "sftp"
+
+        manager.create_manual_transfers(
+            hashes=["abc123"],
+            source_client=source,
+            dest_client=dest,
+            connection=conn,
+            delete_source_cross_seeds=False,
+        )
+
+        assert len(manager.torrents) == 1
+        assert manager.torrents[0].delete_source_cross_seeds is False
+
+    def test_delete_source_cross_seeds_defaults_to_true_on_torrent(self):
+        """When not passed, delete_source_cross_seeds defaults to True on the Torrent."""
+        manager = self._make_manager()
+        source = Mock()
+        source.name = "source-deluge"
+        source.get_torrent_info.return_value = _make_torrent_info("abc123")
+        dest = Mock()
+        dest.name = "target-deluge"
+        conn = Mock()
+        conn.is_torrent_transfer = False
+        conn.get_history_transfer_method.return_value = "sftp"
+
+        manager.create_manual_transfers(
+            hashes=["abc123"],
+            source_client=source,
+            dest_client=dest,
+            connection=conn,
+        )
+
+        assert len(manager.torrents) == 1
+        assert manager.torrents[0].delete_source_cross_seeds is True
+
 
 # ──────────────────────────────────────────────────
 # ManualTransferSchema validation
@@ -656,7 +910,7 @@ class TestManualTransferSchema:
             "destination_client": "target",
         })
         assert result["hashes"] == ["abc123"]
-        assert result["include_cross_seeds"] is True  # default
+        assert result["include_cross_seeds"] is False  # default
 
     def test_all_fields(self):
         result = self._load({
@@ -700,3 +954,20 @@ class TestManualTransferSchema:
                 "source_client": "",
                 "destination_client": "target",
             })
+
+    def test_delete_source_cross_seeds_defaults_to_true(self):
+        result = self._load({
+            "hashes": ["abc123"],
+            "source_client": "source",
+            "destination_client": "target",
+        })
+        assert result["delete_source_cross_seeds"] is True
+
+    def test_delete_source_cross_seeds_false(self):
+        result = self._load({
+            "hashes": ["abc123"],
+            "source_client": "source",
+            "destination_client": "target",
+            "delete_source_cross_seeds": False,
+        })
+        assert result["delete_source_cross_seeds"] is False

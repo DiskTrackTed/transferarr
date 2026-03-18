@@ -196,6 +196,81 @@
     background-color: #9c27b0; /* Purple for downloaded */
 }
 
+.progress-creating {
+    background-color: #ff9800; /* Orange for hashing/creating */
+    background-image: repeating-linear-gradient(
+        -45deg,
+        transparent,
+        transparent 8px,
+        rgba(255, 255, 255, 0.15) 8px,
+        rgba(255, 255, 255, 0.15) 16px
+    );
+    background-size: 22.6px 22.6px; /* sqrt(16^2 + 16^2) for seamless -45deg */
+    animation: creating-slide 1.5s linear infinite;
+    width: 100% !important; /* Full-width indeterminate bar */
+}
+
+@keyframes creating-slide {
+    from { background-position: 0 0; }
+    to { background-position: 22.6px 0; }
+}
+
+.progress-failed {
+    background-color: #dc3545; /* Bootstrap danger red for failed */
+}
+
+/* Action buttons container for failed transfers */
+.torrent-actions {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.torrent-actions .btn {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.25rem;
+    padding: 0.375rem 0.5rem;
+    font-size: 0.875rem;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background-color 0.15s ease;
+}
+
+.torrent-actions .btn-primary {
+    background-color: #2196f3;
+    color: white;
+    border: none;
+}
+
+.torrent-actions .btn-primary:hover {
+    background-color: #1976d2;
+}
+
+.torrent-actions .btn-primary:disabled {
+    background-color: #90caf9;
+    cursor: not-allowed;
+}
+
+.torrent-actions .btn-outline-danger {
+    background-color: transparent;
+    color: #dc3545;
+    border: 1px solid #dc3545;
+}
+
+.torrent-actions .btn-outline-danger:hover {
+    background-color: #dc3545;
+    color: white;
+}
+
+.torrent-actions .btn i {
+    font-size: 0.75rem;
+}
+
 @keyframes progress-bar-stripes {
     from { background-position: 1rem 0; }
     to { background-position: 0 0; }

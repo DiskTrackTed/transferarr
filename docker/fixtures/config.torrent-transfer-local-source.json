@@ -40,14 +40,8 @@
         "type": "torrent",
         "destination_path": "/downloads",
         "source": {
-          "type": "sftp",
-          "sftp": {
-            "host": "sftp-server",
-            "port": 2222,
-            "username": "testuser",
-            "password": "testpass"
-          },
-          "state_dir": "/home/testuser/state"
+          "type": "local",
+          "state_dir": "/source-state"
         }
       }
     }

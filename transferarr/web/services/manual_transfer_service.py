@@ -53,27 +53,30 @@ class ManualTransferService:
     def detect_cross_seeds(self, client_name: str, torrents_data: dict) -> dict:
         """Detect cross-seed groups for torrents on a client.
 
-        Cross-seeds are torrents that share the same save_path on the same
-        client (they reference the same data files).
+        Cross-seeds are torrents that share the same name and total_size on
+        the same client. They reference the same data files, possibly via
+        symlinks in different directories (e.g. cross-seed tool's linkdir).
 
         Args:
             client_name: Name of the download client
             torrents_data: Dict of torrent_hash -> torrent_info from the client
 
         Returns:
-            Dict mapping save_path -> list of torrent hashes in that group
+            Dict mapping "name|total_size" -> list of torrent hashes in that group
             (only groups with 2+ torrents are included)
         """
-        path_groups = defaultdict(list)
+        groups = defaultdict(list)
         for torrent_hash, info in torrents_data.items():
-            save_path = info.get("save_path")
-            if save_path:
-                path_groups[save_path].append(torrent_hash)
+            name = info.get("name")
+            total_size = info.get("total_size")
+            if name and total_size is not None:
+                key = f"{name}|{total_size}"
+                groups[key].append(torrent_hash)
 
         # Only return groups with multiple torrents (actual cross-seeds)
         return {
-            path: hashes
-            for path, hashes in path_groups.items()
+            key: hashes
+            for key, hashes in groups.items()
             if len(hashes) > 1
         }
 
@@ -97,7 +100,7 @@ class ManualTransferService:
         hashes = data.get("hashes", [])
         source_client_name = data["source_client"]
         dest_client_name = data["destination_client"]
-        include_cross_seeds = data.get("include_cross_seeds", True)
+        include_cross_seeds = data.get("include_cross_seeds", False)
 
         # Validate we have hashes
         if not hashes:
@@ -187,9 +190,15 @@ class ManualTransferService:
             )
             expanded = set(valid_hashes)
             for h in list(valid_hashes):
-                save_path = all_torrents.get(h, {}).get("save_path")
-                if save_path and save_path in cross_seed_groups:
-                    for sibling in cross_seed_groups[save_path]:
+                info = all_torrents.get(h, {})
+                name = info.get("name")
+                total_size = info.get("total_size")
+                if name and total_size is not None:
+                    key = f"{name}|{total_size}"
+                else:
+                    continue
+                if key in cross_seed_groups:
+                    for sibling in cross_seed_groups[key]:
                         if sibling not in expanded:
                             # Only add if sibling is also seeding and not tracked
                             sibling_state = all_torrents.get(sibling, {}).get("state", "").lower()
@@ -204,6 +213,7 @@ class ManualTransferService:
             source_client=source_client,
             dest_client=dest_client,
             connection=connection,
+            delete_source_cross_seeds=data.get("delete_source_cross_seeds", True),
         )
 
         return results

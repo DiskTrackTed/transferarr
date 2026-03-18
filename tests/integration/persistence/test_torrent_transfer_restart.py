@@ -88,7 +88,7 @@ class TestRestartDuringCreating:
         # Wait for at least TORRENT_TARGET_ADDING (transfer torrent exists on source)
         wait_for_transferarr_state(
             transferarr, torrent_name,
-            ['TORRENT_CREATING', 'TORRENT_TARGET_ADDING', 'TORRENT_DOWNLOADING'],
+            ['TORRENT_CREATE_QUEUE', 'TORRENT_CREATING', 'TORRENT_TARGET_ADDING', 'TORRENT_DOWNLOADING'],
             timeout=60
         )
 
@@ -163,8 +163,9 @@ class TestRestartDuringCreating:
         # Wait for any TORRENT state to confirm it picked up the transfer
         wait_for_transferarr_state(
             transferarr, torrent_name,
-            ['TORRENT_CREATING', 'TORRENT_TARGET_ADDING', 'TORRENT_DOWNLOADING',
-             'TORRENT_SEEDING', 'COPIED', 'TARGET_CHECKING', 'TARGET_SEEDING'],
+            ['TORRENT_CREATE_QUEUE', 'TORRENT_CREATING', 'TORRENT_TARGET_ADDING',
+             'TORRENT_DOWNLOADING', 'TORRENT_SEEDING', 'COPIED',
+             'TARGET_CHECKING', 'TARGET_SEEDING'],
             timeout=60
         )
 

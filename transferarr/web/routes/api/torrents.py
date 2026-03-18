@@ -3,7 +3,7 @@ Torrent routes for listing and status information.
 """
 from flask import current_app
 from transferarr.web.services import TorrentService
-from .responses import success_response, server_error_response
+from .responses import success_response, server_error_response, error_response
 import logging
 
 logger = logging.getLogger("transferarr")
@@ -12,6 +12,15 @@ logger = logging.getLogger("transferarr")
 def register_routes(bp):
     """Register torrent routes with the given blueprint."""
     
+    def _find_torrent_by_hash(torrent_hash: str):
+        """Find a torrent by hash (case-insensitive)."""
+        torrent_manager = current_app.config['TORRENT_MANAGER']
+        hash_lower = torrent_hash.lower()
+        for t in torrent_manager.torrents:
+            if t.id and t.id.lower() == hash_lower:
+                return t
+        return None
+
     @bp.route("/torrents")
     def get_torrents():
         """Get all tracked torrents and their states.
@@ -103,3 +112,87 @@ def register_routes(bp):
         except Exception as e:
             logger.error(f"Error getting all torrents: {e}")
             return server_error_response(str(e))
+
+    @bp.route("/torrents/<torrent_hash>/retry", methods=["POST"])
+    def retry_transfer(torrent_hash):
+        """Retry a failed transfer.
+        ---
+        tags:
+          - Torrents
+        parameters:
+          - in: path
+            name: torrent_hash
+            type: string
+            required: true
+            description: Hash of the torrent to retry
+        responses:
+          200:
+            description: Transfer retry initiated
+          400:
+            description: Torrent is not in TRANSFER_FAILED state
+          404:
+            description: Torrent not found
+        """
+        from transferarr.models.torrent import TorrentState
+        
+        torrent = _find_torrent_by_hash(torrent_hash)
+        
+        if not torrent:
+            return error_response("NOT_FOUND", "Torrent not found", status_code=404)
+        
+        if torrent.state != TorrentState.TRANSFER_FAILED:
+            return error_response(
+                "INVALID_STATE",
+                f"Cannot retry: torrent is in {torrent.state.name} state, not TRANSFER_FAILED"
+            )
+        
+        torrent.state = TorrentState.HOME_SEEDING
+        
+        logger.info(f"User initiated retry for {torrent.name}")
+        return success_response({
+            "message": f"Transfer retry initiated for {torrent.name}",
+            "new_state": torrent.state.name
+        })
+
+    @bp.route("/torrents/<torrent_hash>", methods=["DELETE"])
+    def remove_torrent(torrent_hash):
+        """Remove a failed torrent from tracking.
+        ---
+        tags:
+          - Torrents
+        parameters:
+          - in: path
+            name: torrent_hash
+            type: string
+            required: true
+            description: Hash of the torrent to remove
+        responses:
+          200:
+            description: Torrent removed from tracking
+          400:
+            description: Torrent is not in TRANSFER_FAILED state
+          404:
+            description: Torrent not found
+        """
+        from transferarr.models.torrent import TorrentState
+        
+        torrent = _find_torrent_by_hash(torrent_hash)
+        
+        if not torrent:
+            return error_response("NOT_FOUND", "Torrent not found", status_code=404)
+        
+        if torrent.state != TorrentState.TRANSFER_FAILED:
+            return error_response(
+                "INVALID_STATE",
+                f"Cannot remove: torrent is in {torrent.state.name} state, not TRANSFER_FAILED"
+            )
+        
+        torrent_name = torrent.name
+        torrent_manager = current_app.config['TORRENT_MANAGER']
+        torrent_manager.torrents.remove(torrent)
+        torrent_manager.save_torrents_state()
+        
+        logger.info(f"User removed failed transfer: {torrent_name}")
+        return success_response({
+            "message": f"Torrent '{torrent_name}' removed from tracking"
+        })

@@ -37,8 +37,16 @@ MOCK_INDEXER_PORT = os.environ.get("MOCK_INDEXER_PORT", "9696")
 MOCK_INDEXER_URL = f"http://{MOCK_INDEXER_HOST}:{MOCK_INDEXER_PORT}"
 
 
-def add_torrent_to_deluge(deluge_client, name, create_torrent_fn, size_mb=1):
+def add_torrent_to_deluge(deluge_client, name, create_torrent_fn, size_mb=1,
+                          download_location="/downloads"):
     """Create a torrent and add it directly to a Deluge instance.
+
+    Args:
+        deluge_client: Deluge RPC client
+        name: Torrent name
+        create_torrent_fn: Factory function from create_torrent fixture
+        size_mb: Size in megabytes
+        download_location: Download location path in the container
 
     Returns:
         dict with keys: name, hash, size_mb
@@ -55,7 +63,7 @@ def add_torrent_to_deluge(deluge_client, name, create_torrent_fn, size_mb=1):
     result_hash = deluge_client.core.add_torrent_file(
         f"{name}.torrent",
         torrent_b64,
-        {"download_location": "/downloads"},
+        {"download_location": download_location},
     )
     result_hash = decode_bytes(result_hash) if result_hash else ""
 
@@ -74,6 +82,106 @@ def add_torrent_to_deluge(deluge_client, name, create_torrent_fn, size_mb=1):
         pytest.fail(f"Torrent '{name}' did not reach Seeding. State: {final_state}")
 
     return {"name": name, "hash": result_hash, "size_mb": size_mb}
+
+
+def create_cross_seed_torrent(docker_client, deluge_client, content_name,
+                              source_location="/downloads",
+                              download_location=None):
+    """Generate a cross-seed .torrent for existing content on a Deluge client.
+
+    Uses Docker exec to run libtorrent inside the Deluge source container,
+    creating a second .torrent from the same content with a different tracker
+    URL (producing a different info_hash).
+
+    For different save_path scenarios, copies the content to the new location
+    first — simulating what cross-seed tools do with symlinks.
+
+    Args:
+        docker_client: Docker SDK client
+        deluge_client: Deluge RPC client
+        content_name: Name of the content directory (same as original torrent)
+        source_location: Where the original content lives (e.g., /downloads)
+        download_location: Where to place the cross-seed torrent.
+            If None, uses source_location (same save_path).
+            If different, copies content to the new location.
+
+    Returns:
+        dict with keys: name, hash
+    """
+    if download_location is None:
+        download_location = source_location
+
+    container = docker_client.containers.get("test-deluge-source")
+
+    # If different location, copy content there (simulates symlink from cross-seed tool)
+    if download_location != source_location:
+        exit_code, output = container.exec_run(
+            ["sh", "-c",
+             f"mkdir -p '{download_location}' && "
+             f"cp -r '{source_location}/{content_name}' '{download_location}/{content_name}'"],
+            user="root",
+        )
+        assert exit_code == 0, (
+            f"Failed to copy content to {download_location}: {output.decode()}"
+        )
+
+    # Generate a second .torrent via libtorrent with a different tracker URL.
+    # The different tracker URL produces a different info_hash.
+    script = (
+        "import libtorrent as lt, base64, os\n"
+        f"content_path = os.path.join('{download_location}', '{content_name}')\n"
+        "assert os.path.exists(content_path), f'Content not found: {content_path}'\n"
+        "fs = lt.file_storage()\n"
+        "lt.add_files(fs, content_path)\n"
+        "t = lt.create_torrent(fs)\n"
+        "t.set_creator('cross-seed-test')\n"
+        "t.add_tracker('http://tracker:6969/announce?xseed=1')\n"
+        f"lt.set_piece_hashes(t, '{download_location}')\n"
+        "torrent_data = lt.bencode(t.generate())\n"
+        "info = lt.torrent_info(lt.bdecode(torrent_data))\n"
+        "print('HASH:' + str(info.info_hash()))\n"
+        "print('B64:' + base64.b64encode(torrent_data).decode())\n"
+    )
+
+    exit_code, output = container.exec_run(["python3", "-c", script])
+    output_str = output.decode()
+    assert exit_code == 0, f"libtorrent script failed: {output_str}"
+
+    xseed_hash = None
+    xseed_b64 = None
+    for line in output_str.split("\n"):
+        if line.startswith("HASH:"):
+            xseed_hash = line[5:].strip()
+        elif line.startswith("B64:"):
+            xseed_b64 = line[4:].strip()
+
+    assert xseed_hash, f"Failed to parse cross-seed hash from: {output_str}"
+    assert xseed_b64, f"Failed to parse cross-seed base64 from: {output_str}"
+
+    # Add cross-seed .torrent to Deluge
+    result_hash = deluge_client.core.add_torrent_file(
+        f"xseed_{content_name}.torrent",
+        xseed_b64,
+        {"download_location": download_location},
+    )
+    result_hash = decode_bytes(result_hash) if result_hash else ""
+
+    # Wait for Seeding
+    deadline = time.time() + 30
+    while time.time() < deadline:
+        status = deluge_client.core.get_torrent_status(result_hash, ["state"])
+        if decode_bytes(status.get("state", "")) == "Seeding":
+            break
+        time.sleep(1)
+    else:
+        status = deluge_client.core.get_torrent_status(
+            result_hash, ["state", "progress"]
+        )
+        pytest.fail(
+            f"Cross-seed torrent did not reach Seeding: {decode_bytes(status)}"
+        )
+
+    return {"name": content_name, "hash": result_hash}
 
 
 # ==============================================================================
@@ -565,13 +673,16 @@ class TestManualTorrentTypeTransfer:
 class TestManualTransferCrossSeed:
     """Tests for cross-seed expansion in manual transfers.
 
-    Cross-seeds are torrents sharing the same save_path on a client.
-    When include_cross_seeds=True (default), selecting one torrent
+    Cross-seeds are torrents that share the same name and total_size on
+    a client.  They may live in the same or different directories (the
+    cross-seed tool often creates symlinks in a separate linkdir).
+
+    When include_cross_seeds=True, selecting one torrent
     should automatically expand to include its siblings.
 
-    Both torrents are added with download_location=/downloads, giving
-    them the same save_path. clean_test_environment ensures no stale
-    torrents pollute the grouping.
+    Each test creates a cross-seed pair: the original torrent plus a
+    second .torrent generated from the same content with a different
+    tracker URL (producing a different info_hash).
     """
 
     @pytest.fixture(autouse=True)
@@ -580,37 +691,43 @@ class TestManualTransferCrossSeed:
         pass
 
     @pytest.mark.timeout(TIMEOUTS['torrent_transfer'])
-    def test_cross_seed_expansion_transfers_sibling(
-        self, transferarr, deluge_source, deluge_target, create_torrent,
+    def test_cross_seed_expansion_same_save_path(
+        self, docker_client, transferarr, deluge_source, deluge_target,
+        create_torrent,
     ):
-        """Selecting one torrent with cross-seeds enabled also transfers its sibling.
+        """Cross-seed expansion when both torrents share the same save_path.
 
-        Creates two torrents sharing the same save_path (/downloads),
-        then initiates a manual transfer for only one hash.
-        The API should expand the selection to include the sibling.
+        Creates a torrent and a cross-seed (same name+size, different hash)
+        both at /downloads.  Selecting one with cross-seeds enabled should
+        expand to include the sibling.
         """
         suffix = uuid.uuid4().hex[:6]
-        name_a = f"xseed_primary_{suffix}"
-        name_b = f"xseed_sibling_{suffix}"
+        content_name = f"XSeed.Same.Path.{suffix}"
 
-        # 1. Create two seeding torrents — both land in /downloads (same save_path)
-        torrent_a = add_torrent_to_deluge(deluge_source, name_a, create_torrent)
-        torrent_b = add_torrent_to_deluge(deluge_source, name_b, create_torrent)
+        # 1. Create original torrent and its cross-seed at the same location
+        torrent_a = add_torrent_to_deluge(
+            deluge_source, content_name, create_torrent, size_mb=1,
+        )
+        torrent_b = create_cross_seed_torrent(
+            docker_client, deluge_source, content_name,
+            source_location="/downloads",
+        )
 
-        # 2. Start transferarr and verify both appear with matching save_path
+        # 2. Verify both have the same save_path and name in the API
         transferarr.start(wait_healthy=True)
 
         all_url = f"{get_api_url()}/all_torrents"
         resp = requests.get(all_url, timeout=TIMEOUTS['api_response'])
         assert resp.status_code == 200
         source_data = resp.json()["data"].get("source-deluge", {})
-        assert torrent_a["hash"] in source_data, "Torrent A not in source listing"
-        assert torrent_b["hash"] in source_data, "Torrent B not in source listing"
+        assert torrent_a["hash"] in source_data, "Original not in listing"
+        assert torrent_b["hash"] in source_data, "Cross-seed not in listing"
 
-        # Verify they share save_path (cross-seed condition)
-        path_a = source_data[torrent_a["hash"]]["save_path"]
-        path_b = source_data[torrent_b["hash"]]["save_path"]
-        assert path_a == path_b, f"save_paths differ: {path_a} vs {path_b}"
+        info_a = source_data[torrent_a["hash"]]
+        info_b = source_data[torrent_b["hash"]]
+        assert info_a["save_path"] == info_b["save_path"], "save_paths should match"
+        assert info_a["name"] == info_b["name"], "names should match"
+        assert info_a["total_size"] == info_b["total_size"], "sizes should match"
 
         # 3. Initiate manual transfer with ONLY hash A, cross-seeds enabled
         url = f"{get_api_url()}/transfers/manual"
@@ -624,7 +741,7 @@ class TestManualTransferCrossSeed:
         assert resp.status_code == 200, f"Expected 200: {resp.text}"
         result = resp.json()["data"]
 
-        # Should have initiated 2 transfers (A + sibling B)
+        # Should have initiated 2 transfers (A + cross-seed B)
         assert result["total_initiated"] == 2, (
             f"Expected 2 initiated (cross-seed expansion), got {result['total_initiated']}. "
             f"Initiated: {result['initiated']}, Errors: {result['errors']}"
@@ -646,21 +763,105 @@ class TestManualTransferCrossSeed:
         )
 
     @pytest.mark.timeout(TIMEOUTS['torrent_transfer'])
+    def test_cross_seed_expansion_different_save_path(
+        self, docker_client, transferarr, deluge_source, deluge_target,
+        create_torrent,
+    ):
+        """Cross-seed expansion when torrents have different save_paths.
+
+        Simulates the symlink scenario: original torrent at /downloads,
+        cross-seed at /downloads/linkdir (as cross-seed tools typically do).
+        Despite different save_paths, both share the same name and total_size
+        so the API should expand the selection.
+        """
+        suffix = uuid.uuid4().hex[:6]
+        content_name = f"XSeed.Diff.Path.{suffix}"
+
+        # 1. Create original at /downloads
+        torrent_a = add_torrent_to_deluge(
+            deluge_source, content_name, create_torrent, size_mb=1,
+        )
+
+        # 2. Create cross-seed at /downloads/linkdir (copies content there)
+        torrent_b = create_cross_seed_torrent(
+            docker_client, deluge_source, content_name,
+            source_location="/downloads",
+            download_location="/downloads/linkdir",
+        )
+
+        # 3. Verify they have DIFFERENT save_paths but same name+size
+        transferarr.start(wait_healthy=True)
+
+        all_url = f"{get_api_url()}/all_torrents"
+        resp = requests.get(all_url, timeout=TIMEOUTS['api_response'])
+        assert resp.status_code == 200
+        source_data = resp.json()["data"].get("source-deluge", {})
+        assert torrent_a["hash"] in source_data, "Original not in listing"
+        assert torrent_b["hash"] in source_data, "Cross-seed not in listing"
+
+        info_a = source_data[torrent_a["hash"]]
+        info_b = source_data[torrent_b["hash"]]
+        assert info_a["save_path"] != info_b["save_path"], (
+            f"save_paths should differ: {info_a['save_path']} vs {info_b['save_path']}"
+        )
+        assert info_a["name"] == info_b["name"], "names should match"
+        assert info_a["total_size"] == info_b["total_size"], "sizes should match"
+
+        # 4. Initiate manual transfer with ONLY hash A, cross-seeds enabled
+        url = f"{get_api_url()}/transfers/manual"
+        resp = requests.post(url, json={
+            "hashes": [torrent_a["hash"]],
+            "source_client": "source-deluge",
+            "destination_client": "target-deluge",
+            "include_cross_seeds": True,
+        }, timeout=TIMEOUTS['api_response'])
+
+        assert resp.status_code == 200, f"Expected 200: {resp.text}"
+        result = resp.json()["data"]
+
+        # Should have initiated 2 transfers — different save_path doesn't matter
+        assert result["total_initiated"] == 2, (
+            f"Expected 2 initiated (cross-seed expansion across dirs), "
+            f"got {result['total_initiated']}. "
+            f"Initiated: {result['initiated']}, Errors: {result['errors']}"
+        )
+        initiated_hashes = {t["hash"] for t in result["initiated"]}
+        assert torrent_a["hash"] in initiated_hashes
+        assert torrent_b["hash"] in initiated_hashes
+
+        # 5. Wait for BOTH torrents to arrive on target
+        wait_for_torrent_in_deluge(
+            deluge_target, torrent_a["hash"],
+            timeout=TIMEOUTS['torrent_transfer'],
+            expected_state='Seeding',
+        )
+        wait_for_torrent_in_deluge(
+            deluge_target, torrent_b["hash"],
+            timeout=TIMEOUTS['torrent_transfer'],
+            expected_state='Seeding',
+        )
+
+    @pytest.mark.timeout(TIMEOUTS['torrent_transfer'])
     def test_cross_seed_disabled_transfers_only_selected(
-        self, transferarr, deluge_source, deluge_target, create_torrent,
+        self, docker_client, transferarr, deluge_source, deluge_target,
+        create_torrent,
     ):
         """With cross-seeds disabled, only the explicitly selected torrent transfers.
 
-        Same setup as the expansion test, but include_cross_seeds=False.
-        Only the selected hash should be initiated.
+        Creates a cross-seed pair (same name+size), but requests the transfer
+        with include_cross_seeds=False.  Only the selected hash should move.
         """
         suffix = uuid.uuid4().hex[:6]
-        name_a = f"xseed_only_a_{suffix}"
-        name_b = f"xseed_only_b_{suffix}"
+        content_name = f"XSeed.Disabled.{suffix}"
 
-        # Create two torrents sharing save_path
-        torrent_a = add_torrent_to_deluge(deluge_source, name_a, create_torrent)
-        torrent_b = add_torrent_to_deluge(deluge_source, name_b, create_torrent)
+        # Create original + cross-seed
+        torrent_a = add_torrent_to_deluge(
+            deluge_source, content_name, create_torrent, size_mb=1,
+        )
+        torrent_b = create_cross_seed_torrent(
+            docker_client, deluge_source, content_name,
+            source_location="/downloads",
+        )
 
         transferarr.start(wait_healthy=True)
 
@@ -694,5 +895,5 @@ class TestManualTransferCrossSeed:
         target_torrents = deluge_target.core.get_torrents_status({}, ["name"])
         target_torrents = decode_bytes(target_torrents)
         assert torrent_b["hash"] not in target_torrents, (
-            f"Sibling torrent B should NOT have been transferred"
+            f"Cross-seed sibling should NOT have been transferred"
         )

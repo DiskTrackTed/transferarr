@@ -125,7 +125,7 @@ Detects breaking changes in upstream Docker images before they hit the main CI.
 
 ### Why This Exists
 
-The main `tests.yml` workflow uses **pinned image versions** for deterministic, reproducible builds. This means upstream breaking changes (like the [Deluge 2.2.0 `create_torrent` bug]) are invisible until we manually update the pins.
+The main `tests.yml` workflow uses **pinned image versions** for deterministic, reproducible builds. This means upstream breaking changes (like the Deluge 2.2.0 `create_torrent` bug) are invisible until we manually update the pins.
 
 The weekly workflow catches these proactively by testing against `:latest` on a schedule.
 

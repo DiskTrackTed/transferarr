@@ -21,6 +21,7 @@ class DownloadClientSchema(Schema):
     username = fields.Str(allow_none=True, load_default=None)
     password = fields.Str(required=True)  # Required for new clients
     connection_type = fields.Str(required=True, validate=validate.OneOf(["rpc", "web"]))
+    delete_cross_seeds = fields.Bool(load_default=True)
 
 
 class DownloadClientUpdateSchema(Schema):
@@ -36,6 +37,7 @@ class DownloadClientUpdateSchema(Schema):
     username = fields.Str(allow_none=True, load_default=None)
     password = fields.Str(load_default=None)  # Optional - uses stored if not provided
     connection_type = fields.Str(required=True, validate=validate.OneOf(["rpc", "web"]))
+    delete_cross_seeds = fields.Bool(load_default=True)
 
 
 class DownloadClientTestSchema(Schema):
@@ -52,6 +54,7 @@ class DownloadClientTestSchema(Schema):
     username = fields.Str(allow_none=True, load_default=None)
     password = fields.Str(load_default=None)  # Optional - uses stored if editing existing client
     connection_type = fields.Str(required=True, validate=validate.OneOf(["rpc", "web"]))
+    delete_cross_seeds = fields.Bool(load_default=True)
 
 
 # =============================================================================
@@ -91,14 +94,46 @@ class TransferConfigSchema(Schema):
     to = fields.Nested(TransferConfigSideSchema, required=True)
 
 
+class TorrentSourceConfigSchema(Schema):
+    """Schema for torrent transfer source access configuration.
+    
+    Defines how Transferarr accesses .torrent files from the source Deluge's
+    state directory.  ``type`` selects the access method:
+    
+    - ``"sftp"`` — fetch via SFTP (requires ``sftp`` block)
+    - ``"local"`` — read from a locally-mounted path
+    
+    ``state_dir`` is the path to the Deluge state directory where
+    ``{hash}.torrent`` files live.  Optional at schema level (not needed for
+    connection testing), but required on save — enforced in
+    ``_validate_transfer_config()`` when ``require_paths=True``.
+    """
+    type = fields.Str(required=True, validate=validate.OneOf(["sftp", "local"]))
+    sftp = fields.Nested(SFTPConfigSchema, load_default=None)
+    state_dir = fields.Str(load_default=None)
+
+    @validates_schema
+    def validate_source_config(self, data, **kwargs):
+        """Cross-field validation: sftp block required for type=sftp, rejected for type=local."""
+        source_type = data.get("type")
+        sftp_block = data.get("sftp")
+        if source_type == "sftp" and not sftp_block:
+            raise ValidationError({"sftp": ["SFTP configuration is required when type is 'sftp'."]})
+        if source_type == "local" and sftp_block:
+            raise ValidationError({"sftp": ["SFTP configuration is not allowed when type is 'local'."]})
+
+
 class TorrentTransferConfigSchema(Schema):
     """Schema for torrent transfer configuration.
     
-    Validates {type: "torrent", destination_path: "..."} structure.
+    Validates {type: "torrent", destination_path: "...", source: {...}} structure.
     destination_path is optional — defaults at runtime to the download client's path.
+    source is optional — required for private tracker torrents to fetch .torrent metadata.
+    No source key = magnet-only mode.
     """
     type = fields.Str(required=True, validate=validate.Equal("torrent"))
     destination_path = fields.Str(load_default=None)
+    source = fields.Nested(TorrentSourceConfigSchema, load_default=None)
 
 
 def _validate_transfer_config(transfer_config: dict, require_paths: bool = True, path_data: dict = None):
@@ -118,6 +153,13 @@ def _validate_transfer_config(transfer_config: dict, require_paths: bool = True,
         errors = schema.validate(transfer_config)
         if errors:
             raise ValidationError({"transfer_config": errors})
+        # For saves (not test), source.state_dir is required when source is present
+        if require_paths:
+            source = transfer_config.get("source")
+            if source and not source.get("state_dir"):
+                raise ValidationError({
+                    "transfer_config": {"source": {"state_dir": ["Missing data for required field."]}}
+                })
     else:
         # Validate file transfer config shape (from/to nesting)
         schema = TransferConfigSchema()
@@ -263,4 +305,5 @@ class ManualTransferSchema(Schema):
     )
     source_client = fields.Str(required=True, validate=validate.Length(min=1))
     destination_client = fields.Str(required=True, validate=validate.Length(min=1))
-    include_cross_seeds = fields.Bool(load_default=True)
+    include_cross_seeds = fields.Bool(load_default=False)
+    delete_source_cross_seeds = fields.Bool(load_default=True)
