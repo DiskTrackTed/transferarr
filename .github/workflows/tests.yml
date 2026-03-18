@@ -166,12 +166,12 @@ jobs:
 
       - name: Checkout code
         if: steps.should_run.outputs.run == 'true'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       # Unit tests - no Docker needed
       - name: Setup Python (unit tests only)
         if: steps.should_run.outputs.run == 'true' && matrix.needs_docker == false
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.12'
 
@@ -224,7 +224,7 @@ jobs:
 
       - name: Upload test artifacts
         if: failure() && steps.should_run.outputs.run == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ matrix.category }}-results
           path: test-results/
@@ -239,7 +239,7 @@ jobs:
 
       - name: Upload logs
         if: failure() && steps.should_run.outputs.run == 'true' && matrix.needs_docker == true
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ matrix.category }}-logs
           path: logs/
