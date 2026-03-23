@@ -713,7 +713,7 @@ docker compose -f docker/docker-compose.test.yml run --rm torrent-creator \
   --name "Test.Movie.2024.1080p.WEB-DL" --size 10
 
 # Create a TV episode torrent (10MB)
-docker compose -f docker/docker-compose.test.yml --profile tools run --rm torrent-creator \
+docker compose -f docker/docker-compose.test.yml run --rm torrent-creator \
   --name "Test.Series.S01E01.1080p.WEB-DL" --size 10
 
 # List available torrents

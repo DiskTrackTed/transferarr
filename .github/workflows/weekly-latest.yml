@@ -110,7 +110,7 @@ jobs:
 
       - name: Build test infrastructure
         if: matrix.needs_docker == true
-        run: docker compose -f $COMPOSE_FILE build
+        run: docker compose -f $COMPOSE_FILE --profile tools build
 
       - name: Pull latest images
         if: matrix.needs_docker == true
