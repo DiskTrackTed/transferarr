@@ -70,7 +70,7 @@ clean_deluge_torrents() {
         -d '{"method": "core.get_torrents_status", "params": [{}, ["hash"]], "id": 3}')
     
     # Extract torrent hashes
-    local hashes=$(echo "$torrents_response" | grep -oP '"[a-f0-9]{40}"' | tr -d '"' | sort -u)
+    local hashes=$(echo "$torrents_response" | grep -oE '"[a-f0-9]{40}"' | tr -d '"' | sort -u)
     
     if [[ -z "$hashes" ]]; then
         log_info "No torrents found in $name"
@@ -100,7 +100,7 @@ clean_radarr() {
     log_info "Cleaning Radarr ($host:$port)..."
     
     # Get API key from config
-    local api_key=$(docker exec test-radarr cat /config/config.xml 2>/dev/null | grep -oP '(?<=<ApiKey>)[^<]+' || true)
+    local api_key=$(docker exec test-radarr cat /config/config.xml 2>/dev/null | sed -n 's/.*<ApiKey>\([^<]*\)<.*/\1/p' || true)
     
     if [[ -z "$api_key" ]]; then
         log_warn "Could not get Radarr API key - may not be running"
@@ -109,7 +109,7 @@ clean_radarr() {
     
     # Get queue items
     local queue_response=$(curl -s "http://$host:$port/api/v3/queue?apikey=$api_key")
-    local queue_ids=$(echo "$queue_response" | grep -oP '"id":\s*\K\d+' || true)
+    local queue_ids=$(echo "$queue_response" | grep -oE '"id":[[:space:]]*[0-9]+' | grep -oE '[0-9]+' || true)
     
     # Remove queue items
     for id in $queue_ids; do
@@ -122,7 +122,7 @@ clean_radarr() {
     
     # Get and remove movies
     local movies_response=$(curl -s "http://$host:$port/api/v3/movie?apikey=$api_key")
-    local movie_ids=$(echo "$movies_response" | grep -oP '"id":\s*\K\d+' | head -20 || true)
+    local movie_ids=$(echo "$movies_response" | grep -oE '"id":[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | head -20 || true)
     
     for id in $movie_ids; do
         curl -s -X DELETE "http://$host:$port/api/v3/movie/$id?apikey=$api_key&deleteFiles=true" > /dev/null
@@ -141,7 +141,7 @@ clean_sonarr() {
     log_info "Cleaning Sonarr ($host:$port)..."
     
     # Get API key from config
-    local api_key=$(docker exec test-sonarr cat /config/config.xml 2>/dev/null | grep -oP '(?<=<ApiKey>)[^<]+' || true)
+    local api_key=$(docker exec test-sonarr cat /config/config.xml 2>/dev/null | sed -n 's/.*<ApiKey>\([^<]*\)<.*/\1/p' || true)
     
     if [[ -z "$api_key" ]]; then
         log_warn "Could not get Sonarr API key - may not be running"
@@ -150,7 +150,7 @@ clean_sonarr() {
     
     # Get queue items
     local queue_response=$(curl -s "http://$host:$port/api/v3/queue?apikey=$api_key")
-    local queue_ids=$(echo "$queue_response" | grep -oP '"id":\s*\K\d+' || true)
+    local queue_ids=$(echo "$queue_response" | grep -oE '"id":[[:space:]]*[0-9]+' | grep -oE '[0-9]+' || true)
     
     # Remove queue items
     for id in $queue_ids; do
@@ -163,7 +163,7 @@ clean_sonarr() {
     
     # Get and remove series
     local series_response=$(curl -s "http://$host:$port/api/v3/series?apikey=$api_key")
-    local series_ids=$(echo "$series_response" | grep -oP '"id":\s*\K\d+' | head -20 || true)
+    local series_ids=$(echo "$series_response" | grep -oE '"id":[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | head -20 || true)
     
     for id in $series_ids; do
         curl -s -X DELETE "http://$host:$port/api/v3/series/$id?apikey=$api_key&deleteFiles=true" > /dev/null
@@ -277,7 +277,8 @@ regenerate_config() {
     docker compose -f "$COMPOSE_FILE" stop transferarr >/dev/null 2>&1 || true
     
     # Re-run the service registrar to regenerate config (capture output)
-    if ! docker compose -f "$COMPOSE_FILE" run --rm -T service-registrar >"$output_file" 2>&1; then
+    # --no-deps prevents Compose from trying to recreate already-running dependency containers
+    if ! docker compose -f "$COMPOSE_FILE" run --rm --no-deps -T service-registrar >"$output_file" 2>&1; then
         failed=true
     fi
     

@@ -110,7 +110,7 @@ def create_torrent(docker_client, name, size_mb=10, multi_file=False):
     except docker.errors.ImageNotFound:
         print(
             "ERROR: Torrent creator image not found. Build with:\n"
-            "  docker compose -f docker/docker-compose.test.yml --profile tools build torrent-creator"
+            "  docker compose -f docker/docker-compose.test.yml build torrent-creator"
         )
         sys.exit(1)
 

@@ -234,7 +234,7 @@ services:
     networks:
       - test-network
     profiles:
-      - tools  # Only run when explicitly requested
+      - tools  # Only run when explicitly requested with docker compose run
 
   # ============== SETUP CONTAINERS ==============
 

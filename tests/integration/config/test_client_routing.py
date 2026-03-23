@@ -9,7 +9,7 @@ Test setup:
 - target-deluge-2 is available but not connected
 
 Prerequisites:
-    docker compose -f docker/docker-compose.test.yml --profile multi-target up -d
+    docker compose -f docker/docker-compose.test.yml up -d
 """
 import pytest
 from tests.utils import (

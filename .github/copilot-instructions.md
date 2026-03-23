@@ -708,12 +708,12 @@ All Docker images in `docker-compose.test.yml` are pinned to specific versions f
 
 ### Creating Test Torrents
 ```bash
-# Create a movie torrent (10MB) - requires --profile tools
-docker compose -f docker/docker-compose.test.yml --profile tools run --rm torrent-creator \
+# Create a movie torrent (10MB)
+docker compose -f docker/docker-compose.test.yml run --rm torrent-creator \
   --name "Test.Movie.2024.1080p.WEB-DL" --size 10
 
 # Create a TV episode torrent (10MB)
-docker compose -f docker/docker-compose.test.yml --profile tools run --rm torrent-creator \
+docker compose -f docker/docker-compose.test.yml run --rm torrent-creator \
   --name "Test.Series.S01E01.1080p.WEB-DL" --size 10
 
 # List available torrents
@@ -802,14 +802,14 @@ docker compose -f docker/docker-compose.test.yml up -d
 ```bash
 # Run all integration tests via Docker
 # (test code is mounted, dependencies are cached - no rebuild needed!)
-docker compose -f docker/docker-compose.test.yml --profile test run --rm test-runner
+docker compose -f docker/docker-compose.test.yml run --rm test-runner
 
 # Run specific category
-docker compose -f docker/docker-compose.test.yml --profile test run --rm test-runner \
+docker compose -f docker/docker-compose.test.yml run --rm test-runner \
   tests/integration/lifecycle/ -v -s
 
 # Run with custom pytest args
-docker compose -f docker/docker-compose.test.yml --profile test run --rm test-runner \
+docker compose -f docker/docker-compose.test.yml run --rm test-runner \
   tests/integration/ -v -s
 ```
 
