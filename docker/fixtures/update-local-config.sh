@@ -9,8 +9,8 @@ CONFIG_FILE="$SCRIPT_DIR/config.local.json"
 
 echo "Extracting API keys from test containers..."
 
-RADARR_KEY=$(docker exec test-radarr cat /config/config.xml 2>/dev/null | grep -oP '(?<=<ApiKey>)[^<]+')
-SONARR_KEY=$(docker exec test-sonarr cat /config/config.xml 2>/dev/null | grep -oP '(?<=<ApiKey>)[^<]+')
+RADARR_KEY=$(docker exec test-radarr cat /config/config.xml 2>/dev/null | sed -n 's/.*<ApiKey>\([^<]*\)<.*/\1/p')
+SONARR_KEY=$(docker exec test-sonarr cat /config/config.xml 2>/dev/null | sed -n 's/.*<ApiKey>\([^<]*\)<.*/\1/p')
 
 if [ -z "$RADARR_KEY" ]; then
     echo "ERROR: Could not extract Radarr API key. Is test-radarr running?"

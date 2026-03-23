@@ -48,6 +48,7 @@ htmlcov/
 
 # Environments
 .env
+!docker/.env
 .venv
 env/
 venv/

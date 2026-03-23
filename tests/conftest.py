@@ -622,8 +622,8 @@ def deluge_target_2(docker_client, docker_services):
     """
     Provide a Deluge RPC client for the second target instance.
     
-    This fixture requires the multi-target profile to be started:
-    docker compose -f docker/docker-compose.test.yml --profile multi-target up -d deluge-target-2
+    This fixture requires deluge-target-2 to be started:
+    docker compose -f docker/docker-compose.test.yml up -d deluge-target-2
     
     The fixture is function-scoped and will skip if the container isn't running.
     """
@@ -631,9 +631,9 @@ def deluge_target_2(docker_client, docker_services):
     try:
         container = docker_client.containers.get('test-deluge-target-2')
         if container.status != 'running':
-            pytest.skip("deluge-target-2 not running. Start with: docker compose -f docker/docker-compose.test.yml --profile multi-target up -d deluge-target-2")
+            pytest.skip("deluge-target-2 not running. Start with: docker compose -f docker/docker-compose.test.yml up -d deluge-target-2")
     except docker.errors.NotFound:
-        pytest.skip("deluge-target-2 not found. Start with: docker compose -f docker/docker-compose.test.yml --profile multi-target up -d deluge-target-2")
+        pytest.skip("deluge-target-2 not found. Start with: docker compose -f docker/docker-compose.test.yml up -d deluge-target-2")
     
     client = DelugeRPCClient(
         host=SERVICES['deluge_target_2']['host'],
@@ -693,7 +693,7 @@ def create_torrent(docker_client, docker_services):
             # Image not built - fail with instructions
             pytest.fail(
                 "Torrent creator image not found. Build with: "
-                "docker compose -f docker/docker-compose.test.yml --profile tools build torrent-creator"
+                "docker compose -f docker/docker-compose.test.yml build torrent-creator"
             )
         
         # Parse output to get hash
@@ -801,7 +801,7 @@ def transferarr(docker_client, docker_services, radarr_api_key, sonarr_api_key):
                 # Container doesn't exist
                 pytest.fail(
                     "Transferarr container not found. "
-                    "Start it with: docker compose --profile app up -d transferarr"
+                    "Start it with: docker compose -f docker/docker-compose.test.yml up -d transferarr"
                 )
             
             if wait_healthy:

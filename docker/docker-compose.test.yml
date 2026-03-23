@@ -233,8 +233,6 @@ services:
       - test-torrents:/torrents
     networks:
       - test-network
-    profiles:
-      - tools  # Only run when explicitly requested
 
   # ============== SETUP CONTAINERS ==============
 
