@@ -70,11 +70,12 @@ class RadarrManager:
                                 new_torrent = Torrent(
                                     name=item.title,
                                     id = item.download_id.lower(),
+                                    state=TorrentState.MANAGER_QUEUED,
                                     save_callback=save_torrents_state,
                                     media_manager=self
                                 )
-                                new_torrent.state = TorrentState.MANAGER_QUEUED
                                 torrents.append(new_torrent)
+                                new_torrent.mark_dirty()
                                 self.logger.info(f"New torrent: {item.title}")
                             else:
                                 match.media_manager = self
@@ -198,11 +199,12 @@ class SonarrManager:
                                 new_torrent = Torrent(
                                     name=item.title,
                                     id = item.download_id.lower(),
+                                    state=TorrentState.MANAGER_QUEUED,
                                     save_callback=save_torrents_state,
                                     media_manager=self
                                 )
-                                new_torrent.state = TorrentState.MANAGER_QUEUED
                                 torrents.append(new_torrent)
+                                new_torrent.mark_dirty()
                                 self.logger.info(f"New torrent: {item.title}")
                             else:
                                 match.media_manager = self

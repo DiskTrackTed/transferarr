@@ -1027,3 +1027,4 @@ class TorrentTransferHandler:
                 logger.warning(f"Failed to unregister from tracker: {e}")
         
         torrent.transfer["cleaned_up"] = True
+        torrent.mark_dirty()

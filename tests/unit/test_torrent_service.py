@@ -1,7 +1,10 @@
 """Unit tests for TorrentManager (torrent_service.py)."""
 
-from unittest.mock import Mock
+import threading
+import time
+from unittest.mock import Mock, mock_open, patch
 
+from transferarr.models import TorrentList
 from transferarr.models.torrent import Torrent, TorrentState
 from transferarr.services.torrent_service import TorrentManager
 
@@ -912,3 +915,215 @@ class TestPrivateTorrentEarlyGateManualTransfer:
 
         assert result["total_initiated"] == 1
         assert result["total_errors"] == 0
+
+
+class TestSaveQueueHelpers:
+    def _make_manager(self):
+        manager = Mock(spec=TorrentManager)
+        manager._save_event = threading.Event()
+        manager._save_stop_event = threading.Event()
+        manager._save_meta_lock = threading.Lock()
+        manager._save_done = threading.Condition(manager._save_meta_lock)
+        manager._save_requested_generation = 0
+        manager._save_completed_generation = 0
+        manager._save_in_progress = False
+        manager._last_save_error = None
+        manager.request_save = TorrentManager.request_save.__get__(manager)
+        manager.flush_pending_save = TorrentManager.flush_pending_save.__get__(manager)
+        return manager
+
+    def test_request_save_increments_generation_and_sets_event(self):
+        manager = self._make_manager()
+
+        generation = manager.request_save()
+
+        assert generation == 1
+        assert manager._save_requested_generation == 1
+        assert manager._save_event.is_set() is True
+
+    def test_flush_pending_save_waits_for_requested_generation(self):
+        manager = self._make_manager()
+        manager.request_save()
+
+        def complete_save():
+            time.sleep(0.05)
+            with manager._save_done:
+                manager._save_completed_generation = manager._save_requested_generation
+                manager._save_done.notify_all()
+
+        thread = threading.Thread(target=complete_save)
+        thread.start()
+        try:
+            assert manager.flush_pending_save(timeout=1.0) is True
+        finally:
+            thread.join()
+
+    def test_flush_pending_save_times_out(self):
+        manager = self._make_manager()
+        manager.request_save()
+
+        start = time.monotonic()
+
+        assert manager.flush_pending_save(timeout=0.05) is False
+        assert time.monotonic() - start >= 0.05
+
+    def test_multiple_request_save_calls_coalesce(self):
+        manager = self._make_manager()
+        manager._write_torrents_state = Mock(
+            side_effect=lambda: manager._save_stop_event.set()
+        )
+        manager._save_loop = TorrentManager._save_loop.__get__(manager)
+
+        manager.request_save()
+        manager.request_save()
+        manager.request_save()
+
+        thread = threading.Thread(target=manager._save_loop)
+        thread.start()
+        thread.join(timeout=1.0)
+
+        assert thread.is_alive() is False
+        manager._write_torrents_state.assert_called_once()
+        assert manager._save_completed_generation == 3
+
+    def test_stop_requests_final_save_and_flushes(self):
+        manager = Mock(spec=TorrentManager)
+        manager.thread = Mock()
+        manager._save_thread = Mock()
+        manager._save_event = threading.Event()
+        manager._save_stop_event = threading.Event()
+        manager.request_save = Mock()
+        manager.flush_pending_save = Mock(return_value=True)
+        manager.connections = {}
+        manager.tracker = None
+        manager.stop = TorrentManager.stop.__get__(manager)
+
+        manager.stop()
+
+        manager.thread.join.assert_called_once_with(timeout=2)
+        manager.request_save.assert_called_once()
+        manager.flush_pending_save.assert_called_once_with(timeout=5.0)
+        manager._save_thread.join.assert_called_once_with(timeout=5.0)
+        assert manager._save_stop_event.is_set() is True
+        assert manager._save_event.is_set() is True
+
+
+class TestPersistenceCallbackWiring:
+    def test_loaded_torrents_use_request_save_callback(self):
+        manager = Mock(spec=TorrentManager)
+        manager.state_file = "/tmp/state.json"
+        manager.download_clients = {}
+        manager.media_managers = []
+        manager.request_save = Mock()
+        manager.load_torrents_state = TorrentManager.load_torrents_state.__get__(manager)
+
+        with patch("transferarr.services.torrent_service.os.path.exists", return_value=True), \
+             patch("builtins.open", mock_open(read_data="[]")), \
+             patch("transferarr.services.torrent_service.json.load", return_value=[{"id": "abc", "state": "HOME_SEEDING"}]), \
+             patch("transferarr.services.torrent_service.Torrent.from_dict", return_value=Mock()) as mock_from_dict:
+            manager.load_torrents_state()
+
+        mock_from_dict.assert_called_once()
+        assert mock_from_dict.call_args.kwargs["save_callback"] is manager.request_save
+
+    def test_media_manager_updates_receive_request_save_callback(self):
+        manager = Mock(spec=TorrentManager)
+        manager.media_managers = [Mock()]
+        manager.torrents = TorrentList()
+        manager.request_save = Mock()
+        manager.get_media_manager_updates = TorrentManager.get_media_manager_updates.__get__(manager)
+
+        manager.get_media_manager_updates()
+
+        manager.media_managers[0].get_queue_updates.assert_called_once_with(
+            manager.torrents,
+            manager.request_save,
+        )
+
+
+class TestTrackedTorrentMutationHelpers:
+    def _make_manager(self, torrents=None):
+        manager = Mock(spec=TorrentManager)
+        manager.torrents = TorrentList(torrents or [])
+        manager.request_save = Mock()
+        manager.retry_tracked_torrent_if_failed = (
+            TorrentManager.retry_tracked_torrent_if_failed.__get__(manager)
+        )
+        manager.remove_tracked_torrent_if_failed = (
+            TorrentManager.remove_tracked_torrent_if_failed.__get__(manager)
+        )
+        return manager
+
+    def test_retry_helper_returns_not_found_for_stale_snapshot_object(self):
+        tracked = Torrent(name="Tracked", id="abc")
+        tracked.state = TorrentState.TRANSFER_FAILED
+        stale = Torrent(name="Tracked", id="abc")
+        stale.state = TorrentState.TRANSFER_FAILED
+        manager = self._make_manager([tracked])
+
+        result, state_name = manager.retry_tracked_torrent_if_failed(stale)
+
+        assert result == "not_found"
+        assert state_name is None
+        manager.request_save.assert_not_called()
+
+    def test_retry_helper_returns_invalid_state_from_current_state(self):
+        tracked = Torrent(name="Tracked", id="abc")
+        tracked.state = TorrentState.HOME_SEEDING
+        manager = self._make_manager([tracked])
+
+        result, state_name = manager.retry_tracked_torrent_if_failed(tracked)
+
+        assert result == "invalid_state"
+        assert state_name == TorrentState.HOME_SEEDING.name
+        manager.request_save.assert_not_called()
+
+    def test_retry_helper_transitions_state_and_requests_save(self):
+        tracked = Torrent(name="Tracked", id="abc")
+        tracked.state = TorrentState.TRANSFER_FAILED
+        manager = self._make_manager([tracked])
+
+        result, state_name = manager.retry_tracked_torrent_if_failed(tracked)
+
+        assert result == "ok"
+        assert state_name == TorrentState.HOME_SEEDING.name
+        assert tracked.state == TorrentState.HOME_SEEDING
+        manager.request_save.assert_called_once()
+
+    def test_remove_helper_returns_invalid_state_from_current_state(self):
+        tracked = Torrent(name="Tracked", id="abc")
+        tracked.state = TorrentState.HOME_SEEDING
+        manager = self._make_manager([tracked])
+
+        result, state_name = manager.remove_tracked_torrent_if_failed(tracked)
+
+        assert result == "invalid_state"
+        assert state_name == TorrentState.HOME_SEEDING.name
+        assert len(manager.torrents) == 1
+        manager.request_save.assert_not_called()
+
+    def test_remove_helper_returns_not_found_for_stale_snapshot_object(self):
+        tracked = Torrent(name="Tracked", id="abc")
+        tracked.state = TorrentState.TRANSFER_FAILED
+        stale = Torrent(name="Tracked", id="abc")
+        stale.state = TorrentState.TRANSFER_FAILED
+        manager = self._make_manager([tracked])
+
+        result, state_name = manager.remove_tracked_torrent_if_failed(stale)
+
+        assert result == "not_found"
+        assert state_name is None
+        assert len(manager.torrents) == 1
+        manager.request_save.assert_not_called()
+
+    def test_remove_helper_removes_and_requests_save(self):
+        tracked = Torrent(name="Tracked", id="abc")
+        tracked.state = TorrentState.TRANSFER_FAILED
+        manager = self._make_manager([tracked])
+
+        result, state_name = manager.remove_tracked_torrent_if_failed(tracked)
+
+        assert result == "ok"
+        assert state_name is None
+        assert len(manager.torrents) == 0
+        manager.request_save.assert_called_once()

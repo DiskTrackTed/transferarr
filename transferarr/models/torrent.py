@@ -1,3 +1,4 @@
+import copy
 from enum import Enum
 
 class TorrentState(Enum):
@@ -106,11 +107,14 @@ class Torrent:
     def state(self):
         return self._state
 
+    def mark_dirty(self):
+        if self.save_callback:
+            self.save_callback()
+
     @state.setter
     def state(self, value):
         self._state = value
-        if self.save_callback:
-            self.save_callback()
+        self.mark_dirty()
 
     def to_dict(self):
         """Convert the Torrent object to a dictionary."""
@@ -143,6 +147,19 @@ class Torrent:
         if self.delete_source_cross_seeds is not None:
             result["delete_source_cross_seeds"] = self.delete_source_cross_seeds
         
+        return result
+
+    def to_persisted_dict(self):
+        """Convert the Torrent object to a persistence-safe dictionary.
+
+        The save worker runs on a separate thread, so persisted data must not
+        retain references to mutable nested dicts that other threads continue
+        mutating.
+        """
+        result = self.to_dict()
+        for key in ("home_client_info", "target_client_info", "transfer"):
+            if result.get(key) is not None:
+                result[key] = copy.deepcopy(result[key])
         return result
     
     def _get_display_progress(self) -> int:

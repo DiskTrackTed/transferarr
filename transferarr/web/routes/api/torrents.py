@@ -133,25 +133,27 @@ def register_routes(bp):
           404:
             description: Torrent not found
         """
-        from transferarr.models.torrent import TorrentState
-        
+        torrent_manager = current_app.config['TORRENT_MANAGER']
         torrent = _find_torrent_by_hash(torrent_hash)
         
         if not torrent:
             return error_response("NOT_FOUND", "Torrent not found", status_code=404)
-        
-        if torrent.state != TorrentState.TRANSFER_FAILED:
+
+        result, state_name = torrent_manager.retry_tracked_torrent_if_failed(torrent)
+
+        if result == "not_found":
+          return error_response("NOT_FOUND", "Torrent not found", status_code=404)
+
+        if result == "invalid_state":
             return error_response(
                 "INVALID_STATE",
-                f"Cannot retry: torrent is in {torrent.state.name} state, not TRANSFER_FAILED"
+            f"Cannot retry: torrent is in {state_name} state, not TRANSFER_FAILED"
             )
-        
-        torrent.state = TorrentState.HOME_SEEDING
-        
+
         logger.info(f"User initiated retry for {torrent.name}")
         return success_response({
             "message": f"Transfer retry initiated for {torrent.name}",
-            "new_state": torrent.state.name
+          "new_state": state_name
         })
 
     @bp.route("/torrents/<torrent_hash>", methods=["DELETE"])
@@ -174,23 +176,24 @@ def register_routes(bp):
           404:
             description: Torrent not found
         """
-        from transferarr.models.torrent import TorrentState
-        
         torrent = _find_torrent_by_hash(torrent_hash)
         
         if not torrent:
             return error_response("NOT_FOUND", "Torrent not found", status_code=404)
-        
-        if torrent.state != TorrentState.TRANSFER_FAILED:
+
+        torrent_manager = current_app.config['TORRENT_MANAGER']
+        result, state_name = torrent_manager.remove_tracked_torrent_if_failed(torrent)
+
+        if result == "not_found":
+          return error_response("NOT_FOUND", "Torrent not found", status_code=404)
+
+        if result == "invalid_state":
             return error_response(
                 "INVALID_STATE",
-                f"Cannot remove: torrent is in {torrent.state.name} state, not TRANSFER_FAILED"
+            f"Cannot remove: torrent is in {state_name} state, not TRANSFER_FAILED"
             )
-        
+
         torrent_name = torrent.name
-        torrent_manager = current_app.config['TORRENT_MANAGER']
-        torrent_manager.torrents.remove(torrent)
-        torrent_manager.save_torrents_state()
         
         logger.info(f"User removed failed transfer: {torrent_name}")
         return success_response({

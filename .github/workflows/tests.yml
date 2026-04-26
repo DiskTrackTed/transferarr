@@ -110,7 +110,7 @@ jobs:
             timeout: 20
             needs_docker: true
           - category: integration-transfers-torrent-lifecycle
-            path: tests/integration/transfers/test_torrent_transfer_download.py tests/integration/transfers/test_torrent_transfer_lifecycle.py
+            path: tests/integration/transfers/test_torrent_transfer_download.py tests/integration/transfers/test_torrent_transfer_lifecycle.py tests/integration/transfers/test_torrent_source_access.py
             timeout: 30
             needs_docker: true
           - category: integration-transfers-concurrent

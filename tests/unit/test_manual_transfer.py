@@ -4,9 +4,16 @@ from unittest.mock import Mock, MagicMock, patch, PropertyMock
 
 import pytest
 
+from transferarr.models import TorrentList
 from transferarr.models.torrent import Torrent, TorrentState
 from transferarr.services.torrent_service import TorrentManager
 from transferarr.web.services import ManualTransferService, NotFoundError, ValidationError
+
+
+def _as_torrent_list(items=None):
+    if isinstance(items, TorrentList):
+        return items
+    return TorrentList(items)
 
 
 # ──────────────────────────────────────────────────
@@ -32,7 +39,7 @@ def _make_mock_manager(**overrides):
     conn.is_torrent_transfer = False
     manager.connections = overrides.get("connections", {"source-to-target": conn})
 
-    manager.torrents = overrides.get("torrents", [])
+    manager.torrents = _as_torrent_list(overrides.get("torrents", []))
     manager.torrent_transfer_handler = overrides.get("torrent_transfer_handler", None)
     return manager
 
@@ -264,7 +271,7 @@ class TestValidateAndInitiate:
                                  torrent_transfer=False):
         """Helper to create a service with mocked dependencies."""
         manager = _make_mock_manager()
-        manager.torrents = tracked_torrents or []
+        manager.torrents = _as_torrent_list(tracked_torrents or [])
 
         # Mock get_all_torrents_status on the source client
         source = manager.download_clients["source-deluge"]
@@ -666,7 +673,8 @@ class TestCreateManualTransfers:
     def _make_manager(self, **overrides):
         """Create a minimal mock TorrentManager with the real method."""
         manager = Mock(spec=TorrentManager)
-        manager.torrents = overrides.get("torrents", [])
+        manager.torrents = _as_torrent_list(overrides.get("torrents", []))
+        manager.request_save = Mock()
         manager.save_torrents_state = Mock()
         manager.torrent_transfer_handler = overrides.get("handler", None)
         # Bind the real method
@@ -824,7 +832,7 @@ class TestCreateManualTransfers:
         assert result["total_initiated"] == 3
         assert len(manager.torrents) == 3
         assert conn.enqueue_copy_torrent.call_count == 3
-        manager.save_torrents_state.assert_called_once()
+        manager.request_save.assert_called_once()
 
     def test_saves_state_after_all_transfers(self):
         manager = self._make_manager()
@@ -844,7 +852,7 @@ class TestCreateManualTransfers:
             connection=conn,
         )
 
-        manager.save_torrents_state.assert_called_once()
+        manager.request_save.assert_called_once()
 
     def test_stores_delete_source_cross_seeds_on_torrent(self):
         """delete_source_cross_seeds flag is stored on the created Torrent."""

@@ -34,6 +34,7 @@ TRANSFER_TYPE_CONFIGS = {
     'multi-target': FIXTURES_DIR / "config.multi-target.json",
     'torrent-transfer': FIXTURES_DIR / "config.torrent-transfer.json",
     'torrent-transfer-no-tracker': FIXTURES_DIR / "config.torrent-transfer-no-tracker.json",
+    'torrent-transfer-local-source': FIXTURES_DIR / "config.torrent-transfer-local-source.json",
 }
 
 # History config overrides (merged with base config)

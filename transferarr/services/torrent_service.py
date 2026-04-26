@@ -3,10 +3,14 @@ import logging
 import radarr
 import json
 import os
+import tempfile
+import threading
+import time
 from threading import Thread
 from typing import Optional
 from transferarr.clients.base import load_download_clients
 from transferarr.services.transfer_connection import TransferConnection
+from transferarr.models import TorrentList
 from transferarr.models.torrent import Torrent, TorrentState
 from transferarr.services.media_managers import RadarrManager, SonarrManager
 from transferarr.services.tracker import BitTorrentTracker, create_tracker_from_config
@@ -17,7 +21,7 @@ logger = logging.getLogger("transferarr")
 
 class TorrentManager:
     def __init__(self, config, config_file, state_dir=None, history_service=None, history_config=None):
-        self.torrents = []
+        self.torrents = TorrentList()
         self.config = config
         self.config_file = config_file
         self.media_managers = []
@@ -29,6 +33,16 @@ class TorrentManager:
         self.history_service = history_service
         self.history_config = history_config or {}
         self.running = False
+        self.thread: Optional[Thread] = None
+        self._save_thread: Optional[Thread] = None
+        self._save_event = threading.Event()
+        self._save_stop_event = threading.Event()
+        self._save_meta_lock = threading.Lock()
+        self._save_done = threading.Condition(self._save_meta_lock)
+        self._save_requested_generation = 0
+        self._save_completed_generation = 0
+        self._save_in_progress = False
+        self._last_save_error: Optional[str] = None
         
         # Tracker and torrent transfer handler
         self.tracker: Optional[BitTorrentTracker] = None
@@ -42,7 +56,7 @@ class TorrentManager:
         # Set up tracker if enabled
         self._setup_tracker(config)
         # Load saved torrent state (must be after media_managers and download_clients are loaded)
-        self.torrents = self.load_torrents_state()
+        self.torrents.replace(self.load_torrents_state())
         # Re-register any pending transfer hashes with tracker (tracker state is in-memory only)
         self._reregister_pending_transfers()
 
@@ -278,21 +292,112 @@ class TorrentManager:
                     data, 
                     self.download_clients, 
                     media_managers=self.media_managers,
-                    save_callback=self.save_torrents_state
+                    save_callback=self.request_save
                 ) 
                 for data in torrents_data
             ]
         except Exception as e:
             logger.error(f"Failed to load torrents state: {e}")
             return []
+
+    def request_save(self):
+        with self._save_done:
+            self._save_requested_generation += 1
+            self._save_event.set()
+            return self._save_requested_generation
+
+    def flush_pending_save(self, timeout: float) -> bool:
+        with self._save_done:
+            target_generation = self._save_requested_generation
+            deadline = time.monotonic() + timeout
+            while self._save_completed_generation < target_generation:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return False
+                self._save_done.wait(timeout=remaining)
+            return True
+
+    def _write_torrents_state(self):
+        snapshot = [torrent.to_persisted_dict() for torrent in self.torrents]
+        fd, temp_path = tempfile.mkstemp(
+            dir=self.state_dir,
+            prefix="state.",
+            suffix=".json",
+        )
+        try:
+            with os.fdopen(fd, "w") as f:
+                json.dump(snapshot, f, indent=4)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(temp_path, self.state_file)
+        except Exception:
+            try:
+                os.unlink(temp_path)
+            except OSError:
+                pass
+            raise
+
+    def _save_loop(self):
+        while True:
+            self._save_event.wait()
+            self._save_event.clear()
+
+            while True:
+                with self._save_done:
+                    if self._save_completed_generation >= self._save_requested_generation:
+                        break
+                    target_generation = self._save_requested_generation
+                    self._save_in_progress = True
+
+                try:
+                    self._write_torrents_state()
+                except Exception as e:
+                    logger.error(f"Failed to save torrents state: {e}")
+                    with self._save_done:
+                        self._save_in_progress = False
+                        self._last_save_error = str(e)
+                        self._save_done.notify_all()
+                    if not self._save_stop_event.is_set():
+                        time.sleep(1.0)
+                        self._save_event.set()
+                    continue
+
+                with self._save_done:
+                    self._save_completed_generation = target_generation
+                    self._save_in_progress = False
+                    self._last_save_error = None
+                    self._save_done.notify_all()
+
+            if self._save_stop_event.is_set():
+                with self._save_done:
+                    if self._save_completed_generation >= self._save_requested_generation:
+                        return
     
     def save_torrents_state(self):
-        """Save the torrents state to a JSON file."""
-        try:
-            with open(self.state_file, "w") as f:
-                json.dump([torrent.to_dict() for torrent in self.torrents], f, indent=4)
-        except Exception as e:
-            logger.error(f"Failed to save torrents state: {e}")
+        """Compatibility wrapper that schedules an async save."""
+        self.request_save()
+
+    def retry_tracked_torrent_if_failed(self, torrent):
+        with self.torrents.locked() as raw_torrents:
+            if torrent not in raw_torrents:
+                return ("not_found", None)
+            if torrent.state != TorrentState.TRANSFER_FAILED:
+                return ("invalid_state", torrent.state.name)
+            torrent._state = TorrentState.HOME_SEEDING
+
+        self.request_save()
+        return ("ok", TorrentState.HOME_SEEDING.name)
+
+    def remove_tracked_torrent_if_failed(self, torrent):
+        with self.torrents.locked() as raw_torrents:
+            if torrent not in raw_torrents:
+                return ("not_found", None)
+            if torrent.state != TorrentState.TRANSFER_FAILED:
+                return ("invalid_state", torrent.state.name)
+            raw_torrents.remove(torrent)
+
+        self.request_save()
+        return ("ok", None)
 
     def _should_delete_cross_seeds(self, torrent):
         """Determine whether cross-seed siblings should be removed for a torrent.
@@ -449,14 +554,13 @@ class TorrentManager:
 
                 # Populate from fetched info
                 torrent.name = info.get("name", torrent_hash)
-                torrent.home_client_info = info
+                torrent.set_home_client_info(info)
+                torrent.set_progress_from_home_client_info()
                 torrent.set_target_client(dest_client)
                 torrent.media_manager = None  # Manual transfer — no media manager
-                torrent.size = int(info.get("total_size", 0))
-                torrent.progress = int(info.get("progress", 0))
                 torrent.delete_source_cross_seeds = delete_source_cross_seeds
                 torrent.state = TorrentState.HOME_SEEDING  # no save_callback yet
-                torrent.save_callback = self.save_torrents_state
+                torrent.save_callback = self.request_save
 
                 # Add to tracked torrents
                 self.torrents.append(torrent)
@@ -518,7 +622,7 @@ class TorrentManager:
                 )
                 errors.append({"hash": torrent_hash, "error": str(e)})
 
-        self.save_torrents_state()
+        self.request_save()
 
         return {
             "initiated": initiated,
@@ -530,6 +634,10 @@ class TorrentManager:
     def start(self):
         """Start the torrent manager background thread"""
         self.running = True
+        self._save_stop_event.clear()
+        self._save_thread = Thread(target=self._save_loop, name="transferarr-save-loop")
+        self._save_thread.daemon = True
+        self._save_thread.start()
         self.thread = Thread(target=self._run_loop)
         self.thread.daemon = True
         self.thread.start()
@@ -539,7 +647,19 @@ class TorrentManager:
         self.running = False
         if hasattr(self, 'thread'):
             self.thread.join(timeout=2)
-        self.save_torrents_state()
+        self.request_save()
+        flushed = self.flush_pending_save(timeout=5.0)
+        self._save_stop_event.set()
+        self._save_event.set()
+        if self._save_thread is not None:
+            self._save_thread.join(timeout=5.0)
+        if not flushed:
+            if self._last_save_error:
+                logger.warning(
+                    f"Timed out flushing torrents state during shutdown; last save error: {self._last_save_error}"
+                )
+            else:
+                logger.warning("Timed out flushing torrents state during shutdown")
 
         for connection in self.connections.values():
             connection.shutdown()
@@ -555,7 +675,7 @@ class TorrentManager:
             try:
                 self.get_media_manager_updates()
                 self.update_torrents()
-                self.save_torrents_state()
+                self.request_save()
                 sleep(2)
             except Exception as e:
                 logger.error(f"Error in torrent manager: {e}")
@@ -565,7 +685,7 @@ class TorrentManager:
         """Get updates from the media managers"""
         for media_manager in self.media_managers:
             try:
-                media_manager.get_queue_updates(self.torrents, self.save_torrents_state)
+                media_manager.get_queue_updates(self.torrents, self.request_save)
             except Exception as e:
                 logger.error(f"Error in media manager {media_manager}: {e}")
 
@@ -771,6 +891,7 @@ class TorrentManager:
                                 f"no transfer handler (tracker disabled). Transfer torrent may remain on clients."
                             )
                             torrent.transfer["cleaned_up"] = True
+                            torrent.mark_dirty()
                     
                     # Check if ready to remove - if media_manager is None (not in queue anymore),
                     # assume it's safe to remove since Radarr/Sonarr already finished with it
@@ -799,5 +920,4 @@ class TorrentManager:
                         logger.debug(f"Torrent {torrent.name} not ready to be removed from home client {torrent.home_client.name}, still in radarr queue")
 
         for torrent in torrents_to_remove:
-            if torrent in self.torrents:
-                self.torrents.remove(torrent)
+            self.torrents.discard(torrent)

@@ -1,8 +1,9 @@
 # main.py
 import os
 import logging
+import signal
 from pathlib import Path
-from threading import Thread
+from threading import Event, Thread
 from time import sleep
 
 from transferarr.config import load_config, parse_args, DEFAULT_CONFIG_PATH, DEFAULT_STATE_DIR
@@ -92,12 +93,28 @@ def start_web_server():
 web_server_thread = Thread(target=start_web_server, daemon=True)
 web_server_thread.start()
 
+shutdown_event = Event()
+
+
+def request_shutdown(signum=None, _frame=None):
+    if shutdown_event.is_set():
+        return
+
+    if signum is None:
+        logger.info("Application interrupted. Shutting down...")
+    else:
+        logger.info(f"Received signal {signum}. Shutting down...")
+    shutdown_event.set()
+
+
+signal.signal(signal.SIGTERM, request_shutdown)
+signal.signal(signal.SIGINT, request_shutdown)
+
 # Main application loop
 try:
-    while True:
-        sleep(60)  # Just keep the main thread alive
+    while not shutdown_event.wait(timeout=60):
+        pass
 except KeyboardInterrupt:
-    logger.info("Application interrupted. Shutting down...")
+    request_shutdown()
+finally:
     torrent_manager.stop()
-    if tracker:
-        tracker.stop()

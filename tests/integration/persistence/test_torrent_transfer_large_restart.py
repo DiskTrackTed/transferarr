@@ -17,7 +17,6 @@ Key verification points:
 """
 import pytest
 import time
-import json
 
 from tests.utils import (
     movie_catalog,
@@ -26,6 +25,7 @@ from tests.utils import (
     wait_for_torrent_in_deluge,
     wait_for_transferarr_state,
     wait_for_condition,
+    wait_for_state_file_torrent,
 )
 from tests.integration.transfers.test_torrent_transfer_download import (
     find_transfer_torrent,
@@ -538,15 +538,13 @@ class TestLargeRestartTransferDataIntegrity:
 
         wait_for_condition(has_progress, timeout=120, description="bytes_downloaded > 0")
 
-        # Read _transfer_id from state.json before restart
-        state_json = transferarr.exec_in_container(["cat", "/state/state.json"])
-        state_data = json.loads(state_json)
-
-        transfer_id_before = None
-        for t in state_data:
-            if torrent_name in t.get('name', ''):
-                transfer_id_before = t.get('_transfer_id')
-                break
+        torrent_state_before = wait_for_state_file_torrent(
+            transferarr,
+            torrent_name,
+            timeout=30,
+            predicate=lambda torrent: torrent.get('_transfer_id') is not None,
+        )
+        transfer_id_before = torrent_state_before.get('_transfer_id')
 
         print(f"  _transfer_id before restart: {transfer_id_before}")
         assert transfer_id_before is not None, \
@@ -555,17 +553,14 @@ class TestLargeRestartTransferDataIntegrity:
         # Restart
         print("\n[Restart] Restarting transferarr...")
         transferarr.restart(wait_healthy=True)
-        time.sleep(5)
 
-        # Read _transfer_id after restart
-        state_json_after = transferarr.exec_in_container(["cat", "/state/state.json"])
-        state_data_after = json.loads(state_json_after)
-
-        transfer_id_after = None
-        for t in state_data_after:
-            if torrent_name in t.get('name', ''):
-                transfer_id_after = t.get('_transfer_id')
-                break
+        torrent_state_after = wait_for_state_file_torrent(
+            transferarr,
+            torrent_name,
+            timeout=30,
+            predicate=lambda torrent: torrent.get('_transfer_id') is not None,
+        )
+        transfer_id_after = torrent_state_after.get('_transfer_id')
 
         print(f"  _transfer_id after restart: {transfer_id_after}")
         assert transfer_id_after is not None, \
