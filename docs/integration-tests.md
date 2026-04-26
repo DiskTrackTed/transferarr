@@ -1,10 +1,10 @@
 # Integration Tests
 
-*Last Updated: 2026-03-03*
+*Last Updated: 2026-04-25*
 
 ## Overview
 
-Transferarr has 60+ integration tests organized into 6 categories, covering the complete torrent migration lifecycle for both Radarr and Sonarr, plus history tracking and API tests.
+Transferarr's integration suite is organized by API, auth, lifecycle, persistence, transfer, config, and edge coverage. It exercises Radarr and Sonarr migrations, restart recovery, transfer variants, and API behavior against the real Docker test environment.
 
 ## Directory Structure
 
@@ -16,7 +16,7 @@ tests/integration/
         api-key/            # API key auth tests (~10 min)
     lifecycle/              # Core migration flows (~15 min)
     persistence/            # State recovery tests (~20 min)
-    transfers/              # Concurrent & type tests (~15 min)
+    transfers/              # Torrent setup, lifecycle, source access, concurrency, and type tests
     config/                 # Configuration tests (~10 min)
     edge/                   # Edge cases & errors (~10 min)
 ```
@@ -110,6 +110,50 @@ Manual transfer state persistence across container restarts.
 | `test_manual_torrent_transfer_survives_restart` | Manual torrent (P2P) transfer survives container restart and completes |
 
 ### transfers/
+
+#### [test_torrent_infra.py](../tests/integration/transfers/test_torrent_infra.py)
+Infrastructure checks for torrent-based transfers.
+
+| Test | Description |
+|------|-------------|
+| `test_tracker_port_accessible` | Verify the embedded tracker is reachable when torrent transfer config is enabled. |
+| `test_torrent_transfer_config_loads` | Verify the torrent-transfer fixture boots Transferarr cleanly. |
+| `test_deluge_containers_have_fixed_listen_port` | Verify Deluge BitTorrent listen ports are fixed and reachable on the Docker network. |
+
+#### [test_torrent_transfer_setup.py](../tests/integration/transfers/test_torrent_transfer_setup.py)
+Transfer-torrent creation and target-adding coverage.
+
+| Test | Description |
+|------|-------------|
+| `test_transfer_torrent_created_on_source` | Verify a transfer torrent is created on the source client. |
+| `test_target_added_via_magnet` | Verify the target is seeded with the transfer torrent via magnet. |
+| `test_transfer_data_persisted` | Verify transfer metadata is persisted to `state.json`. |
+
+#### [test_torrent_transfer_download.py](../tests/integration/transfers/test_torrent_transfer_download.py)
+Download-progress and peer-discovery coverage for torrent transfers.
+
+| Test | Description |
+|------|-------------|
+| `test_download_progress_tracked` | Verify target-side download progress is tracked during transfer. |
+| `test_download_uses_tracker_for_peers` | Verify the tracker is used for peer discovery. |
+| `test_stall_detection_forces_reannounce` | Verify stalled transfers trigger a re-announce recovery path. |
+
+#### [test_torrent_transfer_lifecycle.py](../tests/integration/transfers/test_torrent_transfer_lifecycle.py)
+End-to-end torrent-transfer lifecycle coverage.
+
+| Test | Description |
+|------|-------------|
+| `test_full_torrent_transfer_lifecycle` | Full Radarr torrent-transfer flow through cleanup and removal. |
+| `test_torrent_transfer_sonarr_episode` | Sonarr episode migration via torrent transfer. |
+| `test_history_transfer_method_is_torrent` | Verify history records the torrent transfer method correctly. |
+
+#### [test_torrent_source_access.py](../tests/integration/transfers/test_torrent_source_access.py)
+Torrent-transfer lifecycle coverage for configs that use local filesystem access to source `.torrent` files.
+
+| Test | Description |
+|------|-------------|
+| `test_local_source_radarr_lifecycle` | Verify local-source access works end-to-end for a Radarr movie migration. |
+| `test_local_source_sonarr_episode` | Verify local-source access works end-to-end for a Sonarr episode migration. |
 
 #### [test_concurrent_transfers.py](../tests/integration/transfers/test_concurrent_transfers.py)
 Parallel transfer handling with `max_workers=3`.

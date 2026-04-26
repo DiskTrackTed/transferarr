@@ -4,6 +4,7 @@ Test utilities for Transferarr integration tests.
 Provides helper functions for common test operations like waiting for
 state transitions, polling for conditions, and decoding Deluge responses.
 """
+import json
 import time
 import re
 from typing import Callable, Any, Optional, List
@@ -1820,6 +1821,65 @@ def delete_state_file(transferarr) -> bool:
     except Exception as e:
         print(f"Failed to delete state file: {e}")
         return False
+
+
+def read_transferarr_state_file(transferarr, running: bool = True) -> Optional[list]:
+    """Read and decode Transferarr's persisted state file.
+
+    Returns None while the file is temporarily unavailable or invalid so
+    callers can poll through async write windows.
+    """
+    try:
+        state_json = transferarr.exec_in_container(
+            ["cat", "/state/state.json"],
+            running=running,
+        ).strip()
+    except Exception:
+        return None
+
+    if not state_json:
+        return []
+
+    try:
+        state_data = json.loads(state_json)
+    except json.JSONDecodeError:
+        return None
+
+    return state_data if isinstance(state_data, list) else None
+
+
+def wait_for_state_file_torrent(
+    transferarr,
+    torrent_name: str,
+    timeout: int = 60,
+    predicate: Optional[Callable[[dict], bool]] = None,
+    running: bool = True,
+) -> dict:
+    """Wait for a persisted torrent entry to appear in state.json."""
+    result = {}
+
+    def check():
+        state_data = read_transferarr_state_file(transferarr, running=running)
+        if state_data is None:
+            return False
+
+        for torrent in state_data:
+            if torrent_name not in torrent.get("name", ""):
+                continue
+            if predicate and not predicate(torrent):
+                return False
+            result["torrent"] = torrent
+            return True
+
+        return False
+
+    wait_for_condition(
+        check,
+        timeout=timeout,
+        poll_interval=1.0,
+        description=f"torrent '{torrent_name}' in state.json",
+    )
+    return result["torrent"]
 
 
 # ==============================================================================

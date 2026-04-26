@@ -6,7 +6,6 @@ including tracker re-registration, state recovery, and transfer completion.
 """
 import pytest
 import time
-import json
 
 from tests.conftest import TIMEOUTS, SERVICES
 from tests.utils import (
@@ -21,6 +20,7 @@ from tests.utils import (
     find_queue_item_by_name,
     decode_bytes,
     get_deluge_torrent_count,
+    wait_for_state_file_torrent,
 )
 from tests.integration.transfers.test_torrent_transfer_download import find_transfer_torrent
 
@@ -872,20 +872,12 @@ class TestTransferDataPersistence:
             timeout=120
         )
 
-        # Check _transfer_id in state.json before restart
-        state_json = transferarr.exec_in_container(
-            ["cat", "/state/state.json"]
+        torrent_state = wait_for_state_file_torrent(
+            transferarr,
+            torrent_name,
+            timeout=30,
+            predicate=lambda torrent: torrent.get('_transfer_id') is not None,
         )
-        state_data = json.loads(state_json)
-
-        # Find our torrent in state
-        torrent_state = None
-        for t in state_data:
-            if torrent_name in t.get('name', ''):
-                torrent_state = t
-                break
-
-        assert torrent_state is not None, "Torrent should be in state.json"
         transfer_id_before = torrent_state.get('_transfer_id')
         print(f"  _transfer_id before restart: {transfer_id_before}")
         # transfer_id should be set if history service is enabled
@@ -894,21 +886,13 @@ class TestTransferDataPersistence:
 
         # Restart
         transferarr.restart(wait_healthy=True)
-        time.sleep(3)
 
-        # Check _transfer_id after restart
-        state_json_after = transferarr.exec_in_container(
-            ["cat", "/state/state.json"]
+        torrent_state_after = wait_for_state_file_torrent(
+            transferarr,
+            torrent_name,
+            timeout=30,
+            predicate=lambda torrent: torrent.get('_transfer_id') is not None,
         )
-        state_data_after = json.loads(state_json_after)
-
-        torrent_state_after = None
-        for t in state_data_after:
-            if torrent_name in t.get('name', ''):
-                torrent_state_after = t
-                break
-
-        assert torrent_state_after is not None, "Torrent should be in state.json after restart"
         transfer_id_after = torrent_state_after.get('_transfer_id')
         print(f"  _transfer_id after restart: {transfer_id_after}")
 

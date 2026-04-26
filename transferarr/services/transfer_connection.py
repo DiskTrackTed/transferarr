@@ -234,6 +234,7 @@ class TransferConnection:
                     transfer_method=self.get_history_transfer_method()
                 )
                 torrent._transfer_id = transfer_id  # Attach for later updates
+                torrent.mark_dirty()
             
             self._active_transfers[torrent.id] = torrent
             self._transfer_executor.submit(self._do_copy_torrent_task, torrent)

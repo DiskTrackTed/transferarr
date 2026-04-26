@@ -1,6 +1,6 @@
 # CI/CD
 
-*Last Updated: 2026-03-03*
+*Last Updated: 2026-04-25*
 
 ## Overview
 
@@ -48,8 +48,8 @@ All categories run in parallel with `fail-fast: false` (one failure doesn't canc
 | `integration-persistence-torrent-restart` | `tests/integration/persistence/test_torrent_transfer_restart.py` | 30 min | Yes | Torrent transfer restart recovery |
 | `integration-persistence-torrent-large` | `tests/integration/persistence/test_torrent_transfer_large_restart.py` | 30 min | Yes | Large file torrent restart |
 | `integration-persistence-manual-restart` | `tests/integration/persistence/test_manual_transfer_restart.py` | 30 min | Yes | Manual transfer restart recovery |
-| `integration-transfers-torrent-infra` | `tests/integration/transfers/test_torrent_infra.py tests/integration/transfers/test_torrent_transfer_setup.py` | 10 min | Yes | Torrent infra checks and setup |
-| `integration-transfers-torrent-lifecycle` | `tests/integration/transfers/test_torrent_transfer_download.py tests/integration/transfers/test_torrent_transfer_lifecycle.py` | 30 min | Yes | Torrent download and lifecycle |
+| `integration-transfers-torrent-infra` | `tests/integration/transfers/test_torrent_infra.py tests/integration/transfers/test_torrent_transfer_setup.py` | 20 min | Yes | Torrent infra checks and setup |
+| `integration-transfers-torrent-lifecycle` | `tests/integration/transfers/test_torrent_transfer_download.py tests/integration/transfers/test_torrent_transfer_lifecycle.py tests/integration/transfers/test_torrent_source_access.py` | 30 min | Yes | Torrent download, lifecycle, and local source-access coverage |
 | `integration-transfers-concurrent` | `tests/integration/transfers/test_concurrent_transfers.py tests/integration/transfers/test_transfer_types.py` | 20 min | Yes | Concurrent and transfer type variations |
 | `integration-config` | `tests/integration/config/` | 15 min | Yes | Client routing configs |
 | `integration-edge` | `tests/integration/edge/` | 30 min | Yes | Error handling, edge cases |

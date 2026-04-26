@@ -20,6 +20,7 @@ from tests.utils import (
     make_torrent_name,
     wait_for_torrent_in_deluge,
     wait_for_queue_item_by_hash,
+    wait_for_state_file_torrent,
     wait_for_transferarr_state,
     decode_bytes,
 )
@@ -479,8 +480,17 @@ class TestTorrentTransferSetup:
             TRANSFER_TORRENT_PRESENT_STATES,
             timeout=120
         )
-        
-        transfer = torrent_data.get('transfer')
+
+        assert torrent_data.get('transfer') is not None, "Transfer data should be present in API"
+
+        persisted_torrent = wait_for_state_file_torrent(
+            transferarr,
+            torrent_name,
+            timeout=30,
+            predicate=lambda torrent: bool(torrent.get('transfer', {}).get('hash')),
+        )
+
+        transfer = persisted_torrent.get('transfer')
         assert transfer is not None, "Transfer data should be present"
         assert transfer.get('hash'), "Transfer should have non-empty hash"
         assert 'name' in transfer, "Transfer should have name"

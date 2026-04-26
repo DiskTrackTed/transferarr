@@ -246,6 +246,46 @@ class TestTorrentModelTransferSerialization:
         restored = Torrent.from_dict(data, download_clients={})
         assert restored.delete_source_cross_seeds is None
 
+    def test_mark_dirty_uses_save_callback(self):
+        """mark_dirty delegates to the configured save callback."""
+        save_callback = Mock()
+        torrent = Torrent(
+            name="Test.Movie.2024",
+            id="original_hash",
+            state=TorrentState.HOME_SEEDING,
+            save_callback=save_callback,
+        )
+
+        torrent.mark_dirty()
+
+        save_callback.assert_called_once()
+
+    def test_to_persisted_dict_detaches_nested_mutables(self):
+        """Persistence snapshot deep-copies nested mutable structures."""
+        home_client_info = {"stats": {"size": 100}}
+        target_client_info = {"stats": {"size": 200}}
+        transfer = {
+            "hash": "abc123",
+            "nested": {"bytes_downloaded": 10},
+        }
+        torrent = Torrent(
+            name="Test.Movie.2024",
+            id="original_hash",
+            state=TorrentState.TORRENT_DOWNLOADING,
+            home_client_info=home_client_info,
+            target_client_info=target_client_info,
+            transfer=transfer,
+        )
+
+        persisted = torrent.to_persisted_dict()
+        home_client_info["stats"]["size"] = 101
+        target_client_info["stats"]["size"] = 201
+        transfer["nested"]["bytes_downloaded"] = 11
+
+        assert persisted["home_client_info"]["stats"]["size"] == 100
+        assert persisted["target_client_info"]["stats"]["size"] == 200
+        assert persisted["transfer"]["nested"]["bytes_downloaded"] == 10
+
 
 # --- Test transfer config type parsing ---
 
@@ -702,6 +742,16 @@ class TestCleanupTransferTorrents:
 
         tracker.unregister_transfer.assert_called_once()
         assert torrent.transfer["cleaned_up"] is True
+
+    def test_marks_torrent_dirty_after_cleanup(self):
+        """Cleanup marks the torrent dirty after mutating transfer metadata."""
+        handler = _make_handler(tracker=Mock())
+        torrent = _make_torrent()
+        torrent.mark_dirty = Mock()
+
+        handler.cleanup_transfer_torrents(torrent, source_client=None, target_client=None)
+
+        torrent.mark_dirty.assert_called_once()
 
 
 # --- Test _cleanup_failed_transfer ---

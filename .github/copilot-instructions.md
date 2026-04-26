@@ -170,14 +170,16 @@ The `source` block is optional. Three modes:
 - Forces re-announce on source and target clients so peers rediscover each other
 
 ### State Persistence
-- Torrent state saved to `state.json` via `save_callback` pattern on the `Torrent` model
-- State auto-saves whenever `torrent.state` property is set (see `models/torrent.py` setter)
+- `Torrent.state` and explicit `mark_dirty()` mutations enqueue persistence through a manager-owned `request_save()` callback
+- `TorrentManager` runs a dedicated single-writer save worker that serializes detached snapshots to `state.json` via temp-file + `os.replace()`
+- Persistence is asynchronous while the app is running; tests that inspect live `state.json` should poll or use an explicit flush path instead of assuming immediate disk visibility
 - State directory configured via `--state-dir` CLI argument (default: `/state` in Docker)
 - State is loaded on startup in `TorrentManager.__init__()` after download clients/media managers are initialized
-- `media_manager_type` is serialized to state to restore media manager instance on restart
+- `media_manager_type`, `_transfer_id`, and transfer metadata are serialized to state so restart recovery can restore the full transfer context
 
 ### Threading Model
-- `TorrentManager` runs in a daemon thread with periodic processing loop
+- `TorrentManager` runs a daemon processing loop plus a dedicated save-worker thread
+- `TorrentList` wraps the tracked collection with snapshot-safe iteration under an `RLock`
 - Each `TransferConnection` has its own `ThreadPoolExecutor` for concurrent file transfers
 - Deluge clients use `threading.RLock` for connection safety
 
@@ -824,7 +826,7 @@ tests/integration/
         api-key/            # API key auth tests (~10 min)
     lifecycle/              # Torrent lifecycle tests (~15 min)
     persistence/            # State persistence tests (~8 min)
-    transfers/              # Transfer type variations (~12 min)
+    transfers/              # Torrent setup, lifecycle, source access, and concurrency tests
     config/                 # Client routing tests (~10 min)
     edge/                   # Error handling, edge cases (~8 min)
 ```

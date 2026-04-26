@@ -295,7 +295,8 @@ class DelugeClient(DownloadClientBase):
                     logger.debug(f"Torrent {torrent.name} info not found in home rpc_client {self.name}")
                     return TorrentState.ERROR
                 
-                torrent.home_client_info = info
+                torrent.set_home_client_info(info)
+                torrent.set_progress_from_home_client_info()
                 try:
                     state_name = f"HOME_{info['state'].upper()}"
                     return TorrentState[state_name]
@@ -309,7 +310,7 @@ class DelugeClient(DownloadClientBase):
                     logger.debug(f"Torrent {torrent.name} info not found in target rpc_client {self.name}")
                     return TorrentState.ERROR
                 
-                torrent.target_client_info = info
+                torrent.set_target_client_info(info)
                 try:
                     state_name = f"TARGET_{info['state'].upper()}"
                     return TorrentState[state_name]

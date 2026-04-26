@@ -162,6 +162,42 @@ class TestRadarrSkipsTransferTorrents:
         
         assert len(torrents) == 2  # Normal torrent added
 
+    def test_marks_new_torrent_dirty_only_after_append(self):
+        """New queue items are appended before mark_dirty queues persistence."""
+        radarr_mgr = self._make_radarr()
+        appended_before_dirty = {"value": False}
+
+        class TrackingList(list):
+            pass
+
+        torrents = TrackingList()
+        normal_item = _make_queue_item("deadbeef" * 5, "Normal.Movie.2024")
+        queue_resp = _make_queue_response([normal_item])
+
+        class FakeTorrent:
+            def __init__(self, **kwargs):
+                self.name = kwargs["name"]
+                self.id = kwargs["id"]
+                self.transfer = None
+
+            def mark_dirty(self):
+                appended_before_dirty["value"] = self in torrents
+                assert self in torrents
+
+        with patch("radarr.ApiClient") as mock_client_cls:
+            mock_ctx = MagicMock()
+            mock_client_cls.return_value.__enter__ = Mock(return_value=mock_ctx)
+            mock_client_cls.return_value.__exit__ = Mock(return_value=False)
+            mock_queue_api = Mock()
+            mock_queue_api.get_queue.return_value = queue_resp
+
+            with patch("radarr.QueueApi", return_value=mock_queue_api), \
+                 patch("transferarr.services.media_managers.Torrent", FakeTorrent):
+                radarr_mgr.get_queue_updates(torrents, Mock())
+
+        assert appended_before_dirty["value"] is True
+        assert len(torrents) == 1
+
 
 # ──────────────────────────────────────────────────
 # SonarrManager: Transfer torrent filtering
