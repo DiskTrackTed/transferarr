@@ -357,9 +357,10 @@ class TorrentManager:
                         self._save_in_progress = False
                         self._last_save_error = str(e)
                         self._save_done.notify_all()
-                    if not self._save_stop_event.is_set():
-                        time.sleep(1.0)
-                        self._save_event.set()
+                    if self._save_stop_event.is_set():
+                        return
+                    time.sleep(1.0)
+                    self._save_event.set()
                     continue
 
                 with self._save_done:
@@ -647,6 +648,10 @@ class TorrentManager:
         self.running = False
         if hasattr(self, 'thread'):
             self.thread.join(timeout=2)
+
+        for connection in self.connections.values():
+            connection.shutdown()
+
         self.request_save()
         flushed = self.flush_pending_save(timeout=5.0)
         self._save_stop_event.set()
@@ -660,9 +665,6 @@ class TorrentManager:
                 )
             else:
                 logger.warning("Timed out flushing torrents state during shutdown")
-
-        for connection in self.connections.values():
-            connection.shutdown()
         
         # Stop tracker if running
         if self.tracker:

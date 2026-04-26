@@ -1,5 +1,6 @@
 """Unit tests for TorrentManager (torrent_service.py)."""
 
+import json
 import threading
 import time
 from unittest.mock import Mock, mock_open, patch
@@ -986,6 +987,22 @@ class TestSaveQueueHelpers:
         manager._write_torrents_state.assert_called_once()
         assert manager._save_completed_generation == 3
 
+    def test_save_loop_exits_after_shutdown_write_failure(self):
+        manager = self._make_manager()
+        manager._write_torrents_state = Mock(side_effect=OSError("disk full"))
+        manager._save_loop = TorrentManager._save_loop.__get__(manager)
+
+        manager.request_save()
+        manager._save_stop_event.set()
+
+        thread = threading.Thread(target=manager._save_loop)
+        thread.start()
+        thread.join(timeout=1.0)
+
+        assert thread.is_alive() is False
+        assert manager._last_save_error == "disk full"
+        assert manager._save_in_progress is False
+
     def test_stop_requests_final_save_and_flushes(self):
         manager = Mock(spec=TorrentManager)
         manager.thread = Mock()
@@ -1006,6 +1023,84 @@ class TestSaveQueueHelpers:
         manager._save_thread.join.assert_called_once_with(timeout=5.0)
         assert manager._save_stop_event.is_set() is True
         assert manager._save_event.is_set() is True
+
+    def test_stop_quiesces_connections_before_final_save(self):
+        manager = Mock(spec=TorrentManager)
+        manager.thread = Mock()
+        manager._save_thread = Mock()
+        manager._save_event = threading.Event()
+        manager._save_stop_event = threading.Event()
+        manager.flush_pending_save = Mock(return_value=True)
+        manager.tracker = None
+        call_order = []
+
+        def record(name):
+            def _inner(*args, **kwargs):
+                call_order.append(name)
+                if name == "request_save":
+                    return None
+                if name == "flush_pending_save":
+                    return True
+                return None
+            return _inner
+
+        connection = Mock()
+        connection.shutdown.side_effect = record("connection.shutdown")
+        manager.connections = {"test": connection}
+        manager.request_save = Mock(side_effect=record("request_save"))
+        manager.flush_pending_save.side_effect = record("flush_pending_save")
+        manager.stop = TorrentManager.stop.__get__(manager)
+
+        manager.stop()
+
+        assert call_order.index("connection.shutdown") < call_order.index("request_save")
+        assert call_order.index("request_save") < call_order.index("flush_pending_save")
+
+
+class TestShutdownPersistence:
+    def _make_manager(self, tmp_path, torrent):
+        manager = TorrentManager.__new__(TorrentManager)
+        manager.torrents = TorrentList([torrent])
+        manager.state_dir = str(tmp_path)
+        manager.state_file = str(tmp_path / "state.json")
+        manager.connections = {}
+        manager.tracker = None
+        manager.running = False
+        manager.thread = Mock()
+        manager._save_event = threading.Event()
+        manager._save_stop_event = threading.Event()
+        manager._save_meta_lock = threading.Lock()
+        manager._save_done = threading.Condition(manager._save_meta_lock)
+        manager._save_requested_generation = 0
+        manager._save_completed_generation = 0
+        manager._save_in_progress = False
+        manager._last_save_error = None
+        manager.request_save = TorrentManager.request_save.__get__(manager)
+        manager.flush_pending_save = TorrentManager.flush_pending_save.__get__(manager)
+        manager._write_torrents_state = TorrentManager._write_torrents_state.__get__(manager)
+        manager._save_loop = TorrentManager._save_loop.__get__(manager)
+        manager.stop = TorrentManager.stop.__get__(manager)
+        manager._save_thread = threading.Thread(target=manager._save_loop, daemon=True)
+        return manager
+
+    def test_stop_persists_connection_shutdown_mutation(self, tmp_path):
+        torrent = Torrent(name="Tracked", id="abc", state=TorrentState.COPYING)
+        manager = self._make_manager(tmp_path, torrent)
+        torrent.save_callback = manager.request_save
+
+        class FakeConnection:
+            def shutdown(self_nonlocal):
+                torrent.state = TorrentState.COPIED
+
+        manager.connections = {"test": FakeConnection()}
+        manager._save_thread.start()
+
+        manager.stop()
+
+        with open(manager.state_file, "r") as state_file:
+            persisted = json.load(state_file)
+
+        assert persisted[0]["state"] == TorrentState.COPIED.name
 
 
 class TestPersistenceCallbackWiring:
