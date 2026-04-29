@@ -12,6 +12,7 @@ Prerequisites:
 import base64
 import time
 import uuid
+from urllib.parse import quote
 
 import pytest
 import requests
@@ -24,6 +25,37 @@ from tests.ui.helpers import UI_TIMEOUTS, log_test_step
 
 # Mock indexer URL for downloading .torrent files
 MOCK_INDEXER_URL = f"http://{SERVICES.get('mock_indexer', {}).get('host', 'localhost')}:{SERVICES.get('mock_indexer', {}).get('port', 9696)}"
+
+
+def _get_client_torrents(client_name: str, timeout: int = 10) -> dict:
+    """Fetch torrents for a single client from transferarr."""
+    response = requests.get(
+        f"http://{SERVICES['transferarr']['host']}:{SERVICES['transferarr']['port']}/api/v1/clients/{quote(client_name, safe='')}/torrents",
+        timeout=timeout,
+    )
+    assert response.status_code == 200, f"Unexpected status {response.status_code}: {response.text}"
+    return response.json().get("data", {})
+
+
+def _wait_for_client_hash(client_name: str, torrent_hash: str, timeout: int = 30) -> None:
+    """Wait until a torrent hash appears in a client's API listing.
+
+    The per-client endpoint can briefly reset connections or return a non-200
+    during startup even after the health endpoint is live, so polling here
+    treats those transient failures as retryable.
+    """
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            if torrent_hash in _get_client_torrents(client_name):
+                return
+        except (AssertionError, requests.RequestException):
+            pass
+        time.sleep(2)
+
+    pytest.fail(
+        f"Torrent {torrent_hash} did not appear in the {client_name} client listing within {timeout} s"
+    )
 
 
 def _add_torrent_to_deluge(deluge_client, name, create_torrent_fn, size_mb=1):
@@ -101,20 +133,7 @@ class TestManualTransferE2E:
         log_test_step("Step 2: Start transferarr")
         self.transferarr.start(wait_healthy=True)
 
-        # Wait until /all_torrents includes the hash
-        deadline = time.time() + 30
-        while time.time() < deadline:
-            resp = requests.get(
-                f"http://{SERVICES['transferarr']['host']}:{SERVICES['transferarr']['port']}/api/v1/all_torrents",
-                timeout=10,
-            )
-            if resp.status_code == 200:
-                data = resp.json().get("data", {})
-                if torrent["hash"] in data.get("source-deluge", {}):
-                    break
-            time.sleep(2)
-        else:
-            pytest.fail("Torrent did not appear in /all_torrents within 30 s")
+        _wait_for_client_hash("source-deluge", torrent["hash"])
 
         # -----------------------------------------------------------
         # 3. Navigate to the Torrents page and select the torrent
@@ -218,22 +237,11 @@ class TestManualTransferE2E:
     ):
         """After confirming, a success toast notification appears."""
         unique_name = f"ui_manual_toast_{uuid.uuid4().hex[:6]}"
-        _add_torrent_to_deluge(deluge_source, unique_name, create_torrent, size_mb=1)
+        torrent = _add_torrent_to_deluge(deluge_source, unique_name, create_torrent, size_mb=1)
 
         self.transferarr.start(wait_healthy=True)
 
-        # Wait for torrent in API
-        deadline = time.time() + 30
-        while time.time() < deadline:
-            resp = requests.get(
-                f"http://{SERVICES['transferarr']['host']}:{SERVICES['transferarr']['port']}/api/v1/all_torrents",
-                timeout=10,
-            )
-            if resp.status_code == 200:
-                data = resp.json().get("data", {})
-                if unique_name in str(data.get("source-deluge", {})):
-                    break
-            time.sleep(2)
+        _wait_for_client_hash("source-deluge", torrent["hash"])
 
         torrents_page.goto()
         torrents_page.wait_for_torrents_loaded()

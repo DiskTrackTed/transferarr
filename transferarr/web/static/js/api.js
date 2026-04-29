@@ -1,6 +1,26 @@
 /**
  * API client for Transferarr
  */
+async function fetchJson(url, options = {}) {
+    const response = await fetch(url, options);
+    let json = {};
+    try {
+        json = await response.json();
+    } catch {
+        json = {};
+    }
+
+    if (!response.ok) {
+        const error = new Error(json.error?.message || `Request failed with status ${response.status}`);
+        error.status = response.status;
+        error.code = json.error?.code || 'REQUEST_FAILED';
+        error.details = json.error?.details || {};
+        throw error;
+    }
+
+    return json.data || json;
+}
+
 const API = {
     /**
      * Fetch torrents data
@@ -8,30 +28,33 @@ const API = {
      */
     fetchTorrents: async function() {
         try {
-            const response = await fetch('/api/v1/torrents');
-            const json = await response.json();
-            // Unwrap data envelope (supports both old and new format)
-            return json.data || json;
+            return await fetchJson('/api/v1/torrents');
         } catch (error) {
             console.error('Error fetching torrents:', error);
             return [];
         }
     },
-    
+
     /**
-     * Fetch all torrents from all clients
-     * @returns {Promise<Object>} All torrents data by client
+     * Fetch configured download client names.
+     * @returns {Promise<Array<string>>} Configured client names
      */
-    fetchAllTorrents: async function() {
-        try {
-            const response = await fetch('/api/v1/all_torrents');
-            const json = await response.json();
-            // Unwrap data envelope (supports both old and new format)
-            return json.data || json;
-        } catch (error) {
-            console.error('Error fetching all torrents:', error);
-            return {};
-        }
+    fetchDownloadClients: async function() {
+        const clients = await fetchJson('/api/v1/download_clients');
+        return Object.keys(clients || {});
+    },
+
+    /**
+     * Fetch torrents for a single client.
+     * @param {string} clientName - Configured download client name
+     * @param {AbortSignal} [signal] - Abort signal for in-flight cancellation
+     * @returns {Promise<Object>} Torrent data keyed by torrent hash
+     */
+    fetchClientTorrents: async function(clientName, signal) {
+        return fetchJson(
+            `/api/v1/clients/${encodeURIComponent(clientName)}/torrents`,
+            { signal }
+        );
     },
 
     /**

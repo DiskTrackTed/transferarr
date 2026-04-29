@@ -254,7 +254,7 @@ Manual Transfer API endpoint tests (20 tests).
 |------------|-------|-------------|
 | `TestDestinationsEndpoint` | 4 | GET /transfers/destinations — known source, missing param, unknown source, target with no connections |
 | `TestManualTransferValidation` | 7 | POST /transfers/manual validation — empty hashes, missing fields, unknown clients, same src/dest, nonexistent hash |
-| `TestManualTransferInitiation` | 4 | POST /transfers/manual happy path — single transfer lifecycle, multiple torrents, not-seeding rejection, all_torrents field verification |
+| `TestManualTransferInitiation` | 5 | POST /transfers/manual happy path — single transfer lifecycle, multiple torrents, not-seeding rejection, per-client torrent field verification, unknown-client torrents endpoint |
 | `TestManualTransferCrossSeed` | 2 | Cross-seed expansion — selecting one torrent transfers sibling with same save_path; disabled flag prevents expansion |
 | `TestDestinationsWithTorrentConfig` | 1 | Destinations with torrent transfer config — transfer_type=torrent |
 | `TestManualTorrentTypeTransfer` | 1 | POST /transfers/manual — manual torrent (P2P) transfer completes end-to-end |

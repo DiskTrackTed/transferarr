@@ -10,6 +10,8 @@ This test simulates a new user setting up Transferarr from scratch:
 
 This is a comprehensive test that validates the entire user workflow.
 """
+from urllib.parse import quote
+
 import pytest
 from playwright.sync_api import Page, expect
 
@@ -328,36 +330,34 @@ class TestE2EFullSmokeTest:
         
         # Find and switch to target tab
         target_tab_found = False
+        target_tab_name = None
+        target_torrents_response = None
         for tab_name in tab_names:
             if 'target' in tab_name.lower():
-                torrents_page.switch_to_client_tab(tab_name)
+                encoded_target = quote(tab_name, safe='')
+                with page.expect_response(
+                    lambda r, encoded_target=encoded_target: f"/api/v1/clients/{encoded_target}/torrents" in r.url,
+                    timeout=UI_TIMEOUTS['api_response']
+                ) as response_info:
+                    torrents_page.switch_to_client_tab(tab_name)
+                target_torrents_response = response_info.value.json()
+                target_tab_name = tab_name
                 target_tab_found = True
                 break
         
         assert target_tab_found, f"Could not find target client tab in {tab_names}"
-        
-        # Verify via API that torrent is on target
-        with page.expect_response(
-            lambda r: "/api/v1/all_torrents" in r.url,
-            timeout=UI_TIMEOUTS['api_response']
-        ) as response_info:
-            page.reload()
-        
-        all_torrents_response = response_info.value.json()
-        # Unwrap data envelope (supports both old and new format)
-        all_torrents = all_torrents_response.get('data', all_torrents_response) if isinstance(all_torrents_response, dict) and 'data' in all_torrents_response else all_torrents_response
-        
-        # Find torrent on target client
+
+        # Verify via API that torrent is on the active target client
+        target_torrents = target_torrents_response.get('data', target_torrents_response) if isinstance(target_torrents_response, dict) and 'data' in target_torrents_response else target_torrents_response
+
         found_on_target = False
-        for client_name, client_torrents in all_torrents.items():
-            if 'target' in client_name.lower():
-                for torrent_hash, torrent_data in client_torrents.items():
-                    name = torrent_data.get('name', '') if isinstance(torrent_data, dict) else ''
-                    if torrent_name in name:
-                        found_on_target = True
-                        print(f"  ✓ Found torrent on target client: {client_name}")
-                        break
-        
+        for torrent_hash, torrent_data in target_torrents.items():
+            name = torrent_data.get('name', '') if isinstance(torrent_data, dict) else ''
+            if torrent_name in name:
+                found_on_target = True
+                print(f"  ✓ Found torrent on target client: {target_tab_name}")
+                break
+
         assert found_on_target, f"Torrent {torrent_name} not found on target client!"
         
         print("\n" + "="*60)

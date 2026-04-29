@@ -540,10 +540,29 @@
 }
 
 /* Empty message styles */
-.empty-message {
+.client-status-message {
     padding: 20px;
     text-align: center;
+    border-radius: 8px;
+    margin: 12px 0;
+}
+
+.empty-message {
     color: #666;
+    background: #f6f7f8;
+    border: 1px solid #e2e5e9;
+}
+
+.client-error-message {
+    color: #7a1f1f;
+    background: #fff0f0;
+    border: 1px solid #f0c7c7;
+}
+
+.no-clients-message {
+    color: #555;
+    background: #f7f7f7;
+    border: 1px dashed #ccc;
 }
 
 /* Loading indicator styles */

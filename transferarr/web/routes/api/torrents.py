@@ -2,8 +2,8 @@
 Torrent routes for listing and status information.
 """
 from flask import current_app
-from transferarr.web.services import TorrentService
-from .responses import success_response, server_error_response, error_response
+from transferarr.web.services import NotFoundError, ServiceUnavailableError, TorrentService
+from .responses import not_found_response, success_response, server_error_response, error_response
 import logging
 
 logger = logging.getLogger("transferarr")
@@ -86,15 +86,21 @@ def register_routes(bp):
             logger.error(f"Error getting torrents: {e}")
             return server_error_response(str(e))
 
-    @bp.route("/all_torrents")
-    def get_all_torrents():
-        """Get all torrents from all connected download clients.
+    @bp.route("/clients/<client_name>/torrents")
+    def get_client_torrents(client_name):
+        """Get torrents from a specific download client.
         ---
         tags:
           - Torrents
+        parameters:
+          - in: path
+            name: client_name
+            type: string
+            required: true
+            description: Name of the configured download client
         responses:
           200:
-            description: Dictionary of torrents by client
+            description: Torrents from the requested client keyed by torrent hash
             schema:
               type: object
               properties:
@@ -102,15 +108,28 @@ def register_routes(bp):
                   type: object
                   additionalProperties:
                     type: object
-                    description: Torrents from this client (keyed by torrent hash)
+                    description: Torrent status keyed by torrent hash
+          404:
+            description: Client not found
+          503:
+            description: Client unavailable
           500:
             description: Server error
         """
         try:
             service = TorrentService(current_app.config['TORRENT_MANAGER'])
-            return success_response(service.get_all_client_torrents())
+            return success_response(service.get_client_torrents(client_name))
+        except NotFoundError as e:
+            return not_found_response(e.resource_type, e.identifier)
+        except ServiceUnavailableError as e:
+            return error_response(
+                "SERVICE_UNAVAILABLE",
+                str(e),
+                getattr(e, "details", None),
+                status_code=503,
+            )
         except Exception as e:
-            logger.error(f"Error getting all torrents: {e}")
+            logger.error(f"Error getting torrents for client {client_name}: {e}")
             return server_error_response(str(e))
 
     @bp.route("/torrents/<torrent_hash>/retry", methods=["POST"])

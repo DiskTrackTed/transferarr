@@ -190,7 +190,7 @@ Flask blueprints in `web/routes/`:
   - `system.py` - `/health`, `/config` endpoints
   - `download_clients.py` - Download client CRUD operations
   - `connections.py` - Transfer connection CRUD operations
-  - `torrents.py` - `/torrents`, `/all_torrents` endpoints
+  - `torrents.py` - `/torrents`, `/clients/<client_name>/torrents` endpoints
   - `transfers.py` - `/transfers` history endpoints (list, stats, delete)
   - `manual_transfers.py` - `/transfers/destinations`, `/transfers/manual` manual transfer endpoints
   - `auth.py` - `/auth/*` authentication settings and API key management endpoints
