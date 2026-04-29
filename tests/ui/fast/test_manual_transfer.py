@@ -14,6 +14,7 @@ No actual transfers are initiated — these tests verify UI elements only.
 import base64
 import time
 import uuid
+from urllib.parse import quote
 
 import pytest
 import requests
@@ -25,6 +26,30 @@ from tests.utils import clear_deluge_torrents, clear_mock_indexer_torrents, deco
 
 
 MOCK_INDEXER_URL = f"http://{SERVICES['mock_indexer']['host']}:{SERVICES['mock_indexer']['port']}"
+
+
+def _get_client_torrents(client_name, timeout=5):
+    """Fetch torrents for a single client from the API."""
+    response = requests.get(
+        f"{TRANSFERARR_BASE_URL}/api/v1/clients/{quote(client_name, safe='')}/torrents",
+        timeout=timeout,
+    )
+    assert response.status_code == 200, f"Unexpected status {response.status_code}: {response.text}"
+    return response.json().get("data", {})
+
+
+def _wait_for_client_hashes(client_name, hashes, failure_message, timeout=30):
+    """Wait until the requested hashes appear for a specific client."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            client_torrents = _get_client_torrents(client_name)
+            if set(hashes).issubset(set(client_torrents.keys())):
+                return
+        except requests.RequestException:
+            pass
+        time.sleep(2)
+    pytest.fail(failure_message)
 
 
 def _add_seeding_torrent(deluge_client, name, create_torrent_fn, size_mb=1):
@@ -206,20 +231,11 @@ def seeding_torrents(docker_client, docker_services, deluge_source, deluge_targe
     mgr.start()
     mgr.set_auth_disabled()
 
-    # Wait until both hashes appear in /all_torrents
-    deadline = time.time() + 30
-    while time.time() < deadline:
-        try:
-            r = requests.get(f"{TRANSFERARR_BASE_URL}/api/v1/all_torrents", timeout=5)
-            if r.status_code == 200:
-                src = r.json().get("data", {}).get("source-deluge", {})
-                if t1["hash"] in src and t2["hash"] in src:
-                    break
-        except requests.RequestException:
-            pass
-        time.sleep(2)
-    else:
-        pytest.fail("Seeding torrents did not appear in /all_torrents")
+    _wait_for_client_hashes(
+        "source-deluge",
+        {t1["hash"], t2["hash"]},
+        "Seeding torrents did not appear in the source client listing",
+    )
 
     yield [t1, t2]
 
@@ -862,31 +878,39 @@ def cross_seed_torrents(docker_client, docker_services, deluge_source, deluge_ta
     mgr.start()
     mgr.set_auth_disabled()
 
-    # Wait until all hashes appear in /all_torrents
+    # Wait until all hashes appear in the source client's listing
     all_hashes = {
         same_a["hash"], same_b["hash"],
         diff_a["hash"], diff_b["hash"],
         standalone["hash"],
     }
-    deadline = time.time() + 30
-    while time.time() < deadline:
-        try:
-            r = requests.get(f"{TRANSFERARR_BASE_URL}/api/v1/all_torrents", timeout=5)
-            if r.status_code == 200:
-                src = r.json().get("data", {}).get("source-deluge", {})
-                if all_hashes.issubset(set(src.keys())):
-                    break
-        except requests.RequestException:
-            pass
-        time.sleep(2)
-    else:
-        pytest.fail("Cross-seed torrents did not appear in /all_torrents")
+    _wait_for_client_hashes(
+        "source-deluge",
+        all_hashes,
+        "Cross-seed torrents did not appear in the source client listing",
+    )
+
+    source_torrents = _get_client_torrents("source-deluge")
+
+    def _split_original_and_non_original(first, second):
+        first_time = source_torrents.get(first["hash"], {}).get("time_added", float("inf"))
+        second_time = source_torrents.get(second["hash"], {}).get("time_added", float("inf"))
+        if first_time <= second_time:
+            return first, second
+        return second, first
+
+    same_original, same_non_original = _split_original_and_non_original(same_a, same_b)
+    diff_original, diff_non_original = _split_original_and_non_original(diff_a, diff_b)
 
     yield {
         "same_path_a": same_a,
         "same_path_b": same_b,
+        "same_path_original": same_original,
+        "same_path_non_original": same_non_original,
         "diff_path_a": diff_a,
         "diff_path_b": diff_b,
+        "diff_path_original": diff_original,
+        "diff_path_non_original": diff_non_original,
         "standalone": standalone,
     }
 
@@ -1288,9 +1312,8 @@ class TestOriginalTorrentIndicator:
 
     def test_original_at_top_when_non_original_selected(self, torrents_page):
         """When a non-original cross-seed is selected, the original still appears at the top."""
-        # Select same_path_b (the non-original cross-seed)
         self._select_and_open_modal(
-            torrents_page, self.data["same_path_b"]["hash"],
+            torrents_page, self.data["same_path_non_original"]["hash"],
         )
 
         # Should still have exactly 1 Original badge
@@ -1311,9 +1334,8 @@ class TestOriginalTorrentIndicator:
         communicates the intent for all top-section items, so individual action
         badges are unnecessary.
         """
-        # Select same_path_b (not the original)
         self._select_and_open_modal(
-            torrents_page, self.data["same_path_b"]["hash"],
+            torrents_page, self.data["same_path_non_original"]["hash"],
         )
 
         # Top-section items should have no action badges — subtitle covers it
@@ -1347,7 +1369,7 @@ class TestSelectedBadge:
     def test_selected_badge_on_original_when_original_selected(self, torrents_page):
         """Selecting the original shows both Original and Selected badges on the top item."""
         self._select_and_open_modal(
-            torrents_page, self.data["same_path_a"]["hash"],
+            torrents_page, self.data["same_path_original"]["hash"],
         )
 
         selected_badges = torrents_page.get_selected_badges()
@@ -1363,7 +1385,7 @@ class TestSelectedBadge:
     def test_selected_badge_on_non_original_in_cross_seed_section(self, torrents_page):
         """Selecting a non-original shows Selected badge on the sibling in the cross-seed section."""
         self._select_and_open_modal(
-            torrents_page, self.data["same_path_b"]["hash"],
+            torrents_page, self.data["same_path_non_original"]["hash"],
         )
 
         selected_badges = torrents_page.get_selected_badges()
@@ -1411,7 +1433,7 @@ class TestSelectedBadge:
     def test_non_original_selected_has_action_badge(self, torrents_page):
         """The selected non-original in the cross-seed section also gets action badges."""
         self._select_and_open_modal(
-            torrents_page, self.data["same_path_b"]["hash"],
+            torrents_page, self.data["same_path_non_original"]["hash"],
         )
 
         # Second item is the selected non-original — should have Delete badge
@@ -1509,7 +1531,7 @@ class TestActionBadges:
     def test_no_action_dims_sibling(self, torrents_page):
         """When no action is set, the cross-seed item has the inactive class."""
         self._select_and_open_modal(
-            torrents_page, self.data["same_path_a"]["hash"],
+            torrents_page, self.data["same_path_original"]["hash"],
         )
 
         # Uncheck Delete

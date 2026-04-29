@@ -7,6 +7,8 @@ The torrents page displays:
 - Torrent selection checkboxes and transfer button
 - Transfer modal for manual transfers
 """
+from urllib.parse import quote
+
 from playwright.sync_api import Page, expect
 from .base_page import BasePage
 
@@ -27,6 +29,8 @@ class TorrentsPage(BasePage):
     TORRENT_NAME = ".simple-torrent-name"
     TORRENT_STATE = ".simple-torrent-state"
     EMPTY_MESSAGE = ".empty-message"
+    CLIENT_ERROR_MESSAGE = ".client-error-message"
+    NO_CLIENTS_MESSAGE = ".no-clients-message"
     
     # Selection selectors
     TORRENT_CHECKBOX = ".torrent-checkbox"
@@ -155,22 +159,37 @@ class TorrentsPage(BasePage):
             f"{self.CLIENT_TAB_CONTENT}.active {self.EMPTY_MESSAGE}"
         ).is_visible()
     
-    def wait_for_api_refresh(self, timeout: int = 5000) -> None:
+    def wait_for_api_refresh(self, client_name: str | None = None, timeout: int = 15000) -> None:
         """Wait for next API poll.
         
-        Torrents page polls /api/v1/all_torrents every 3 seconds.
+        Torrents page polls /api/v1/clients/<client>/torrents every 10 seconds.
         
         Args:
+            client_name: Expected client name. Defaults to the active tab.
             timeout: Maximum time to wait in milliseconds
             
         Raises:
             playwright.sync_api.TimeoutError: If no API response within timeout
         """
-        with self.page.expect_response(
-            lambda r: "/api/v1/all_torrents" in r.url,
-            timeout=timeout
-        ):
+        active_client = client_name or self.get_active_client_tab()
+        if active_client:
+            encoded_name = quote(active_client, safe='')
+            matcher = lambda r: f"/api/v1/clients/{encoded_name}/torrents" in r.url
+        else:
+            matcher = lambda r: "/api/v1/clients/" in r.url and r.url.endswith("/torrents")
+
+        with self.page.expect_response(matcher, timeout=timeout):
             pass  # Wait for next poll cycle
+
+    def has_client_error_message(self) -> bool:
+        """Check if a client-level error message is visible in the active tab."""
+        return self.page.locator(
+            f"{self.CLIENT_TAB_CONTENT}.active {self.CLIENT_ERROR_MESSAGE}"
+        ).is_visible()
+
+    def has_no_clients_message(self) -> bool:
+        """Check if the page shows the no-clients-configured state."""
+        return self.page.locator(self.NO_CLIENTS_MESSAGE).is_visible()
 
     # ===================================================================
     # Selection helpers

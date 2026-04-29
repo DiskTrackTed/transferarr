@@ -36,6 +36,14 @@ class ConfigSaveError(ServiceError):
     pass
 
 
+class ServiceUnavailableError(ServiceError):
+    """A required service or client is unavailable"""
+
+    def __init__(self, message: str, details: dict = None):
+        self.details = details or {}
+        super().__init__(message)
+
+
 from .download_client_service import DownloadClientService
 from .connection_service import ConnectionService
 from .torrent_service import TorrentService
@@ -47,6 +55,7 @@ __all__ = [
     'ConflictError',
     'ValidationError',
     'ConfigSaveError',
+    'ServiceUnavailableError',
     'DownloadClientService',
     'ConnectionService',
     'TorrentService',

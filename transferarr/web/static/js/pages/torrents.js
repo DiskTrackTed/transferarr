@@ -1,21 +1,27 @@
 // ============================================================================
 // State
 // ============================================================================
-/** @type {Object<string, Object>} Cached all-torrents data, keyed by client name */
+/** @type {Object<string, Object>} Cached torrent data, keyed by client name */
 let allTorrentsCache = {};
 /** @type {Set<string>} Selected torrent hashes (lowercase) */
 const selectedHashes = new Set();
 /** @type {string|null} Client name whose torrents are currently selected */
 let selectionSourceClient = null;
+/** @type {Array<string>} Configured client names */
+let clientNames = [];
+/** @type {string|null} Currently active client tab */
+let activeClientName = null;
+/** @type {number|null} Poll timer ID */
+let pollTimerId = null;
+/** @type {AbortController|null} Abort controller for the active client fetch */
+let activeFetchController = null;
+/** @type {number} Poll interval for active-client refreshes */
+const POLL_INTERVAL_MS = 10000;
 
 // ============================================================================
 // Bootstrap & Polling
 // ============================================================================
 document.addEventListener('DOMContentLoaded', function() {
-    showLoadingIndicator();
-    fetchAllTorrents();
-    setInterval(fetchAllTorrents, 3000);
-
     // Transfer button
     document.getElementById('transfer-selected-btn')
         .addEventListener('click', openTransferModal);
@@ -39,7 +45,30 @@ document.addEventListener('DOMContentLoaded', function() {
         .addEventListener('click', function(e) {
             if (e.target === this) closeTransferModal();
         });
+
+    void initializeTorrentsPage();
 });
+
+async function initializeTorrentsPage() {
+    showLoadingIndicator();
+
+    try {
+        clientNames = await API.fetchDownloadClients();
+        initializeClientTabs(clientNames);
+
+        if (clientNames.length === 0) {
+            renderNoClientsConfigured();
+            return;
+        }
+
+        await switchToClient(clientNames[0]);
+    } catch (error) {
+        if (error.name === 'AbortError') return;
+        renderNoClientsConfigured('Unable to load download clients');
+    } finally {
+        hideLoadingIndicator();
+    }
+}
 
 function showLoadingIndicator() {
     const el = document.getElementById('loading-indicator');
@@ -51,15 +80,81 @@ function hideLoadingIndicator() {
     if (el) el.classList.add('hidden');
 }
 
-async function fetchAllTorrents() {
+function stopPolling() {
+    if (pollTimerId !== null) {
+        clearTimeout(pollTimerId);
+        pollTimerId = null;
+    }
+}
+
+function scheduleNextPoll(clientName = activeClientName) {
+    stopPolling();
+    if (!clientName || document.hidden) return;
+
+    pollTimerId = window.setTimeout(async () => {
+        pollTimerId = null;
+
+        if (activeClientName !== clientName || document.hidden) {
+            return;
+        }
+
+        await refreshClientTorrents(clientName);
+
+        if (activeClientName === clientName && !document.hidden) {
+            scheduleNextPoll(clientName);
+        }
+    }, POLL_INTERVAL_MS);
+}
+
+function startPolling() {
+    scheduleNextPoll(activeClientName);
+}
+
+function abortActiveFetch() {
+    if (activeFetchController) {
+        activeFetchController.abort();
+        activeFetchController = null;
+    }
+}
+
+async function switchToClient(clientName) {
+    if (!clientName) return;
+
+    stopPolling();
+    abortActiveFetch();
+    setActiveClientTab(clientName);
+    await refreshClientTorrents(clientName);
+
+    if (activeClientName === clientName) {
+        startPolling();
+    }
+}
+
+async function refreshClientTorrents(clientName = activeClientName) {
+    if (!clientName) return;
+
+    const controller = new AbortController();
+    activeFetchController = controller;
+
     try {
-        const data = await API.fetchAllTorrents();
-        allTorrentsCache = data;
-        updateClientTabsWithAllTorrents(data);
-        hideLoadingIndicator();
+        const data = await API.fetchClientTorrents(clientName, controller.signal);
+        if (activeClientName !== clientName) return;
+
+        allTorrentsCache[clientName] = data;
+        renderClientTorrents(clientName, data);
     } catch (error) {
-        console.error('Error fetching all torrents:', error);
-        hideLoadingIndicator();
+        if (error.name === 'AbortError') return;
+        if (activeClientName !== clientName) return;
+
+        delete allTorrentsCache[clientName];
+        if (selectionSourceClient === clientName) {
+            clearSelection();
+        }
+        renderClientError(clientName, error.message || `Unable to load torrents for ${clientName}`);
+    } finally {
+        if (activeFetchController === controller) {
+            activeFetchController = null;
+        }
     }
 }
 
@@ -573,156 +668,200 @@ async function confirmTransfer() {
 // ============================================================================
 // Torrent Card Rendering (with checkboxes & cross-seed indicators)
 // ============================================================================
-function updateClientTabsWithAllTorrents(allTorrentsData) {
-    const clientNames = Object.keys(allTorrentsData);
-    if (clientNames.length === 0) return;
+function getSafeClientName(clientName) {
+    return clientName.replace(/\s+/g, '-').replace(/[^a-zA-Z0-9-]/g, '');
+}
 
+function initializeClientTabs(names) {
     const clientTabsContainer = document.getElementById('client-tabs');
     const clientTabContentsContainer = document.getElementById('client-tab-contents');
+
+    clientTabsContainer.innerHTML = '';
+    clientTabContentsContainer.innerHTML = '';
+
+    if (names.length === 0) {
+        clientTabsContainer.style.display = 'none';
+        clientTabContentsContainer.style.display = 'block';
+        return;
+    }
 
     clientTabsContainer.style.display = 'flex';
     clientTabContentsContainer.style.display = 'block';
 
-    // Remember active tab
-    let activeTabName = '';
-    const currentActive = document.querySelector('.client-tab.active');
-    if (currentActive) activeTabName = currentActive.dataset.client;
-
-    // Rebuild tabs if count changed
-    if (clientTabsContainer.children.length !== clientNames.length) {
-        clientTabsContainer.innerHTML = '';
-        clientTabContentsContainer.innerHTML = '';
-
-        clientNames.forEach((clientName, index) => {
-            const tab = document.createElement('div');
-            tab.className = 'client-tab';
-            if ((activeTabName && clientName === activeTabName) ||
-                (!activeTabName && index === 0)) {
-                tab.classList.add('active');
-            }
-            tab.textContent = clientName;
-            tab.dataset.client = clientName;
-            clientTabsContainer.appendChild(tab);
-
-            const tabContent = document.createElement('div');
-            tabContent.className = 'client-tab-content';
-            if ((activeTabName && clientName === activeTabName) ||
-                (!activeTabName && index === 0)) {
-                tabContent.classList.add('active');
-            }
-            tabContent.id = `client-${clientName.replace(/\s+/g, '-').replace(/[^a-zA-Z0-9-]/g, '')}`;
-            clientTabContentsContainer.appendChild(tabContent);
+    names.forEach(clientName => {
+        const tab = document.createElement('div');
+        tab.className = 'client-tab';
+        tab.textContent = clientName;
+        tab.dataset.client = clientName;
+        tab.addEventListener('click', function() {
+            if (clientName === activeClientName) return;
+            void switchToClient(clientName);
         });
+        clientTabsContainer.appendChild(tab);
 
-        // Tab click handler
-        document.querySelectorAll('.client-tab').forEach(tab => {
-            tab.addEventListener('click', function() {
-                document.querySelectorAll('.client-tab').forEach(t => t.classList.remove('active'));
-                document.querySelectorAll('.client-tab-content').forEach(c => c.classList.remove('active'));
-                this.classList.add('active');
-                const cn = this.dataset.client;
-                const safeName = cn.replace(/\s+/g, '-').replace(/[^a-zA-Z0-9-]/g, '');
-                const el = document.getElementById(`client-${safeName}`);
-                if (el) el.classList.add('active');
-            });
-        });
-    }
+        const tabContent = document.createElement('div');
+        tabContent.className = 'client-tab-content';
+        tabContent.id = `client-${getSafeClientName(clientName)}`;
+        clientTabContentsContainer.appendChild(tabContent);
+    });
+}
 
-    // Build cross-seed lookup for indicator rendering
-    const crossSeedGroups = {};
-    for (const clientName of clientNames) {
-        const groups = buildCrossSeedPathGroups(allTorrentsData[clientName] || {});
-        crossSeedGroups[clientName] = {};
-        for (const hashes of Object.values(groups)) {
-            for (const h of hashes) {
-                crossSeedGroups[clientName][h.toLowerCase()] = true;
-            }
-        }
-    }
+function setActiveClientTab(clientName) {
+    activeClientName = clientName;
 
-    // Update each client tab
-    clientNames.forEach(clientName => {
-        const clientTorrents = allTorrentsData[clientName] || {};
-        const safeName = clientName.replace(/\s+/g, '-').replace(/[^a-zA-Z0-9-]/g, '');
-        const tabContent = document.getElementById(`client-${safeName}`);
-        if (!tabContent) return;
-
-        // Remove empty message
-        const existingMsg = tabContent.querySelector('.empty-message');
-        if (existingMsg) tabContent.removeChild(existingMsg);
-
-        let container = tabContent.querySelector('.client-torrent-container');
-        if (!container) {
-            container = document.createElement('div');
-            container.className = 'client-torrent-container';
-            tabContent.appendChild(container);
-        }
-
-        const existingCards = {};
-        Array.from(container.children).forEach(card => {
-            if (card.dataset.id) existingCards[card.dataset.id] = card;
-        });
-
-        const torrentIds = Object.keys(clientTorrents);
-
-        if (torrentIds.length === 0) {
-            container.innerHTML = '';
-            const emptyMsg = document.createElement('div');
-            emptyMsg.className = 'empty-message';
-            emptyMsg.textContent = `No torrents for ${clientName}`;
-            emptyMsg.style.padding = '20px';
-            emptyMsg.style.textAlign = 'center';
-            emptyMsg.style.color = '#666';
-            tabContent.appendChild(emptyMsg);
-            return;
-        }
-
-        torrentIds.forEach(torrentId => {
-            const torrentData = clientTorrents[torrentId];
-            const isCrossSeed = !!crossSeedGroups[clientName]?.[torrentId.toLowerCase()];
-            const isSeeding = (torrentData.state || '').toLowerCase() === 'seeding';
-
-            if (existingCards[torrentId]) {
-                updateClientTorrentCard(existingCards[torrentId], torrentData, isCrossSeed, isSeeding, torrentId, clientName);
-                delete existingCards[torrentId];
-            } else {
-                container.appendChild(createClientTorrentCard(torrentId, torrentData, isCrossSeed, isSeeding, clientName));
-            }
-        });
-
-        // Remove stale cards
-        Object.values(existingCards).forEach(card => container.removeChild(card));
+    document.querySelectorAll('.client-tab').forEach(tab => {
+        tab.classList.toggle('active', tab.dataset.client === clientName);
     });
 
-    // Prune selected hashes that no longer exist on the source client
-    if (selectionSourceClient && selectedHashes.size > 0) {
-        const clientTorrents = allTorrentsData[selectionSourceClient] || {};
-        const lowerIds = new Set(Object.keys(clientTorrents).map(h => h.toLowerCase()));
-        let pruned = false;
-        for (const hash of [...selectedHashes]) {
-            if (!lowerIds.has(hash)) {
-                selectedHashes.delete(hash);
-                pruned = true;
-            }
-        }
-        if (pruned) {
-            if (selectedHashes.size === 0) selectionSourceClient = null;
-            updateSelectionUI();
+    document.querySelectorAll('.client-tab-content').forEach(content => {
+        content.classList.toggle('active', content.id === `client-${getSafeClientName(clientName)}`);
+    });
+}
+
+function getClientTabContent(clientName) {
+    return document.getElementById(`client-${getSafeClientName(clientName)}`);
+}
+
+function ensureClientTorrentContainer(tabContent) {
+    let container = tabContent.querySelector('.client-torrent-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.className = 'client-torrent-container';
+        tabContent.appendChild(container);
+    }
+    return container;
+}
+
+function clearClientStatusMessages(tabContent) {
+    tabContent.querySelectorAll('.client-status-message').forEach(message => message.remove());
+}
+
+function renderNoClientsConfigured(message = 'No download clients configured') {
+    const clientTabsContainer = document.getElementById('client-tabs');
+    const clientTabContentsContainer = document.getElementById('client-tab-contents');
+
+    clientTabsContainer.innerHTML = '';
+    clientTabsContainer.style.display = 'none';
+    clientTabContentsContainer.style.display = 'block';
+    clientTabContentsContainer.innerHTML = '';
+
+    const status = document.createElement('div');
+    status.className = 'client-status-message no-clients-message';
+    status.textContent = message;
+    clientTabContentsContainer.appendChild(status);
+}
+
+function renderClientStatusMessage(clientName, message, kind = 'empty') {
+    const tabContent = getClientTabContent(clientName);
+    if (!tabContent) return;
+
+    const container = ensureClientTorrentContainer(tabContent);
+    container.innerHTML = '';
+    clearClientStatusMessages(tabContent);
+
+    const status = document.createElement('div');
+    status.className = `client-status-message ${kind === 'error' ? 'client-error-message' : 'empty-message'}`;
+    status.textContent = message;
+    tabContent.appendChild(status);
+}
+
+function renderClientError(clientName, message) {
+    renderClientStatusMessage(clientName, message, 'error');
+}
+
+function pruneSelectedHashes(clientName, clientTorrents) {
+    if (selectionSourceClient !== clientName || selectedHashes.size === 0) return;
+
+    const lowerIds = new Set(Object.keys(clientTorrents).map(hash => hash.toLowerCase()));
+    let pruned = false;
+
+    for (const hash of [...selectedHashes]) {
+        if (!lowerIds.has(hash)) {
+            selectedHashes.delete(hash);
+            pruned = true;
         }
     }
 
-    // Ensure active tab
-    if (!document.querySelector('.client-tab.active') && clientNames.length > 0) {
-        const firstTab = document.querySelector('.client-tab');
-        if (firstTab) {
-            firstTab.classList.add('active');
-            const cn = firstTab.dataset.client;
-            const safeName = cn.replace(/\s+/g, '-').replace(/[^a-zA-Z0-9-]/g, '');
-            const el = document.getElementById(`client-${safeName}`);
-            if (el) el.classList.add('active');
-        }
+    if (pruned) {
+        if (selectedHashes.size === 0) selectionSourceClient = null;
+        updateSelectionUI();
     }
 }
+
+function renderClientTorrents(clientName, clientTorrents) {
+    const tabContent = getClientTabContent(clientName);
+    if (!tabContent) return;
+
+    const container = ensureClientTorrentContainer(tabContent);
+    clearClientStatusMessages(tabContent);
+
+    const groups = buildCrossSeedPathGroups(clientTorrents || {});
+    const crossSeedHashes = {};
+    for (const hashes of Object.values(groups)) {
+        for (const hash of hashes) {
+            crossSeedHashes[hash.toLowerCase()] = true;
+        }
+    }
+
+    const existingCards = {};
+    Array.from(container.children).forEach(card => {
+        if (card.dataset.id) existingCards[card.dataset.id] = card;
+    });
+
+    const torrentIds = Object.keys(clientTorrents);
+    if (torrentIds.length === 0) {
+        renderClientStatusMessage(clientName, `No torrents for ${clientName}`);
+        pruneSelectedHashes(clientName, clientTorrents);
+        return;
+    }
+
+    torrentIds.forEach(torrentId => {
+        const torrentData = clientTorrents[torrentId];
+        const isCrossSeed = !!crossSeedHashes[torrentId.toLowerCase()];
+        const isSeeding = (torrentData.state || '').toLowerCase() === 'seeding';
+
+        if (existingCards[torrentId]) {
+            updateClientTorrentCard(existingCards[torrentId], torrentData, isCrossSeed, isSeeding, torrentId, clientName);
+            delete existingCards[torrentId];
+        } else {
+            container.appendChild(createClientTorrentCard(torrentId, torrentData, isCrossSeed, isSeeding, clientName));
+        }
+    });
+
+    Object.values(existingCards).forEach(card => container.removeChild(card));
+    pruneSelectedHashes(clientName, clientTorrents);
+}
+
+function clearClientViews() {
+    stopPolling();
+    abortActiveFetch();
+    allTorrentsCache = {};
+    clientNames = [];
+    activeClientName = null;
+    clearSelection();
+}
+
+window.addEventListener('beforeunload', function() {
+    stopPolling();
+    abortActiveFetch();
+    clearClientViews();
+});
+
+window.addEventListener('pagehide', function() {
+    stopPolling();
+    abortActiveFetch();
+    clearClientViews();
+});
+
+window.addEventListener('visibilitychange', function() {
+    if (document.hidden) {
+        stopPolling();
+        return;
+    }
+    if (activeClientName) {
+        startPolling();
+    }
+});
 
 /**
  * Create the inline transfer button for a seeding torrent card.

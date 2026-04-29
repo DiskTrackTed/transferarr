@@ -9,6 +9,7 @@ to verify critical user journeys work correctly.
 """
 import re
 import time
+from urllib.parse import quote
 import pytest
 from playwright.sync_api import Page, expect
 
@@ -189,27 +190,27 @@ class TestE2ETorrentWorkflow:
         log_test_step("Step 4: Verify source client shows torrent")
         # Find and click the source-deluge tab
         source_tab_found = False
+        source_tab_name = None
+        client_torrents_response = None
         for tab_name in tab_names:
             if 'source' in tab_name.lower():
-                torrents_page.switch_to_client_tab(tab_name)
+                encoded_source = quote(tab_name, safe='')
+                with page.expect_response(
+                    lambda r, encoded_source=encoded_source: f"/api/v1/clients/{encoded_source}/torrents" in r.url,
+                    timeout=UI_TIMEOUTS['api_response']
+                ) as response_info:
+                    torrents_page.switch_to_client_tab(tab_name)
+                client_torrents_response = response_info.value.json()
+                source_tab_name = tab_name
                 source_tab_found = True
                 break
         
         if source_tab_found:
             # Wait for tab content to load
             page.wait_for_timeout(UI_TIMEOUTS['dropdown_load'])
-            
-            # Check for torrent in the list (via API response)
-            with page.expect_response(
-                lambda r: "/api/v1/all_torrents" in r.url,
-                timeout=UI_TIMEOUTS['api_response']
-            ) as response_info:
-                page.reload()
-            
-            all_torrents_response = response_info.value.json()
-            # Unwrap data envelope (supports both old and new format)
-            all_torrents = all_torrents_response.get('data', all_torrents_response) if isinstance(all_torrents_response, dict) and 'data' in all_torrents_response else all_torrents_response
-            print(f"  All torrents response: {list(all_torrents.keys())}")
+            client_torrents_response = response_info.value.json()
+            client_torrents = client_torrents_response.get('data', client_torrents_response) if isinstance(client_torrents_response, dict) and 'data' in client_torrents_response else client_torrents_response
+            print(f"  Source client {source_tab_name} has {len(client_torrents)} torrents visible")
         
         log_test_step("Step 5: Wait for transfer to complete")
         # Wait for torrent to reach target
@@ -474,27 +475,30 @@ class TestE2ECrossPageWorkflows:
         assert len(tabs) >= 1, "Should have at least one client tab"
         print(f"  Torrents page has {len(tabs)} client tabs")
         
-        # Check via API that torrent is in the response
-        with page.expect_response(
-            lambda r: "/api/v1/all_torrents" in r.url,
-            timeout=UI_TIMEOUTS['api_response']
-        ) as response_info:
-            page.reload()
-        
-        all_torrents_response = response_info.value.json()
-        # Unwrap data envelope (supports both old and new format)
-        all_torrents = all_torrents_response.get('data', all_torrents_response) if isinstance(all_torrents_response, dict) and 'data' in all_torrents_response else all_torrents_response
-        # all_torrents is dict of client_name -> dict of torrent_hash -> torrent_info
+        # Check via API that torrent is in the target client's response
+        target_tab_name = None
+        target_torrents_response = None
+        for tab in tabs:
+            tab_name = tab.text_content().strip()
+            if 'target' in tab_name.lower():
+                encoded_target = quote(tab_name, safe='')
+                with page.expect_response(
+                    lambda r, encoded_target=encoded_target: f"/api/v1/clients/{encoded_target}/torrents" in r.url,
+                    timeout=UI_TIMEOUTS['api_response']
+                ) as response_info:
+                    torrents_page.switch_to_client_tab(tab_name)
+                target_torrents_response = response_info.value.json()
+                target_tab_name = tab_name
+                break
+
+        assert target_tab_name is not None, "Could not find target client tab"
+        target_torrents = target_torrents_response.get('data', target_torrents_response) if isinstance(target_torrents_response, dict) and 'data' in target_torrents_response else target_torrents_response
         found = False
-        for client_name, client_torrents in all_torrents.items():
-            # client_torrents is a dict keyed by torrent hash
-            for torrent_hash, torrent_info in client_torrents.items():
-                name = torrent_info.get('name', '') if isinstance(torrent_info, dict) else ''
-                if name == torrent_name or torrent_name in name:
-                    found = True
-                    print(f"  Found torrent on client: {client_name}")
-                    break
-            if found:
+        for torrent_hash, torrent_info in target_torrents.items():
+            name = torrent_info.get('name', '') if isinstance(torrent_info, dict) else ''
+            if name == torrent_name or torrent_name in name:
+                found = True
+                print(f"  Found torrent on client: {target_tab_name}")
                 break
         
         assert found, f"Torrent {torrent_name} not found in any client"

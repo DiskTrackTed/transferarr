@@ -8,6 +8,7 @@ import base64
 import os
 import time
 import uuid
+from urllib.parse import quote
 
 import pytest
 import requests
@@ -30,6 +31,11 @@ def get_api_url():
     host = SERVICES['transferarr']['host']
     port = SERVICES['transferarr']['port']
     return f"http://{host}:{port}/api/v1"
+
+
+def get_client_torrents_url(client_name: str) -> str:
+    """Get the per-client torrents endpoint URL."""
+    return f"{get_api_url()}/clients/{quote(client_name, safe='')}/torrents"
 
 
 MOCK_INDEXER_HOST = os.environ.get("MOCK_INDEXER_HOST", "mock-indexer")
@@ -361,13 +367,14 @@ class TestManualTransferInitiation:
         # 2. Start transferarr
         transferarr.start(wait_healthy=True)
 
-        # 3. Verify torrent appears in all_torrents
-        all_url = f"{get_api_url()}/all_torrents"
-        resp = requests.get(all_url, timeout=TIMEOUTS['api_response'])
+        # 3. Verify torrent appears in the source client's torrent listing
+        resp = requests.get(
+            get_client_torrents_url("source-deluge"),
+            timeout=TIMEOUTS['api_response'],
+        )
         assert resp.status_code == 200
-        all_data = resp.json()["data"]
-        assert "source-deluge" in all_data
-        assert torrent["hash"] in all_data["source-deluge"]
+        source_data = resp.json()["data"]
+        assert torrent["hash"] in source_data
 
         # 4. Initiate manual transfer
         url = f"{get_api_url()}/transfers/manual"
@@ -501,27 +508,42 @@ class TestManualTransferInitiation:
         assert "seeding" in resp.json().get("error", {}).get("message", "").lower()
 
     @pytest.mark.timeout(TIMEOUTS['torrent_transfer'])
-    def test_all_torrents_includes_save_path(
+    def test_client_torrents_includes_save_path(
         self, transferarr, deluge_source, create_torrent,
     ):
-        """Verify /all_torrents response includes save_path and total_size."""
+        """Verify per-client torrent response includes save_path and total_size."""
         unique_name = f"manual_fields_{uuid.uuid4().hex[:6]}"
         torrent = add_torrent_to_deluge(deluge_source, unique_name, create_torrent)
 
         transferarr.start(wait_healthy=True)
 
-        all_url = f"{get_api_url()}/all_torrents"
-        resp = requests.get(all_url, timeout=TIMEOUTS['api_response'])
+        resp = requests.get(
+            get_client_torrents_url("source-deluge"),
+            timeout=TIMEOUTS['api_response'],
+        )
         assert resp.status_code == 200
 
-        client_data = resp.json()["data"].get("source-deluge", {})
-        torrent_data = client_data.get(torrent["hash"])
+        torrent_data = resp.json()["data"].get(torrent["hash"])
         assert torrent_data is not None, f"Torrent {torrent['hash']} not in response"
 
         assert "save_path" in torrent_data, f"Missing save_path. Keys: {torrent_data.keys()}"
         assert "total_size" in torrent_data, f"Missing total_size. Keys: {torrent_data.keys()}"
         assert isinstance(torrent_data["save_path"], str)
         assert torrent_data["total_size"] > 0
+
+    @pytest.mark.timeout(TIMEOUTS['api_response'])
+    def test_client_torrents_unknown_client_returns_404(self, transferarr):
+        """Unknown client returns 404 from the per-client torrents endpoint."""
+        transferarr.start(wait_healthy=True)
+
+        resp = requests.get(
+            get_client_torrents_url("missing-client"),
+            timeout=TIMEOUTS['api_response'],
+        )
+
+        assert resp.status_code == 404
+        error = resp.json()["error"]
+        assert error["code"] == "CLIENT_NOT_FOUND"
 
 
 # ==============================================================================
@@ -637,11 +659,13 @@ class TestManualTorrentTypeTransfer:
         # Start with torrent-transfer config (uses tracker, no SFTP)
         transferarr.start(config_type='torrent-transfer', wait_healthy=True)
 
-        # Verify torrent appears in all_torrents
-        all_url = f"{get_api_url()}/all_torrents"
-        resp = requests.get(all_url, timeout=TIMEOUTS['api_response'])
+        # Verify torrent appears in the source client's listing
+        resp = requests.get(
+            get_client_torrents_url("source-deluge"),
+            timeout=TIMEOUTS['api_response'],
+        )
         assert resp.status_code == 200
-        assert torrent["hash"] in resp.json()["data"].get("source-deluge", {})
+        assert torrent["hash"] in resp.json()["data"]
 
         # Initiate manual transfer
         url = f"{get_api_url()}/transfers/manual"
@@ -716,10 +740,12 @@ class TestManualTransferCrossSeed:
         # 2. Verify both have the same save_path and name in the API
         transferarr.start(wait_healthy=True)
 
-        all_url = f"{get_api_url()}/all_torrents"
-        resp = requests.get(all_url, timeout=TIMEOUTS['api_response'])
+        resp = requests.get(
+            get_client_torrents_url("source-deluge"),
+            timeout=TIMEOUTS['api_response'],
+        )
         assert resp.status_code == 200
-        source_data = resp.json()["data"].get("source-deluge", {})
+        source_data = resp.json()["data"]
         assert torrent_a["hash"] in source_data, "Original not in listing"
         assert torrent_b["hash"] in source_data, "Cross-seed not in listing"
 
@@ -792,10 +818,12 @@ class TestManualTransferCrossSeed:
         # 3. Verify they have DIFFERENT save_paths but same name+size
         transferarr.start(wait_healthy=True)
 
-        all_url = f"{get_api_url()}/all_torrents"
-        resp = requests.get(all_url, timeout=TIMEOUTS['api_response'])
+        resp = requests.get(
+            get_client_torrents_url("source-deluge"),
+            timeout=TIMEOUTS['api_response'],
+        )
         assert resp.status_code == 200
-        source_data = resp.json()["data"].get("source-deluge", {})
+        source_data = resp.json()["data"]
         assert torrent_a["hash"] in source_data, "Original not in listing"
         assert torrent_b["hash"] in source_data, "Cross-seed not in listing"
 

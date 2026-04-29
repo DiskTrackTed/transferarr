@@ -8,6 +8,8 @@ Tests the torrents page functionality including:
 - Automatic polling behavior
 """
 import re
+from urllib.parse import quote
+
 import pytest
 from playwright.sync_api import Page, expect
 
@@ -184,14 +186,16 @@ class TestTorrentsPolling:
     def test_torrents_page_polls_api(self, torrents_page, page: Page):
         """Test that torrents page polls the API for updates.
         
-        Torrents.js polls /api/v1/all_torrents every 3 seconds.
+        Torrents.js polls /api/v1/clients/<client>/torrents every 10 seconds.
         """
         torrents_page.goto()
         torrents_page.wait_for_torrents_loaded()
+        active_client = torrents_page.get_active_client_tab()
+        encoded_name = quote(active_client, safe='')
         
-        # Wait for API call (should happen within 5 seconds)
+        # Wait for the next scheduled poll (10-second interval)
         with page.expect_response(
-            lambda r: "/api/v1/all_torrents" in r.url,
+            lambda r: f"/api/v1/clients/{encoded_name}/torrents" in r.url,
             timeout=UI_TIMEOUTS['api_response']
         ) as response_info:
             pass  # Wait for next poll cycle
@@ -205,6 +209,70 @@ class TestTorrentsPolling:
         
         # Should not raise timeout
         torrents_page.wait_for_api_refresh(timeout=UI_TIMEOUTS['api_response'])
+
+    def test_slow_poll_response_does_not_trigger_overlapping_fetch(self, torrents_page, page: Page):
+        """A slow poll response should finish before the next poll begins."""
+        page.add_init_script(
+            """
+            (() => {
+                const originalFetch = window.fetch.bind(window);
+                window.__torrentClientFetchCount = 0;
+
+                window.fetch = (input, init) => {
+                    const url = typeof input === 'string' ? input : input.url;
+                    if (/\/api\/v1\/clients\/[^/]+\/torrents$/.test(url)) {
+                        window.__torrentClientFetchCount += 1;
+
+                        if (window.__torrentClientFetchCount === 2) {
+                            return new Promise((resolve, reject) => {
+                                window.setTimeout(() => {
+                                    originalFetch(input, init).then(resolve, reject);
+                                }, 12000);
+                            });
+                        }
+                    }
+
+                    return originalFetch(input, init);
+                };
+            })();
+            """
+        )
+
+        torrents_page.goto()
+        torrents_page.wait_for_torrents_loaded()
+
+        page.wait_for_function(
+            "() => window.__torrentClientFetchCount >= 2",
+            timeout=25000,
+        )
+
+        page.wait_for_timeout(11000)
+        fetch_count = page.evaluate("window.__torrentClientFetchCount")
+
+        assert fetch_count == 2, (
+            "Expected the next poll to wait for the slow in-flight response to finish; "
+            f"saw {fetch_count} client fetches instead"
+        )
+
+    def test_tab_switch_triggers_immediate_client_fetch(self, torrents_page, page: Page):
+        """Switching tabs immediately fetches the newly active client's torrents."""
+        torrents_page.goto()
+        torrents_page.wait_for_torrents_loaded()
+
+        tabs = torrents_page.get_client_tabs()
+        if len(tabs) < 2:
+            pytest.skip("Need at least two configured clients")
+
+        second_name = tabs[1].text_content().strip()
+        encoded_name = quote(second_name, safe='')
+
+        with page.expect_response(
+            lambda r: f"/api/v1/clients/{encoded_name}/torrents" in r.url,
+            timeout=UI_TIMEOUTS['api_response']
+        ) as response_info:
+            torrents_page.switch_to_client_tab(second_name)
+
+        assert response_info.value.status == 200
 
 
 class TestTorrentsNavigation:

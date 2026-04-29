@@ -6,8 +6,12 @@ Tests that transfer torrents are correctly filtered from:
 """
 from unittest.mock import Mock, MagicMock, patch
 
+from flask import Blueprint, Flask
+
 from transferarr.models.torrent import Torrent, TorrentState
 from transferarr.services.media_managers import RadarrManager, SonarrManager
+from transferarr.web.routes.api.torrents import register_routes as register_torrent_routes
+from transferarr.web.services import NotFoundError, ServiceUnavailableError
 from transferarr.web.services.torrent_service import TorrentService
 
 
@@ -437,3 +441,142 @@ class TestAllClientTorrentsFiltering:
         result = service.get_all_client_torrents()
         
         assert result["source-deluge"] == {}
+
+
+class TestClientTorrents:
+    """Tests for TorrentService.get_client_torrents()."""
+
+    def _make_service(self, torrents, clients):
+        manager = Mock()
+        manager.torrents = torrents
+        manager.download_clients = clients
+        return TorrentService(manager)
+
+    def _make_client(self, torrents_dict=None):
+        client = Mock()
+        client.is_connected.return_value = True
+        client.get_all_torrents_status.return_value = torrents_dict or {}
+        return client
+
+    def test_returns_requested_client_only(self):
+        tracked = _make_tracked_torrent(transfer_hash=TRANSFER_HASH)
+        client = self._make_client({
+            TRANSFER_HASH: {"name": "Transfer", "state": "Downloading"},
+            "cc" * 20: {"name": "Movie", "state": "Seeding"},
+        })
+        other_client = self._make_client({"dd" * 20: {"name": "Other", "state": "Seeding"}})
+
+        service = self._make_service(
+            [tracked],
+            {"source-deluge": client, "target-deluge": other_client},
+        )
+
+        result = service.get_client_torrents("source-deluge")
+
+        assert TRANSFER_HASH not in result
+        assert "cc" * 20 in result
+        other_client.get_all_torrents_status.assert_not_called()
+
+    def test_missing_client_raises_not_found(self):
+        service = self._make_service([], {})
+
+        with patch.object(service, "_get_transfer_hashes", return_value=set()):
+            try:
+                service.get_client_torrents("missing-client")
+                assert False, "Expected NotFoundError"
+            except NotFoundError as exc:
+                assert exc.resource_type == "Client"
+                assert exc.identifier == "missing-client"
+
+    def test_disconnected_client_raises_service_unavailable(self):
+        client = Mock()
+        client.is_connected.return_value = False
+        service = self._make_service([], {"source-deluge": client})
+
+        with patch.object(service, "_get_transfer_hashes", return_value=set()):
+            try:
+                service.get_client_torrents("source-deluge")
+                assert False, "Expected ServiceUnavailableError"
+            except ServiceUnavailableError as exc:
+                assert exc.details["reason"] == "not_connected"
+                assert exc.details["client"] == "source-deluge"
+
+    def test_unsupported_client_raises_service_unavailable(self):
+        client = Mock(spec=[])
+        service = self._make_service([], {"source-deluge": client})
+
+        with patch.object(service, "_get_transfer_hashes", return_value=set()):
+            try:
+                service.get_client_torrents("source-deluge")
+                assert False, "Expected ServiceUnavailableError"
+            except ServiceUnavailableError as exc:
+                assert exc.details["reason"] == "listing_not_supported"
+
+    def test_fetch_failure_raises_service_unavailable(self):
+        client = Mock()
+        client.is_connected.return_value = True
+        client.get_all_torrents_status.side_effect = RuntimeError("boom")
+        service = self._make_service([], {"source-deluge": client})
+
+        with patch.object(service, "_get_transfer_hashes", return_value=set()):
+            try:
+                service.get_client_torrents("source-deluge")
+                assert False, "Expected ServiceUnavailableError"
+            except ServiceUnavailableError as exc:
+                assert exc.details["reason"] == "fetch_failed"
+
+
+class TestClientTorrentsRoute:
+    """Tests for the per-client torrents API route."""
+
+    def _make_app(self, manager):
+        app = Flask(__name__)
+        app.config["TORRENT_MANAGER"] = manager
+        bp = Blueprint("test_torrents_api", __name__, url_prefix="/api/v1")
+        register_torrent_routes(bp)
+        app.register_blueprint(bp)
+        return app
+
+    def _make_manager(self, torrents=None, clients=None):
+        manager = Mock()
+        manager.torrents = torrents or []
+        manager.download_clients = clients or {}
+        return manager
+
+    def test_route_returns_filtered_client_torrents(self):
+        tracked = _make_tracked_torrent(transfer_hash=TRANSFER_HASH)
+        client = Mock()
+        client.is_connected.return_value = True
+        client.get_all_torrents_status.return_value = {
+            TRANSFER_HASH: {"name": "Transfer", "state": "Downloading"},
+            "cc" * 20: {"name": "Movie", "state": "Seeding"},
+        }
+        app = self._make_app(self._make_manager([tracked], {"source-deluge": client}))
+
+        response = app.test_client().get("/api/v1/clients/source-deluge/torrents")
+
+        assert response.status_code == 200
+        payload = response.get_json()["data"]
+        assert TRANSFER_HASH not in payload
+        assert "cc" * 20 in payload
+
+    def test_route_returns_404_for_missing_client(self):
+        app = self._make_app(self._make_manager())
+
+        response = app.test_client().get("/api/v1/clients/missing-client/torrents")
+
+        assert response.status_code == 404
+        error = response.get_json()["error"]
+        assert error["code"] == "CLIENT_NOT_FOUND"
+
+    def test_route_returns_503_for_disconnected_client(self):
+        client = Mock()
+        client.is_connected.return_value = False
+        app = self._make_app(self._make_manager(clients={"source-deluge": client}))
+
+        response = app.test_client().get("/api/v1/clients/source-deluge/torrents")
+
+        assert response.status_code == 503
+        error = response.get_json()["error"]
+        assert error["code"] == "SERVICE_UNAVAILABLE"
+        assert error["details"]["reason"] == "not_connected"
