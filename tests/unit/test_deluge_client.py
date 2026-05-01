@@ -33,6 +33,101 @@ def make_web_config(name="test", host="localhost", port=8112, password="test"):
     )
 
 
+class TestGetAllTorrentsStatus:
+    """Tests for get_all_torrents_status field coverage."""
+
+    def test_requests_table_fields_for_rpc(self):
+        """RPC status fetch includes seeds and payload-rate fields for the table view."""
+        with patch("transferarr.clients.deluge.DelugeRPCClient") as mock_rpc_class:
+            mock_rpc = MagicMock()
+            mock_rpc_class.return_value = mock_rpc
+            mock_rpc.connected = True
+            mock_rpc.core.get_torrents_status.return_value = {
+                b"abc123": {
+                    b"name": b"Example Torrent",
+                    b"state": b"Seeding",
+                    b"progress": 100.0,
+                    b"save_path": b"/downloads",
+                    b"total_size": 123456789,
+                    b"time_added": 1700000000,
+                    b"trackers": [{b"url": b"http://tracker.example/announce"}],
+                    b"num_seeds": 12,
+                    b"download_payload_rate": 0,
+                    b"upload_payload_rate": 4096,
+                }
+            }
+
+            client = DelugeClient(make_rpc_config())
+            client.rpc_client = mock_rpc
+
+            result = client.get_all_torrents_status()
+
+            mock_rpc.core.get_torrents_status.assert_called_once_with(
+                {},
+                [
+                    "name",
+                    "state",
+                    "progress",
+                    "save_path",
+                    "total_size",
+                    "time_added",
+                    "trackers",
+                    "num_seeds",
+                    "download_payload_rate",
+                    "upload_payload_rate",
+                ],
+            )
+            assert result == {
+                "abc123": {
+                    "name": "Example Torrent",
+                    "state": "Seeding",
+                    "progress": 100.0,
+                    "save_path": "/downloads",
+                    "total_size": 123456789,
+                    "time_added": 1700000000,
+                    "trackers": [{"url": "http://tracker.example/announce"}],
+                    "num_seeds": 12,
+                    "download_payload_rate": 0,
+                    "upload_payload_rate": 4096,
+                }
+            }
+
+    def test_missing_table_fields_do_not_break_status_mapping(self):
+        """Missing seeds/rate fields still return the decoded base mapping."""
+        with patch("transferarr.clients.deluge.DelugeRPCClient") as mock_rpc_class:
+            mock_rpc = MagicMock()
+            mock_rpc_class.return_value = mock_rpc
+            mock_rpc.connected = True
+            mock_rpc.core.get_torrents_status.return_value = {
+                b"abc123": {
+                    b"name": b"Example Torrent",
+                    b"state": b"Seeding",
+                    b"progress": 100.0,
+                    b"save_path": b"/downloads",
+                    b"total_size": 123456789,
+                    b"time_added": 1700000000,
+                    b"trackers": [{b"url": b"http://tracker.example/announce"}],
+                }
+            }
+
+            client = DelugeClient(make_rpc_config())
+            client.rpc_client = mock_rpc
+
+            result = client.get_all_torrents_status()
+
+            assert result == {
+                "abc123": {
+                    "name": "Example Torrent",
+                    "state": "Seeding",
+                    "progress": 100.0,
+                    "save_path": "/downloads",
+                    "total_size": 123456789,
+                    "time_added": 1700000000,
+                    "trackers": [{"url": "http://tracker.example/announce"}],
+                }
+            }
+
+
 class TestStartCreateTorrent:
     """Tests for start_create_torrent — fires RPC and returns poll spec."""
 

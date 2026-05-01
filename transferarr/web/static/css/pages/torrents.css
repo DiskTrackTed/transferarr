@@ -35,28 +35,232 @@
     display: block;
 }
 
-/* Simple torrent card for client tabs */
-.simple-torrent-card {
+.torrent-table-controls {
     display: flex;
     justify-content: space-between;
-    align-items: center;
-    padding: 12px;
-    border-bottom: 1px solid #eee;
-    background-color: white;
-    transition: background-color 0.15s ease;
+    align-items: flex-end;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-bottom: 16px;
 }
 
-.simple-torrent-card:last-child {
+.torrent-table-controls.hidden {
+    display: none;
+}
+
+.torrent-table-filters,
+.torrent-table-meta {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    align-items: flex-end;
+}
+
+.table-control {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.table-control label {
+    font-size: 12px;
+    font-weight: 600;
+    color: #55606d;
+}
+
+.table-control-search {
+    min-width: 260px;
+}
+
+.table-control-page-size {
+    min-width: 100px;
+}
+
+.table-control-input {
+    min-width: 140px;
+    padding: 8px 10px;
+    border: 1px solid #d3d8de;
+    border-radius: 6px;
+    font-size: 14px;
+    background: white;
+}
+
+.table-control-input:focus {
+    outline: none;
+    border-color: #3498db;
+    box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.18);
+}
+
+.torrent-results-summary {
+    font-size: 13px;
+    color: #6b7280;
+    padding-bottom: 8px;
+}
+
+.client-torrent-table-wrapper {
+    overflow-x: auto;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    background: white;
+}
+
+.client-torrent-table {
+    width: 100%;
+    min-width: 1120px;
+    border-collapse: collapse;
+}
+
+.client-torrent-table thead {
+    background: #f8fafc;
+}
+
+.client-torrent-table th,
+.client-torrent-table td {
+    padding: 12px 14px;
+    border-bottom: 1px solid #edf2f7;
+    font-size: 14px;
+    vertical-align: middle;
+}
+
+.client-torrent-table tbody tr:last-child td {
     border-bottom: none;
 }
 
-.simple-torrent-card:hover {
-    background-color: #f9f9f9;
+.client-torrent-table th {
+    text-align: left;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: #55606d;
+    white-space: nowrap;
 }
 
-.simple-torrent-card.selected {
-    background-color: #e8f4fd;
-    border-left: 3px solid #3498db;
+.client-torrent-table th.sortable {
+    cursor: pointer;
+    user-select: none;
+}
+
+.client-torrent-table th.sortable:hover {
+    color: #1f2937;
+}
+
+.sortable-label {
+    margin-right: 6px;
+}
+
+.sort-indicator {
+    display: inline-block;
+    width: 14px;
+    color: #94a3b8;
+}
+
+.client-torrent-table th.sort-asc .sort-indicator,
+.client-torrent-table th.sort-desc .sort-indicator {
+    color: #1f2937;
+}
+
+.torrent-table-row:hover {
+    background: #f8fafc;
+}
+
+.torrent-table-row.selected {
+    background: #ebf5fb;
+}
+
+.torrent-name-cell {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 260px;
+    max-width: 360px;
+}
+
+.torrent-name-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 500;
+}
+
+.torrent-state-cell {
+    white-space: nowrap;
+}
+
+.torrent-progress-cell {
+    min-width: 150px;
+}
+
+.table-progress-bar {
+    width: 100%;
+    height: 10px;
+    background: #edf2f7;
+    border-radius: 999px;
+    overflow: hidden;
+}
+
+.table-progress-fill {
+    display: block;
+    height: 100%;
+    background: #4caf50;
+    transition: width 0.3s ease;
+}
+
+.table-progress-text {
+    display: block;
+    margin-top: 4px;
+    font-size: 12px;
+    color: #6b7280;
+    text-align: right;
+}
+
+.align-right {
+    text-align: right;
+    white-space: nowrap;
+}
+
+.muted-cell {
+    color: #6b7280;
+    white-space: nowrap;
+}
+
+.col-select,
+.col-actions {
+    width: 72px;
+    text-align: center;
+}
+
+.torrent-pagination {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 4px 0;
+}
+
+.pagination-btn {
+    padding: 8px 12px;
+    border: 1px solid #d3d8de;
+    border-radius: 6px;
+    background: white;
+    color: #334155;
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.pagination-btn:hover:not(:disabled) {
+    border-color: #94a3b8;
+    background: #f8fafc;
+}
+
+.pagination-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.pagination-status {
+    font-size: 13px;
+    color: #6b7280;
 }
 
 /* Torrent checkbox */
@@ -77,54 +281,6 @@
 .torrent-checkbox:disabled {
     cursor: not-allowed;
     opacity: 0.4;
-}
-
-.simple-torrent-name {
-    flex: 1;
-    font-weight: 500;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    padding-right: 15px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
-.simple-torrent-state {
-    flex: 0 0 120px;
-    display: flex;
-    align-items: center;
-}
-
-.simple-torrent-progress {
-    flex: 0 0 150px;
-    margin-left: 15px;
-}
-
-.simple-progress-bar {
-    width: 100%; 
-    background-color: #f4f4f4; 
-    height: 12px; 
-    border: 1px solid #ddd; 
-    position: relative;
-    border-radius: 6px;
-    overflow: hidden;
-}
-
-.simple-progress-fill {
-    display: block; 
-    height: 100%; 
-    background-color: #4caf50; 
-    position: absolute;
-    transition: width 0.3s ease;
-}
-
-.simple-progress-text {
-    font-size: 12px;
-    color: #666;
-    margin-top: 3px;
-    text-align: right;
 }
 
 /* Cross-seed badge */
@@ -553,6 +709,12 @@
     border: 1px solid #e2e5e9;
 }
 
+.filtered-empty-message {
+    color: #7a5b12;
+    background: #fff8e7;
+    border: 1px solid #f2dfb1;
+}
+
 .client-error-message {
     color: #7a1f1f;
     background: #fff0f0;
@@ -605,28 +767,35 @@
 
 /* Responsive design adjustments */
 @media (max-width: 768px) {
-    .simple-torrent-card {
+    .torrent-table-controls {
         flex-direction: column;
-        align-items: flex-start;
+        align-items: stretch;
     }
-    
-    .simple-torrent-state, 
-    .simple-torrent-progress {
+
+    .torrent-table-filters,
+    .torrent-table-meta {
         width: 100%;
-        margin-left: 0;
-        margin-top: 8px;
     }
 
-    .torrent-checkbox-wrapper {
-        position: absolute;
-        top: 12px;
-        right: 12px;
+    .table-control,
+    .table-control-search,
+    .table-control-page-size,
+    .table-control-input {
+        width: 100%;
+        min-width: 0;
     }
 
-    .torrent-action-wrapper {
-        position: absolute;
-        top: 12px;
-        right: 40px;
+    .torrent-results-summary {
+        padding-bottom: 0;
+    }
+
+    .client-torrent-table {
+        min-width: 980px;
+    }
+
+    .torrent-pagination {
+        justify-content: space-between;
+        flex-wrap: wrap;
     }
 
     .transfer-selected-btn {

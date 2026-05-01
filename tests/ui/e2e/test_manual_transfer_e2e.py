@@ -142,15 +142,13 @@ class TestManualTransferE2E:
         torrents_page.goto()
         torrents_page.wait_for_torrents_loaded()
 
-        # Wait for the page to render the card with our hash
+        # Wait for the page to render the row with our hash
         page.wait_for_timeout(UI_TIMEOUTS["api_response"])  # Wait for poll
 
         # Click the checkbox for our specific torrent
-        cb = page.locator(
-            f".torrent-checkbox[data-hash='{torrent['hash']}']"
-        )
-        expect(cb).to_be_visible(timeout=UI_TIMEOUTS["element_visible"])
-        cb.click()
+        row = torrents_page.get_torrent_by_hash(torrent["hash"])
+        expect(row).to_be_visible(timeout=UI_TIMEOUTS["element_visible"])
+        row.locator(torrents_page.TORRENT_CHECKBOX).click()
 
         # Transfer button should now be visible
         btn = page.locator(torrents_page.TRANSFER_BUTTON)
@@ -246,20 +244,9 @@ class TestManualTransferE2E:
         torrents_page.goto()
         torrents_page.wait_for_torrents_loaded()
 
-        # Wait for the torrent card with an enabled checkbox to appear
-        deadline = time.time() + 30
-        enabled = []
-        while time.time() < deadline:
-            page.wait_for_timeout(UI_TIMEOUTS["api_response"])
-            enabled = torrents_page.get_enabled_checkboxes()
-            if len(enabled) > 0:
-                break
-            page.reload()
-            torrents_page.wait_for_torrents_loaded()
-
-        assert len(enabled) > 0, "No seeding torrents available after waiting"
-
-        enabled[0].click()
+        row = torrents_page.get_torrent_by_hash(torrent["hash"])
+        expect(row).to_be_visible(timeout=UI_TIMEOUTS["element_visible"])
+        row.locator(torrents_page.TORRENT_CHECKBOX).click()
         torrents_page.click_transfer_button()
         page.wait_for_timeout(UI_TIMEOUTS["modal_animation"])
 

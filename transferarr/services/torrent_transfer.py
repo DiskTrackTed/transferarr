@@ -17,7 +17,10 @@ from typing import TYPE_CHECKING, Optional
 
 from transferarr.models.torrent import Torrent, TorrentState
 from transferarr.services.transfer_connection import TransferConnection
-from transferarr.utils import generate_transfer_id, build_transfer_torrent_name
+from transferarr.utils import (
+    generate_transfer_id,
+    build_transfer_torrent_name,
+)
 
 if TYPE_CHECKING:
     from transferarr.services.tracker import BitTorrentTracker

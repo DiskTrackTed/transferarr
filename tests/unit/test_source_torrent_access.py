@@ -324,13 +324,29 @@ class TestFetchTorrentFileLocally:
         handler = _make_handler()
         torrent_file = tmp_path / "abc.torrent"
         torrent_file.write_bytes(SAMPLE_TORRENT_BYTES)
-        torrent_file.chmod(0o000)
 
-        try:
+        with patch("builtins.open", side_effect=PermissionError("permission denied")):
             result = handler._fetch_torrent_file_locally("abc", str(tmp_path))
             assert result is None
+
+    def test_execute_only_state_dir_still_reads_known_torrent_file(self, tmp_path):
+        """Returns torrent data when the state dir is traversable but not readable."""
+        handler = _make_handler()
+        state_dir = tmp_path / "state"
+        state_dir.mkdir()
+        torrent_file = state_dir / "abc.torrent"
+        torrent_file.write_bytes(SAMPLE_TORRENT_BYTES)
+        torrent_file.chmod(0o400)
+        state_dir.chmod(0o100)
+
+        try:
+            result = handler._fetch_torrent_file_locally("abc", str(state_dir))
+
+            assert result is not None
+            assert base64.b64decode(result) == SAMPLE_TORRENT_BYTES
         finally:
-            torrent_file.chmod(0o644)
+            state_dir.chmod(0o700)
+            torrent_file.chmod(0o600)
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -635,19 +651,28 @@ class TestLocalStateDirHelper:
         assert result[0]["success"] is False
         assert "not found" in result[0]["message"]
 
-    def test_dir_not_readable(self, tmp_path):
-        """Returns failure when directory is not readable."""
-        restricted = tmp_path / "noaccess"
-        restricted.mkdir()
-        restricted.chmod(0o000)
-
-        try:
-            result = _test_local_state_dir({"state_dir": str(restricted)})
+    def test_dir_not_accessible(self, tmp_path):
+        """Returns failure when directory is not accessible."""
+        with patch("transferarr.services.transfer_connection.os.access", return_value=False):
+            result = _test_local_state_dir({"state_dir": str(tmp_path)})
             assert len(result) == 1
             assert result[0]["success"] is False
-            assert "not readable" in result[0]["message"]
+            assert "not accessible" in result[0]["message"]
+
+    def test_execute_only_dir_is_accessible(self, tmp_path):
+        """Returns success when the directory is traversable for known child paths."""
+        state_dir = tmp_path / "state"
+        state_dir.mkdir()
+        state_dir.chmod(0o100)
+
+        try:
+            result = _test_local_state_dir({"state_dir": str(state_dir)})
+
+            assert len(result) == 1
+            assert result[0]["success"] is True
+            assert "Directory accessible" in result[0]["message"]
         finally:
-            restricted.chmod(0o755)
+            state_dir.chmod(0o700)
 
 
 # ══════════════════════════════════════════════════════════════════════

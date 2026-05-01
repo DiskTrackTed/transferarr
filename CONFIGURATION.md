@@ -445,7 +445,7 @@ Transferarr supports five transfer type combinations:
 
 ### Manual Transfers
 
-The Torrents page allows you to manually select seeding torrents and transfer them to a destination client. Select one or more torrents using the checkboxes (or the inline transfer button), choose a destination, and click **Start Transfer**.
+The Torrents page allows you to manually select seeding torrents and transfer them to a destination client. The page uses a per-client torrent table with state filtering, name search, sortable columns, and pagination. Select one or more torrents using the row checkboxes (or the inline transfer button), choose a destination, and click **Start Transfer**.
 
 ### Cross-Seeds
 

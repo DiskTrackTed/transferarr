@@ -357,7 +357,12 @@ class DelugeClient(DownloadClientBase):
                 # save_path is needed for cross-seed detection in manual transfers
                 # time_added is needed to identify the original torrent in cross-seed groups
                 # trackers is needed to show tracker names in the transfer modal
-                fields = ['name', 'state', 'progress', 'save_path', 'total_size', 'time_added', 'trackers']
+                # num_seeds and payload rates support the torrents table columns
+                fields = [
+                    'name', 'state', 'progress', 'save_path', 'total_size',
+                    'time_added', 'trackers', 'num_seeds',
+                    'download_payload_rate', 'upload_payload_rate'
+                ]
                 retry_count = 0
                 max_retries = 3
                 

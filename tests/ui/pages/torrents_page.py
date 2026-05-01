@@ -7,6 +7,7 @@ The torrents page displays:
 - Torrent selection checkboxes and transfer button
 - Transfer modal for manual transfers
 """
+import re
 from urllib.parse import quote
 
 from playwright.sync_api import Page, expect
@@ -23,12 +24,25 @@ class TorrentsPage(BasePage):
     CLIENT_TAB = ".client-tab"
     CLIENT_TAB_CONTENTS = "#client-tab-contents"
     CLIENT_TAB_CONTENT = ".client-tab-content"
+    TABLE_CONTROLS = "#torrent-table-controls"
+    FILTER_STATE = "#torrent-filter-state"
+    FILTER_SEARCH = "#torrent-filter-search"
+    PAGE_SIZE = "#torrent-page-size"
+    RESULTS_SUMMARY = "#torrent-results-summary"
     
-    # Torrent card selectors (note: different from dashboard's .torrent-card)
-    TORRENT_CARD = ".simple-torrent-card"
-    TORRENT_NAME = ".simple-torrent-name"
-    TORRENT_STATE = ".simple-torrent-state"
+    # Torrent table selectors
+    TORRENT_TABLE = ".client-torrent-table"
+    TABLE_WRAPPER = ".client-torrent-table-wrapper"
+    TORRENT_CARD = ".torrent-table-row"
+    TORRENT_NAME = ".torrent-name-cell"
+    TORRENT_STATE = ".torrent-state-cell"
+    TORRENT_PROGRESS = ".torrent-progress-cell"
+    SORTABLE_HEADER = "th.sortable"
+    PAGINATION = ".torrent-pagination"
+    PAGINATION_STATUS = ".pagination-status"
+    PAGINATION_BUTTON = ".pagination-btn"
     EMPTY_MESSAGE = ".empty-message"
+    FILTERED_EMPTY_MESSAGE = ".filtered-empty-message"
     CLIENT_ERROR_MESSAGE = ".client-error-message"
     NO_CLIENTS_MESSAGE = ".no-clients-message"
     
@@ -67,6 +81,19 @@ class TorrentsPage(BasePage):
     TRANSFER_ITEM_NAME_TEXT = ".transfer-item-name-text"
     TRANSFER_ITEM_TRACKER = ".transfer-item-tracker"
     TRANSFER_ITEM_BADGES = ".transfer-item-badges"
+
+    COLUMN_INDEX = {
+        "select": 0,
+        "name": 1,
+        "state": 2,
+        "progress": 3,
+        "size": 4,
+        "seeds": 5,
+        "rate": 6,
+        "tracker": 7,
+        "added": 8,
+        "actions": 9,
+    }
     
     def __init__(self, page: Page, base_url: str):
         super().__init__(page, base_url)
@@ -131,32 +158,46 @@ class TorrentsPage(BasePage):
         return ""
     
     def get_torrent_cards(self):
-        """Get all visible torrent cards in the active tab."""
+        """Get all visible torrent rows in the active tab."""
         return self.page.locator(
             f"{self.CLIENT_TAB_CONTENT}.active {self.TORRENT_CARD}"
         ).all()
     
     def get_torrent_card_count(self) -> int:
-        """Get the number of torrent cards in the active tab."""
+        """Get the number of torrent rows in the active tab."""
         return self.page.locator(
             f"{self.CLIENT_TAB_CONTENT}.active {self.TORRENT_CARD}"
         ).count()
     
     def get_torrent_by_name(self, name: str):
-        """Get a specific torrent card by name.
+        """Get a specific torrent row by name.
         
         Args:
             name: Partial or full name of the torrent
             
         Returns:
-            Locator for the torrent card
+            Locator for the active-tab torrent row
         """
-        return self.page.locator(f"{self.TORRENT_CARD}:has-text('{name}')")
+        return self.page.locator(
+            f"{self.CLIENT_TAB_CONTENT}.active {self.TORRENT_CARD}:has-text('{name}')"
+        )
+
+    def get_torrent_by_hash(self, torrent_hash: str):
+        """Get a specific torrent row by hash in the active tab."""
+        return self.page.locator(
+            f"{self.CLIENT_TAB_CONTENT}.active {self.TORRENT_CARD}[data-id='{torrent_hash.lower()}']"
+        )
     
     def has_empty_message(self) -> bool:
-        """Check if empty message is visible in active tab."""
+        """Check if empty-client message is visible in active tab."""
         return self.page.locator(
             f"{self.CLIENT_TAB_CONTENT}.active {self.EMPTY_MESSAGE}"
+        ).is_visible()
+
+    def has_filtered_empty_message(self) -> bool:
+        """Check if filtered-empty message is visible in active tab."""
+        return self.page.locator(
+            f"{self.CLIENT_TAB_CONTENT}.active {self.FILTERED_EMPTY_MESSAGE}"
         ).is_visible()
     
     def wait_for_api_refresh(self, client_name: str | None = None, timeout: int = 15000) -> None:
@@ -192,6 +233,96 @@ class TorrentsPage(BasePage):
         return self.page.locator(self.NO_CLIENTS_MESSAGE).is_visible()
 
     # ===================================================================
+    # Table control helpers
+    # ===================================================================
+
+    def set_state_filter(self, state: str) -> None:
+        """Set the state filter dropdown value."""
+        self.page.locator(self.FILTER_STATE).select_option(state)
+
+    def set_search_filter(self, search: str) -> None:
+        """Set the search filter input value."""
+        self.page.locator(self.FILTER_SEARCH).fill(search)
+
+    def set_page_size(self, page_size: str | int) -> None:
+        """Set the page size selector."""
+        self.page.locator(self.PAGE_SIZE).select_option(str(page_size))
+
+    def get_page_size(self) -> str:
+        """Get the current page size value."""
+        return self.page.locator(self.PAGE_SIZE).input_value()
+
+    def get_current_filters(self) -> dict:
+        """Get the current table control values."""
+        return {
+            "state": self.page.locator(self.FILTER_STATE).input_value(),
+            "search": self.page.locator(self.FILTER_SEARCH).input_value(),
+            "page_size": self.page.locator(self.PAGE_SIZE).input_value(),
+        }
+
+    def sort_by(self, column: str) -> None:
+        """Click a sortable table header.
+
+        Args:
+            column: One of name, state, progress, size, seeds, rate, tracker, added.
+        """
+        self.page.click(f"{self.CLIENT_TAB_CONTENT}.active th.sortable[data-sort='{column}']")
+
+    def get_sort_header_class(self, column: str) -> str:
+        """Get the CSS class string for a sortable header."""
+        return self.page.locator(
+            f"{self.CLIENT_TAB_CONTENT}.active th.sortable[data-sort='{column}']"
+        ).get_attribute("class") or ""
+
+    def get_current_page(self) -> int:
+        """Parse the current page number from pagination text."""
+        status = self.page.locator(
+            f"{self.CLIENT_TAB_CONTENT}.active {self.PAGINATION_STATUS}"
+        ).text_content() or ""
+        match = re.search(r"Page\s+(\d+)\s+of\s+(\d+)", status)
+        return int(match.group(1)) if match else 1
+
+    def get_total_pages(self) -> int:
+        """Parse the total page count from pagination text."""
+        status = self.page.locator(
+            f"{self.CLIENT_TAB_CONTENT}.active {self.PAGINATION_STATUS}"
+        ).text_content() or ""
+        match = re.search(r"Page\s+(\d+)\s+of\s+(\d+)", status)
+        return int(match.group(2)) if match else 1
+
+    def go_to_next_page(self) -> None:
+        """Click the next-page button in the active tab."""
+        self.page.locator(
+            f"{self.CLIENT_TAB_CONTENT}.active {self.PAGINATION_BUTTON}"
+        ).filter(has_text="Next").click()
+
+    def go_to_prev_page(self) -> None:
+        """Click the previous-page button in the active tab."""
+        self.page.locator(
+            f"{self.CLIENT_TAB_CONTENT}.active {self.PAGINATION_BUTTON}"
+        ).filter(has_text="Previous").click()
+
+    def get_results_summary(self) -> str:
+        """Get the global results summary text."""
+        return self.page.locator(self.RESULTS_SUMMARY).text_content() or ""
+
+    def get_visible_row_values(self, column: str) -> list[str]:
+        """Get visible cell values for a table column.
+
+        Args:
+            column: One of the keys in COLUMN_INDEX.
+        """
+        column_index = self.COLUMN_INDEX[column]
+        row_count = self.get_torrent_card_count()
+        values = []
+        for index in range(row_count):
+            text = self.page.locator(
+                f"{self.CLIENT_TAB_CONTENT}.active {self.TORRENT_CARD}"
+            ).nth(index).locator("td").nth(column_index).text_content() or ""
+            values.append(text.strip())
+        return values
+
+    # ===================================================================
     # Selection helpers
     # ===================================================================
 
@@ -208,7 +339,7 @@ class TorrentsPage(BasePage):
         ).all()
 
     def select_torrent_by_index(self, index: int) -> None:
-        """Click the checkbox of the Nth torrent card in the active tab.
+        """Click the checkbox of the Nth torrent row in the active tab.
         
         Args:
             index: Zero-based index of the torrent to select
@@ -224,10 +355,7 @@ class TorrentsPage(BasePage):
         Args:
             torrent_hash: The torrent info-hash (used as data-hash attribute)
         """
-        cb = self.page.locator(
-            f"{self.TORRENT_CHECKBOX}[data-hash='{torrent_hash}']"
-        )
-        cb.click()
+        self.get_torrent_by_hash(torrent_hash).locator(self.TORRENT_CHECKBOX).click()
 
     def get_selected_count(self) -> int:
         """Get the number shown in the transfer button badge."""
@@ -236,8 +364,13 @@ class TorrentsPage(BasePage):
     def is_transfer_button_visible(self) -> bool:
         """Check if the Transfer Selected button is visible."""
         btn = self.page.locator(self.TRANSFER_BUTTON)
-        # The button uses visibility:hidden when count==0 (keeps layout space)
-        return btn.is_visible()
+        return btn.evaluate(
+            """
+            (element) => {
+                return element.style.visibility !== 'hidden' && element.style.opacity !== '0';
+            }
+            """
+        )
 
     def is_transfer_button_enabled(self) -> bool:
         """Check if the Transfer Selected button is enabled."""
@@ -248,12 +381,16 @@ class TorrentsPage(BasePage):
         self.page.locator(self.TRANSFER_BUTTON).click()
 
     def get_selected_cards(self):
-        """Get torrent cards that have the 'selected' CSS class."""
-        return self.page.locator(f"{self.TORRENT_CARD}.selected").all()
+        """Get torrent rows that have the 'selected' CSS class."""
+        return self.page.locator(
+            f"{self.CLIENT_TAB_CONTENT}.active {self.TORRENT_CARD}.selected"
+        ).all()
 
     def get_cross_seed_badges(self):
         """Get all visible cross-seed badges."""
-        return self.page.locator(self.CROSS_SEED_BADGE).all()
+        return self.page.locator(
+            f"{self.CLIENT_TAB_CONTENT}.active {self.CROSS_SEED_BADGE}"
+        ).all()
 
     # ===================================================================
     # Inline transfer button helpers
@@ -266,7 +403,7 @@ class TorrentsPage(BasePage):
         ).all()
 
     def click_inline_transfer_button(self, index: int = 0) -> None:
-        """Click the inline transfer button on the Nth torrent card.
+        """Click the inline transfer button on the Nth torrent row.
         
         Args:
             index: Zero-based index among visible inline transfer buttons
@@ -276,10 +413,10 @@ class TorrentsPage(BasePage):
         ).nth(index).click()
 
     def click_inline_transfer_on_card(self, card_locator) -> None:
-        """Click the inline transfer button within a specific torrent card.
+        """Click the inline transfer button within a specific torrent row.
         
         Args:
-            card_locator: A Playwright Locator pointing to a .simple-torrent-card
+            card_locator: A Playwright Locator pointing to a torrent row
         """
         card_locator.locator(self.TORRENT_TRANSFER_BTN).click()
 
