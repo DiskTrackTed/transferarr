@@ -305,23 +305,23 @@ class TestTransferButtonVisibility:
         assert not torrents_page.is_transfer_button_visible()
 
 
-class TestTorrentCardSelection:
-    """Tests for torrent card checkbox and highlight behaviour."""
+class TestTorrentRowSelection:
+    """Tests for torrent row checkbox and highlight behaviour."""
 
     @pytest.fixture(autouse=True)
     def _seed(self, seeding_torrents):
         pass
 
-    def test_checkboxes_present_on_torrent_cards(self, torrents_page):
-        """Every torrent card has a checkbox."""
+    def test_checkboxes_present_on_torrent_rows(self, torrents_page):
+        """Every torrent row has a checkbox."""
         torrents_page.goto()
         torrents_page.wait_for_torrents_loaded()
 
-        cards = torrents_page.get_torrent_cards()
-        assert len(cards) >= 1, "Fixture guarantees torrents exist"
+        rows = torrents_page.get_torrent_cards()
+        assert len(rows) >= 1, "Fixture guarantees torrents exist"
 
         checkboxes = torrents_page.get_torrent_checkboxes()
-        assert len(checkboxes) == len(cards)
+        assert len(checkboxes) == len(rows)
 
     def test_non_seeding_checkboxes_disabled(self, torrents_page):
         """Checkboxes for non-seeding torrents are disabled."""
@@ -335,8 +335,8 @@ class TestTorrentCardSelection:
         # At least verify the invariant holds
         assert len(enabled_cb) <= len(all_cb)
 
-    def test_selected_card_gets_highlight_class(self, torrents_page):
-        """Selecting a torrent adds the 'selected' class to its card."""
+    def test_selected_row_gets_highlight_class(self, torrents_page):
+        """Selecting a torrent adds the 'selected' class to its row."""
         torrents_page.goto()
         torrents_page.wait_for_torrents_loaded()
 
@@ -676,14 +676,14 @@ class TestCrossSeedCheckbox:
 
 
 class TestInlineTransferButton:
-    """Tests for the per-torrent inline transfer button on seeding cards."""
+    """Tests for the per-torrent inline transfer button on seeding rows."""
 
     @pytest.fixture(autouse=True)
     def _seed(self, seeding_torrents):
         pass
 
-    def test_inline_button_present_on_seeding_cards(self, torrents_page):
-        """Seeding torrent cards have an inline transfer button."""
+    def test_inline_button_present_on_seeding_rows(self, torrents_page):
+        """Seeding torrent rows have an inline transfer button."""
         torrents_page.goto()
         torrents_page.wait_for_torrents_loaded()
 
@@ -699,22 +699,22 @@ class TestInlineTransferButton:
         buttons = torrents_page.get_inline_transfer_buttons()
         assert len(buttons) == len(enabled)
 
-    def test_inline_button_not_on_non_seeding_cards(self, torrents_page):
-        """Non-seeding torrent cards do not have an inline transfer button."""
+    def test_inline_button_not_on_non_seeding_rows(self, torrents_page):
+        """Non-seeding torrent rows do not have an inline transfer button."""
         torrents_page.goto()
         torrents_page.wait_for_torrents_loaded()
 
-        cards = torrents_page.get_torrent_cards()
+        rows = torrents_page.get_torrent_cards()
         all_cb = torrents_page.get_torrent_checkboxes()
         enabled_cb = torrents_page.get_enabled_checkboxes()
 
         if len(all_cb) == len(enabled_cb):
-            pytest.skip("All torrents are seeding — cannot test non-seeding cards")
+            pytest.skip("All torrents are seeding — cannot test non-seeding rows")
 
         # Verify button count matches seeding count, not total count
         buttons = torrents_page.get_inline_transfer_buttons()
         assert len(buttons) == len(enabled_cb)
-        assert len(buttons) < len(cards)
+        assert len(buttons) < len(rows)
 
     def test_inline_button_opens_modal(self, torrents_page):
         """Clicking the inline button opens the transfer modal."""
@@ -916,9 +916,9 @@ def cross_seed_torrents(docker_client, docker_services, deluge_source, deluge_ta
 
 
 class TestCrossSeedBadges:
-    """Tests for cross-seed badges on torrent cards.
+    """Tests for cross-seed badges on torrent rows.
 
-    Verifies that cross-seed indicator badges appear on torrent cards
+    Verifies that cross-seed indicator badges appear on torrent rows
     that share name + total_size with at least one sibling, regardless
     of whether they share the same save_path.
     """
@@ -932,10 +932,10 @@ class TestCrossSeedBadges:
         torrents_page.goto()
         torrents_page.wait_for_torrents_loaded()
 
-        # Both cards share the same name; verify at least one badge exists
-        cards = torrents_page.get_torrent_by_name(self.data["same_path_a"]["name"])
-        badges = cards.locator(".cross-seed-badge")
-        # Cross-seeds share a name, so this locator matches both cards — 2 badges
+        # Both rows share the same name; verify at least one badge exists
+        rows = torrents_page.get_torrent_by_name(self.data["same_path_a"]["name"])
+        badges = rows.locator(".cross-seed-badge")
+        # Cross-seeds share a name, so this locator matches both rows — 2 badges
         expect(badges.first).to_be_visible(timeout=UI_TIMEOUTS['element_visible'])
         assert badges.count() == 2, f"Expected 2 badges for same-path pair, got {badges.count()}"
 
@@ -944,9 +944,9 @@ class TestCrossSeedBadges:
         torrents_page.goto()
         torrents_page.wait_for_torrents_loaded()
 
-        # Both cards share the same name; verify at least one badge exists
-        cards = torrents_page.get_torrent_by_name(self.data["diff_path_a"]["name"])
-        badges = cards.locator(".cross-seed-badge")
+        # Both rows share the same name; verify at least one badge exists
+        rows = torrents_page.get_torrent_by_name(self.data["diff_path_a"]["name"])
+        badges = rows.locator(".cross-seed-badge")
         expect(badges.first).to_be_visible(timeout=UI_TIMEOUTS['element_visible'])
         assert badges.count() == 2, f"Expected 2 badges for diff-path pair, got {badges.count()}"
 
@@ -955,8 +955,8 @@ class TestCrossSeedBadges:
         torrents_page.goto()
         torrents_page.wait_for_torrents_loaded()
 
-        card = torrents_page.get_torrent_by_name(self.data["standalone"]["name"])
-        badge = card.locator(".cross-seed-badge")
+        row = torrents_page.get_torrent_by_name(self.data["standalone"]["name"])
+        badge = row.locator(".cross-seed-badge")
         expect(badge).to_have_count(0)
 
     def test_total_badge_count_matches_cross_seed_torrents(self, torrents_page):

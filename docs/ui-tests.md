@@ -1,6 +1,6 @@
 # UI Tests
 
-*Last Updated: 2026-03-03*
+*Last Updated: 2026-05-01*
 
 ## Overview
 
@@ -338,29 +338,43 @@ Dashboard stats cards, auto-polling, and torrent list.
 | `test_sidebar_visible_on_dashboard` | Sidebar is visible on dashboard |
 
 #### [test_torrents.py](../tests/ui/fast/test_torrents.py)
-Client tabs, tab switching, torrent listings, and polling.
+Client tabs, sortable/filterable torrent table interactions, selection state, and polling.
+
+**TestTorrentsPageLoading** - Initial render and distinct empty/error states:
 
 | Test | Description |
 |------|-------------|
-| `test_torrents_page_loads_with_correct_title` | Page title is correct |
-| `test_torrents_page_shows_heading` | Page heading is visible |
-| `test_client_tabs_container_exists` | Tab container element exists |
-| `test_loading_indicator_eventually_hides` | Loading spinner disappears |
-| `test_client_tabs_appear_after_loading` | Client tabs appear after data loads |
-| `test_get_client_tab_count` | Can count client tabs |
-| `test_get_client_tab_names` | Can get client tab names |
-| `test_first_tab_is_active_by_default` | First tab is selected by default |
-| `test_get_active_client_tab` | Can get currently active tab name |
-| `test_switch_to_second_tab` | Can switch to another tab |
-| `test_tab_content_changes_on_switch` | Tab content updates when switching |
-| `test_torrent_cards_in_active_tab` | Torrent cards appear in active tab |
-| `test_torrent_card_count` | Can count torrents in active tab |
-| `test_empty_message_or_torrents` | Shows empty message or torrent cards |
-| `test_torrents_page_polls_api` | Page auto-refreshes via API polling |
-| `test_wait_for_api_refresh` | Wait helper works for API refresh |
-| `test_navigate_to_dashboard_from_torrents` | Can navigate to dashboard |
-| `test_navigate_to_settings_from_torrents` | Can navigate to settings |
-| `test_sidebar_visible_on_torrents` | Sidebar is visible on torrents page |
+| `test_shows_tabs_controls_and_table` | Active client renders tabs, controls, and the torrent table |
+| `test_shows_no_clients_state` | No-clients state hides the shared table controls |
+| `test_shows_client_error_state` | Client fetch failures show a client-level error state |
+
+**TestTorrentsTableInteractions** - Sorting, filtering, pagination, and selection:
+
+| Test | Description |
+|------|-------------|
+| `test_name_sort_toggles_direction` | Clicking the Name header toggles sort direction and visible order |
+| `test_numeric_size_sort_uses_numeric_order` | Size sorting uses numeric values rather than lexicographic order |
+| `test_filters_rows_and_shows_filtered_empty_state` | State/search filters reduce rows and show filtered-empty messaging |
+| `test_page_size_and_filters_persist_across_tab_switches` | Sort/filter/page-size state persists across client tabs while page resets to 1 |
+| `test_page_size_changes_visible_row_count` | Changing page size changes the number of visible rows |
+| `test_page_resets_on_filter_and_page_size_change` | Filter and page-size changes reset pagination to page 1 |
+| `test_selection_survives_sort_and_filter_changes` | Selection count persists even when the selected row is filtered out of view |
+| `test_selection_persists_across_page_changes` | Selection persists across pagination changes within the same client |
+| `test_selecting_other_client_clears_prior_client_selection` | Selecting a row on another client clears the previous client's selection |
+| `test_missing_seed_and_rate_values_render_fallback_and_sort_predictably` | Missing seeds/rate values render fallback cells and sort predictably |
+| `test_only_seeding_rows_have_enabled_selection_and_inline_actions` | Non-seeding rows keep disabled checkboxes and no inline transfer action |
+
+**TestTorrentsPolling** - Per-client refresh behavior:
+
+| Test | Description |
+|------|-------------|
+| `test_polls_the_active_client_endpoint` | The page polls the active client endpoint |
+| `test_tab_switch_triggers_immediate_fetch_for_new_client` | Switching tabs triggers an immediate fetch for the new client |
+| `test_does_not_overlap_poll_requests` | Slow in-flight poll requests do not overlap subsequent scheduled polls |
+| `test_refresh_keeps_selection_when_selected_torrent_still_exists` | Refresh preserves selection when the selected torrent remains present |
+| `test_refresh_prunes_selection_when_selected_torrent_disappears` | Refresh prunes selection only when the selected torrent disappears |
+| `test_transient_refresh_error_keeps_modal_selection_and_submit_payload` | A transient refresh failure while the modal is open preserves the selected hashes and submitted transfer payload |
+| `test_transient_refresh_error_keeps_visible_rows_and_selection_when_modal_closed` | A transient refresh failure while the modal is closed keeps the cached rows visible so the user can still clear the preserved selection |
 
 #### [test_settings.py](../tests/ui/fast/test_settings.py)
 Settings page tabs (Clients/Connections/Tracker/Auth), modal display, and list rendering.
@@ -513,7 +527,7 @@ Transfer History page: stats, filters, table, pagination, status badges, delete 
 | `test_delete_modal_close_button` | X button closes delete modal |
 
 #### [test_manual_transfer.py](../tests/ui/fast/test_manual_transfer.py)
-Manual transfer UI: transfer button, torrent selection, transfer modal elements, close actions, cross-seed checkbox.
+Manual transfer UI on the torrents table: transfer button, row selection, transfer modal elements, close actions, and cross-seed behavior.
 
 **TestTransferButtonVisibility** - Transfer button show/hide:
 
@@ -524,13 +538,13 @@ Manual transfer UI: transfer button, torrent selection, transfer modal elements,
 | `test_selected_count_updates` | Badge count increments with multiple selections |
 | `test_deselect_hides_button` | Deselecting last torrent hides button |
 
-**TestTorrentCardSelection** - Torrent card checkbox and highlight:
+**TestTorrentRowSelection** - Torrent row checkbox and highlight:
 
 | Test | Description |
 |------|-------------|
-| `test_checkboxes_present_on_torrent_cards` | Every torrent card has a checkbox |
+| `test_checkboxes_present_on_torrent_rows` | Every torrent row has a checkbox |
 | `test_non_seeding_checkboxes_disabled` | Non-seeding torrent checkboxes are disabled |
-| `test_selected_card_gets_highlight_class` | Selected card gets 'selected' CSS class |
+| `test_selected_row_gets_highlight_class` | Selected row gets 'selected' CSS class |
 | `test_deselect_removes_highlight` | Deselecting removes highlight class |
 
 **TestTransferModalElements** - Transfer modal structure and form:
@@ -542,7 +556,6 @@ Manual transfer UI: transfer button, torrent selection, transfer modal elements,
 | `test_modal_shows_selected_count` | Modal body shows selected count |
 | `test_modal_has_destination_dropdown` | Modal has destination dropdown |
 | `test_destination_dropdown_loads_options` | Dropdown populates with destinations |
-| `test_modal_has_destination_path_input` | Modal has optional path input |
 | `test_modal_has_cross_seeds_checkbox` | Modal has Include Cross-Seeds checkbox |
 | `test_modal_has_torrent_list_preview` | Modal shows list of selected torrents |
 | `test_confirm_button_disabled_without_destination` | Start Transfer disabled without destination |
@@ -575,9 +588,9 @@ Manual transfer UI: transfer button, torrent selection, transfer modal elements,
 
 | Test | Description |
 |------|-------------|
-| `test_inline_button_present_on_seeding_cards` | Seeding cards have inline transfer button |
+| `test_inline_button_present_on_seeding_rows` | Seeding rows have inline transfer button |
 | `test_inline_button_count_matches_seeding_count` | Button count equals seeding torrent count |
-| `test_inline_button_not_on_non_seeding_cards` | Non-seeding cards lack inline button |
+| `test_inline_button_not_on_non_seeding_rows` | Non-seeding rows lack inline transfer button |
 | `test_inline_button_opens_modal` | Clicking inline button opens transfer modal |
 | `test_inline_button_selects_single_torrent` | Modal shows exactly 1 torrent selected |
 | `test_inline_button_clears_previous_selection` | Inline button resets any multi-selection |
@@ -765,7 +778,7 @@ Manual transfer end-to-end: select torrent, open modal, confirm transfer, verify
 
 | Test | Description |
 |------|-------------|
-| `test_manual_transfer_via_ui` | Select torrent, pick destination, confirm — verify transfer reaches TARGET_SEEDING |
+| `test_manual_transfer_via_ui` | Select a torrent row, pick destination, confirm, and verify the target client reaches Seeding |
 | `test_success_notification_shown` | After confirming, a success toast notification appears |
 
 ## Helper Functions
@@ -797,7 +810,7 @@ Located in `tests/ui/pages/`:
 |-------------|---------|
 | `BasePage` | Common navigation, `wait_for_api_response()` |
 | `DashboardPage` | Stats cards, recent torrents list |
-| `TorrentsPage` | Client tabs, torrent listings |
+| `TorrentsPage` | Client tabs, sortable torrent table, filters, pagination, and manual transfer modal helpers |
 | `SettingsPage` | Client/connection CRUD modals and forms |
 | `HistoryPage` | Transfer history stats, filters, table, pagination |
 

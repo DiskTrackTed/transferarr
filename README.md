@@ -12,11 +12,11 @@ Transferarr monitors your Radarr/Sonarr queues and automatically transfers compl
 ## Features
 
 - 🔄 **Automatic Migration** — Monitors media manager queues and transfers torrents when seeding completes
-- ✋ **Manual Transfers** — Select torrents directly from the web UI to transfer on demand, with cross-seed detection
+- ✋ **Manual Transfers** — Select torrents from a sortable per-client table to transfer on demand, with cross-seed detection
 - 🌐 **Multi-Server Support** — Transfer between local storage, SFTP, or any combination
 - 🧲 **BitTorrent Transfer** — Transfer via P2P with a built-in tracker — no SFTP or filesystem access needed
 - 🔐 **Optional Authentication** — Protect your web UI with username/password login or API keys for scripts
-- 📊 **Web Dashboard** — Real-time status, torrent browsing, and transfer history
+- 📊 **Web Dashboard** — Real-time status, sortable torrent browsing, and transfer history
 - 📜 **Transfer History** — Track completed/failed transfers with stats, filtering, and retention policies
 - 🔗 **Radarr & Sonarr Integration** — Seamless integration via API
 - 🐳 **Docker Ready** — Simple deployment with Docker Compose
@@ -130,10 +130,11 @@ See **[CONFIGURATION.md](CONFIGURATION.md)** for the complete configuration guid
 
 In addition to automatic migration, you can transfer torrents on demand:
 
-1. Go to the **Torrents** page to browse all torrents across your clients
-2. Select one or more seeding torrents (cross-seeds sharing the same data are detected automatically)
-3. Click **Transfer Selected**, choose a destination, and confirm
-4. The transfer uses the same SFTP or BitTorrent method as automatic transfers
+1. Go to the **Torrents** page to browse all torrents across your clients in a per-client table
+2. Use the built-in state filter, name search, sorting, and pagination controls to find the torrents you want
+3. Select one or more seeding torrents with the row checkboxes, or use the inline transfer action for a single torrent
+4. Choose a destination and confirm the transfer
+5. The transfer uses the same SFTP or BitTorrent method as automatic transfers
 
 Manual transfers bypass Radarr/Sonarr — the source torrent is removed immediately once the destination is seeding.
 

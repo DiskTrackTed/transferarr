@@ -70,7 +70,7 @@ def _test_sftp_connectivity(sftp_config: dict) -> list:
 def _test_local_state_dir(source_config: dict) -> list:
     """Test local access to the Deluge state directory.
     
-    Verifies the state_dir path exists and is readable.
+    Verifies the state_dir path exists and is traversable.
     
     Args:
         source_config: Source config dict with at least ``state_dir``.
@@ -78,8 +78,6 @@ def _test_local_state_dir(source_config: dict) -> list:
     Returns:
         List with a single dict: component, success, and message.
     """
-    import os
-    
     state_dir = source_config.get("state_dir")
     if not state_dir:
         return [{"component": "Source Local", "success": False, "message": "No state_dir configured"}]
@@ -87,8 +85,8 @@ def _test_local_state_dir(source_config: dict) -> list:
     if not os.path.isdir(state_dir):
         return [{"component": "Source Local", "success": False, "message": f"Directory not found: {state_dir}"}]
     
-    if not os.access(state_dir, os.R_OK):
-        return [{"component": "Source Local", "success": False, "message": f"Directory not readable: {state_dir}"}]
+    if not os.access(state_dir, os.X_OK):
+        return [{"component": "Source Local", "success": False, "message": f"Directory not accessible: {state_dir}"}]
     
     return [{"component": "Source Local", "success": True, "message": f"Directory accessible: {state_dir}"}]
 

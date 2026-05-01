@@ -17,11 +17,32 @@ let pollTimerId = null;
 let activeFetchController = null;
 /** @type {number} Poll interval for active-client refreshes */
 const POLL_INTERVAL_MS = 10000;
+/** @type {number} Default rows per page for the torrents table */
+const DEFAULT_PAGE_SIZE = 50;
+/** @type {number|null} Debounce timer for the search input */
+let searchInputDebounceId = null;
+
+const viewState = {
+    filters: {
+        state: '',
+        search: '',
+    },
+    sort: {
+        field: 'name',
+        order: 'asc',
+    },
+    pagination: {
+        page: 1,
+        perPage: DEFAULT_PAGE_SIZE,
+    },
+};
 
 // ============================================================================
 // Bootstrap & Polling
 // ============================================================================
 document.addEventListener('DOMContentLoaded', function() {
+    initializeTableControls();
+
     // Transfer button
     document.getElementById('transfer-selected-btn')
         .addEventListener('click', openTransferModal);
@@ -55,6 +76,7 @@ async function initializeTorrentsPage() {
     try {
         clientNames = await API.fetchDownloadClients();
         initializeClientTabs(clientNames);
+        setTableControlsVisible(clientNames.length > 0);
 
         if (clientNames.length === 0) {
             renderNoClientsConfigured();
@@ -68,6 +90,92 @@ async function initializeTorrentsPage() {
     } finally {
         hideLoadingIndicator();
     }
+}
+
+function initializeTableControls() {
+    const stateFilter = document.getElementById('torrent-filter-state');
+    const searchInput = document.getElementById('torrent-filter-search');
+    const pageSizeSelect = document.getElementById('torrent-page-size');
+
+    if (!stateFilter || !searchInput || !pageSizeSelect) return;
+
+    stateFilter.addEventListener('change', (event) => {
+        viewState.filters.state = event.target.value;
+        resetPagination();
+        renderActiveClientTorrents();
+    });
+
+    searchInput.addEventListener('input', (event) => {
+        const nextValue = event.target.value;
+        if (searchInputDebounceId !== null) {
+            window.clearTimeout(searchInputDebounceId);
+        }
+
+        searchInputDebounceId = window.setTimeout(() => {
+            viewState.filters.search = nextValue;
+            resetPagination();
+            renderActiveClientTorrents();
+        }, 150);
+    });
+
+    pageSizeSelect.addEventListener('change', (event) => {
+        const nextValue = Number.parseInt(event.target.value, 10);
+        viewState.pagination.perPage = Number.isFinite(nextValue) && nextValue > 0
+            ? nextValue
+            : DEFAULT_PAGE_SIZE;
+        resetPagination();
+        renderActiveClientTorrents();
+    });
+
+    updateTableControls();
+}
+
+function setTableControlsVisible(visible) {
+    const controls = document.getElementById('torrent-table-controls');
+    if (!controls) return;
+    controls.classList.toggle('hidden', !visible);
+}
+
+function updateTableControls() {
+    const searchInput = document.getElementById('torrent-filter-search');
+    const pageSizeSelect = document.getElementById('torrent-page-size');
+
+    if (searchInput) searchInput.value = viewState.filters.search;
+    if (pageSizeSelect) pageSizeSelect.value = String(viewState.pagination.perPage);
+}
+
+function resetPagination() {
+    viewState.pagination.page = 1;
+}
+
+function renderActiveClientTorrents() {
+    if (!activeClientName) return;
+    const clientTorrents = allTorrentsCache[activeClientName];
+    if (!clientTorrents) return;
+    renderClientTorrents(activeClientName, clientTorrents);
+}
+
+function setResultsSummary(message) {
+    const summary = document.getElementById('torrent-results-summary');
+    if (summary) summary.textContent = message;
+}
+
+function updateResultsSummary(start, end, filteredCount, rawCount) {
+    if (rawCount === 0) {
+        setResultsSummary('No torrents loaded');
+        return;
+    }
+
+    if (filteredCount === 0) {
+        setResultsSummary(`No torrents match current filters (${rawCount} total)`);
+        return;
+    }
+
+    const countText = filteredCount === rawCount
+        ? `${filteredCount}`
+        : `${filteredCount} matching (${rawCount} total)`;
+
+    setResultsSummary(`Showing ${start}-${end} of ${countText}`);
 }
 
 function showLoadingIndicator() {
@@ -146,10 +254,8 @@ async function refreshClientTorrents(clientName = activeClientName) {
         if (error.name === 'AbortError') return;
         if (activeClientName !== clientName) return;
 
-        delete allTorrentsCache[clientName];
-        if (selectionSourceClient === clientName) {
-            clearSelection();
-        }
+        // Keep the last successful payload and current selection so transient
+        // refresh failures don't silently change a pending manual transfer.
         renderClientError(clientName, error.message || `Unable to load torrents for ${clientName}`);
     } finally {
         if (activeFetchController === controller) {
@@ -205,10 +311,10 @@ function updateSelectionUI() {
         cb.checked = hash ? selectedHashes.has(hash) : false;
     });
 
-    // Update card highlight
-    document.querySelectorAll('.simple-torrent-card').forEach(card => {
-        const id = card.dataset.id?.toLowerCase();
-        card.classList.toggle('selected', id ? selectedHashes.has(id) : false);
+    // Update row highlight
+    document.querySelectorAll('.torrent-table-row').forEach(row => {
+        const id = row.dataset.id?.toLowerCase();
+        row.classList.toggle('selected', id ? selectedHashes.has(id) : false);
     });
 }
 
@@ -666,7 +772,7 @@ async function confirmTransfer() {
 }
 
 // ============================================================================
-// Torrent Card Rendering (with checkboxes & cross-seed indicators)
+// Torrent Table Rendering
 // ============================================================================
 function getSafeClientName(clientName) {
     return clientName.replace(/\s+/g, '-').replace(/[^a-zA-Z0-9-]/g, '');
@@ -695,6 +801,7 @@ function initializeClientTabs(names) {
         tab.dataset.client = clientName;
         tab.addEventListener('click', function() {
             if (clientName === activeClientName) return;
+            resetPagination();
             void switchToClient(clientName);
         });
         clientTabsContainer.appendChild(tab);
@@ -732,14 +839,11 @@ function ensureClientTorrentContainer(tabContent) {
     return container;
 }
 
-function clearClientStatusMessages(tabContent) {
-    tabContent.querySelectorAll('.client-status-message').forEach(message => message.remove());
-}
-
 function renderNoClientsConfigured(message = 'No download clients configured') {
     const clientTabsContainer = document.getElementById('client-tabs');
     const clientTabContentsContainer = document.getElementById('client-tab-contents');
 
+    setTableControlsVisible(false);
     clientTabsContainer.innerHTML = '';
     clientTabsContainer.style.display = 'none';
     clientTabContentsContainer.style.display = 'block';
@@ -749,6 +853,23 @@ function renderNoClientsConfigured(message = 'No download clients configured') {
     status.className = 'client-status-message no-clients-message';
     status.textContent = message;
     clientTabContentsContainer.appendChild(status);
+    setResultsSummary(message);
+}
+
+function buildStatusMessage(message, kind = 'empty') {
+    const status = document.createElement('div');
+    const className = {
+        error: 'client-error-message',
+        filtered: 'filtered-empty-message',
+        empty: 'empty-message',
+    }[kind] || 'empty-message';
+    status.className = `client-status-message ${className}`;
+    status.textContent = message;
+    return status;
+}
+
+function appendStatusMessage(container, message, kind = 'empty') {
+    container.appendChild(buildStatusMessage(message, kind));
 }
 
 function renderClientStatusMessage(clientName, message, kind = 'empty') {
@@ -757,16 +878,21 @@ function renderClientStatusMessage(clientName, message, kind = 'empty') {
 
     const container = ensureClientTorrentContainer(tabContent);
     container.innerHTML = '';
-    clearClientStatusMessages(tabContent);
-
-    const status = document.createElement('div');
-    status.className = `client-status-message ${kind === 'error' ? 'client-error-message' : 'empty-message'}`;
-    status.textContent = message;
-    tabContent.appendChild(status);
+    appendStatusMessage(container, message, kind);
 }
 
 function renderClientError(clientName, message) {
+    const cachedTorrents = allTorrentsCache[clientName];
+    if (cachedTorrents && Object.keys(cachedTorrents).length > 0) {
+        renderClientTorrents(clientName, cachedTorrents, {
+            message,
+            kind: 'error',
+        });
+        return;
+    }
+
     renderClientStatusMessage(clientName, message, 'error');
+    setResultsSummary(message);
 }
 
 function pruneSelectedHashes(clientName, clientTorrents) {
@@ -788,48 +914,166 @@ function pruneSelectedHashes(clientName, clientTorrents) {
     }
 }
 
-function renderClientTorrents(clientName, clientTorrents) {
+function updateStateFilterOptions(clientTorrents) {
+    const stateFilter = document.getElementById('torrent-filter-state');
+    if (!stateFilter) return;
+
+    const states = Array.from(new Set(
+        Object.values(clientTorrents || {})
+            .map((torrent) => torrent.state)
+            .filter(Boolean)
+    )).sort((left, right) => left.localeCompare(right, undefined, { sensitivity: 'base' }));
+
+    if (viewState.filters.state) {
+        const selectedExists = states.some(
+            (state) => state.toLowerCase() === viewState.filters.state
+        );
+        if (!selectedExists) {
+            states.unshift(viewState.filters.state);
+        }
+    }
+
+    stateFilter.innerHTML = '<option value="">All states</option>';
+    states.forEach((state) => {
+        const option = document.createElement('option');
+        option.value = state.toLowerCase();
+        option.textContent = state;
+        stateFilter.appendChild(option);
+    });
+    stateFilter.value = viewState.filters.state;
+}
+
+function normalizeClientTorrentRows(clientTorrents) {
+    const groups = buildCrossSeedPathGroups(clientTorrents || {});
+    const crossSeedHashes = new Set();
+    Object.values(groups).forEach((hashes) => {
+        hashes.forEach((hash) => crossSeedHashes.add(hash.toLowerCase()));
+    });
+
+    return Object.entries(clientTorrents || {}).map(([torrentId, torrentData]) => {
+        const stateText = torrentData.state || 'Unknown';
+        const stateLower = stateText.toLowerCase();
+        const isSeeding = stateLower === 'seeding';
+        const rateValue = getRateValue(torrentData, isSeeding);
+        const seedsValue = toNumberOrNull(torrentData.num_seeds);
+        const addedValue = toNumberOrNull(torrentData.time_added);
+        const tracker = getTrackerName(torrentData);
+
+        return {
+            id: torrentId,
+            info: torrentData,
+            name: torrentData.name || 'Unknown',
+            stateText,
+            progressValue: toNumberOrZero(torrentData.progress),
+            sizeValue: toNumberOrZero(torrentData.total_size),
+            seedsValue,
+            rateValue,
+            rateDisplay: rateValue !== null && rateValue > 0 ? `${formatBytes(rateValue)}/s` : '',
+            tracker,
+            addedValue,
+            addedDisplay: formatAddedAt(addedValue),
+            isCrossSeed: crossSeedHashes.has(torrentId.toLowerCase()),
+            isSeeding,
+        };
+    });
+}
+
+function applyTorrentFilters(rows) {
+    const stateFilter = viewState.filters.state;
+    const searchFilter = viewState.filters.search.trim().toLowerCase();
+
+    return rows.filter((row) => {
+        if (stateFilter && row.stateText.toLowerCase() !== stateFilter) {
+            return false;
+        }
+
+        if (searchFilter && !row.name.toLowerCase().includes(searchFilter)) {
+            return false;
+        }
+
+        return true;
+    });
+}
+
+function sortTorrentRows(rows) {
+    const { field, order } = viewState.sort;
+    return [...rows].sort((left, right) => {
+        const comparison = compareSortValues(
+            getRowSortValue(left, field),
+            getRowSortValue(right, field),
+            order,
+        );
+        if (comparison !== 0) return comparison;
+        return left.name.localeCompare(right.name, undefined, {
+            sensitivity: 'base',
+            numeric: true,
+        });
+    });
+}
+
+function paginateTorrentRows(rows) {
+    const perPage = viewState.pagination.perPage;
+    const totalPages = Math.max(1, Math.ceil(rows.length / perPage));
+    const currentPage = Math.min(viewState.pagination.page, totalPages);
+    viewState.pagination.page = currentPage;
+
+    const startIndex = (currentPage - 1) * perPage;
+    const endIndex = Math.min(startIndex + perPage, rows.length);
+
+    return {
+        pageRows: rows.slice(startIndex, endIndex),
+        currentPage,
+        totalPages,
+        startIndex,
+        endIndex,
+    };
+}
+
+function renderClientTorrents(clientName, clientTorrents, statusMessage = null) {
     const tabContent = getClientTabContent(clientName);
     if (!tabContent) return;
 
     const container = ensureClientTorrentContainer(tabContent);
-    clearClientStatusMessages(tabContent);
+    container.innerHTML = '';
 
-    const groups = buildCrossSeedPathGroups(clientTorrents || {});
-    const crossSeedHashes = {};
-    for (const hashes of Object.values(groups)) {
-        for (const hash of hashes) {
-            crossSeedHashes[hash.toLowerCase()] = true;
-        }
-    }
+    updateStateFilterOptions(clientTorrents);
+    updateTableControls();
+    pruneSelectedHashes(clientName, clientTorrents);
 
-    const existingCards = {};
-    Array.from(container.children).forEach(card => {
-        if (card.dataset.id) existingCards[card.dataset.id] = card;
-    });
-
-    const torrentIds = Object.keys(clientTorrents);
-    if (torrentIds.length === 0) {
-        renderClientStatusMessage(clientName, `No torrents for ${clientName}`);
-        pruneSelectedHashes(clientName, clientTorrents);
+    const rawRows = normalizeClientTorrentRows(clientTorrents || {});
+    if (rawRows.length === 0) {
+        renderClientStatusMessage(clientName, `No torrents for ${clientName}`, 'empty');
+        updateResultsSummary(0, 0, 0, 0);
         return;
     }
 
-    torrentIds.forEach(torrentId => {
-        const torrentData = clientTorrents[torrentId];
-        const isCrossSeed = !!crossSeedHashes[torrentId.toLowerCase()];
-        const isSeeding = (torrentData.state || '').toLowerCase() === 'seeding';
-
-        if (existingCards[torrentId]) {
-            updateClientTorrentCard(existingCards[torrentId], torrentData, isCrossSeed, isSeeding, torrentId, clientName);
-            delete existingCards[torrentId];
-        } else {
-            container.appendChild(createClientTorrentCard(torrentId, torrentData, isCrossSeed, isSeeding, clientName));
+    const filteredRows = applyTorrentFilters(rawRows);
+    if (filteredRows.length === 0) {
+        if (statusMessage) {
+            appendStatusMessage(container, statusMessage.message, statusMessage.kind);
         }
-    });
+        appendStatusMessage(container, 'No torrents match current filters', 'filtered');
+        updateResultsSummary(0, 0, 0, rawRows.length);
+        container.appendChild(createPaginationControls(1, 1));
+        return;
+    }
 
-    Object.values(existingCards).forEach(card => container.removeChild(card));
-    pruneSelectedHashes(clientName, clientTorrents);
+    const sortedRows = sortTorrentRows(filteredRows);
+    const pagination = paginateTorrentRows(sortedRows);
+
+    updateResultsSummary(
+        pagination.startIndex + 1,
+        pagination.endIndex,
+        filteredRows.length,
+        rawRows.length,
+    );
+
+    if (statusMessage) {
+        appendStatusMessage(container, statusMessage.message, statusMessage.kind);
+    }
+    container.appendChild(createClientTorrentTable(clientName, pagination.pageRows));
+    container.appendChild(createPaginationControls(pagination.currentPage, pagination.totalPages));
+    updateSelectionUI();
 }
 
 function clearClientViews() {
@@ -863,165 +1107,243 @@ window.addEventListener('visibilitychange', function() {
     }
 });
 
-/**
- * Create the inline transfer button for a seeding torrent card.
- * @param {string} torrentId - Torrent hash
- * @param {string} clientName - Client name for the transfer source
- * @returns {HTMLButtonElement}
- */
 function createInlineTransferButton(torrentId, clientName) {
     const btn = document.createElement('button');
     btn.className = 'torrent-transfer-btn';
     btn.title = 'Transfer this torrent';
     btn.innerHTML = '<i class="fas fa-exchange-alt"></i>';
-    btn.addEventListener('click', (e) => {
-        e.stopPropagation();
+    btn.addEventListener('click', (event) => {
+        event.stopPropagation();
         transferSingle(torrentId, clientName);
     });
     return btn;
 }
 
-function createClientTorrentCard(torrentId, torrentData, isCrossSeed, isSeeding, clientName) {
-    const card = document.createElement('div');
-    card.className = 'simple-torrent-card';
-    card.dataset.id = torrentId;
+function createClientTorrentTable(clientName, rows) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'client-torrent-table-wrapper';
 
-    // Checkbox
+    const table = document.createElement('table');
+    table.className = 'client-torrent-table';
+
+    const thead = document.createElement('thead');
+    const headerRow = document.createElement('tr');
+    headerRow.appendChild(createPlainHeader('Select', 'col-select'));
+    headerRow.appendChild(createSortableHeader('Name', 'name'));
+    headerRow.appendChild(createSortableHeader('State', 'state'));
+    headerRow.appendChild(createSortableHeader('Progress', 'progress'));
+    headerRow.appendChild(createSortableHeader('Size', 'size'));
+    headerRow.appendChild(createSortableHeader('Seeds', 'seeds'));
+    headerRow.appendChild(createSortableHeader('Rate', 'rate'));
+    headerRow.appendChild(createSortableHeader('Tracker', 'tracker'));
+    headerRow.appendChild(createSortableHeader('Added', 'added'));
+    headerRow.appendChild(createPlainHeader('Actions', 'col-actions'));
+    thead.appendChild(headerRow);
+    table.appendChild(thead);
+
+    const tbody = document.createElement('tbody');
+    rows.forEach((row) => {
+        tbody.appendChild(createClientTorrentRow(clientName, row));
+    });
+    table.appendChild(tbody);
+
+    wrapper.appendChild(table);
+    return wrapper;
+}
+
+function createPlainHeader(label, className = '') {
+    const th = document.createElement('th');
+    if (className) th.className = className;
+    th.textContent = label;
+    return th;
+}
+
+function createSortableHeader(label, field) {
+    const th = document.createElement('th');
+    th.className = 'sortable';
+    th.dataset.sort = field;
+
+    if (viewState.sort.field === field) {
+        th.classList.add(viewState.sort.order === 'asc' ? 'sort-asc' : 'sort-desc');
+    }
+
+    const labelSpan = document.createElement('span');
+    labelSpan.className = 'sortable-label';
+    labelSpan.textContent = label;
+
+    const indicator = document.createElement('span');
+    indicator.className = 'sort-indicator';
+    indicator.textContent = viewState.sort.field === field
+        ? (viewState.sort.order === 'asc' ? '↑' : '↓')
+        : '↕';
+
+    th.appendChild(labelSpan);
+    th.appendChild(indicator);
+    th.addEventListener('click', () => {
+        if (viewState.sort.field === field) {
+            viewState.sort.order = viewState.sort.order === 'asc' ? 'desc' : 'asc';
+        } else {
+            viewState.sort.field = field;
+            viewState.sort.order = 'asc';
+        }
+        renderActiveClientTorrents();
+    });
+    return th;
+}
+
+function createClientTorrentRow(clientName, row) {
+    const tr = document.createElement('tr');
+    tr.className = 'torrent-table-row';
+    tr.dataset.id = row.id;
+    tr.classList.toggle('selected', selectedHashes.has(row.id.toLowerCase()));
+
+    tr.appendChild(createSelectionCell(row, clientName));
+    tr.appendChild(createNameCell(row));
+    tr.appendChild(createStateCell(row));
+    tr.appendChild(createProgressCell(row));
+    tr.appendChild(createTextCell(formatBytes(row.sizeValue), 'align-right'));
+    tr.appendChild(createTextCell(row.seedsValue === null ? '--' : String(row.seedsValue), 'align-right'));
+    tr.appendChild(createTextCell(row.rateDisplay || '--', 'align-right'));
+    tr.appendChild(createTextCell(row.tracker || '--', 'muted-cell'));
+    tr.appendChild(createTextCell(row.addedDisplay || '--', 'muted-cell'));
+    tr.appendChild(createActionsCell(row, clientName));
+
+    return tr;
+}
+
+function createSelectionCell(row, clientName) {
+    const td = document.createElement('td');
+    td.className = 'col-select';
+
     const cbWrapper = document.createElement('div');
     cbWrapper.className = 'torrent-checkbox-wrapper';
     const cb = document.createElement('input');
     cb.type = 'checkbox';
     cb.className = 'torrent-checkbox';
-    cb.dataset.hash = torrentId;
-    cb.checked = selectedHashes.has(torrentId.toLowerCase());
-    cb.disabled = !isSeeding;
-    cb.title = isSeeding ? 'Select for transfer' : 'Only seeding torrents can be transferred';
-    cb.addEventListener('change', () => toggleSelection(torrentId, clientName));
+    cb.dataset.hash = row.id;
+    cb.checked = selectedHashes.has(row.id.toLowerCase());
+    cb.disabled = !row.isSeeding;
+    cb.title = row.isSeeding ? 'Select for transfer' : 'Only seeding torrents can be transferred';
+    cb.addEventListener('change', () => toggleSelection(row.id, clientName));
     cbWrapper.appendChild(cb);
-    card.appendChild(cbWrapper);
 
-    // Name + cross-seed indicator
-    const nameDiv = document.createElement('div');
-    nameDiv.className = 'simple-torrent-name';
-    nameDiv.textContent = torrentData.name || 'Unknown';
-    if (isCrossSeed) {
-        const badge = document.createElement('span');
-        badge.className = 'cross-seed-badge';
-        badge.title = 'Cross-seed — shares data with another torrent';
-        badge.innerHTML = '<i class="fas fa-link"></i>';
-        nameDiv.appendChild(badge);
-    }
-    card.appendChild(nameDiv);
-
-    // State
-    const stateDiv = document.createElement('div');
-    stateDiv.className = 'simple-torrent-state';
-    const stateText = torrentData.state || 'Unknown';
-    const stateClass = getStateIndicatorClass(stateText.toUpperCase());
-    const stateIndicator = document.createElement('span');
-    stateIndicator.className = `state-indicator ${stateClass}`;
-    stateDiv.appendChild(stateIndicator);
-    stateDiv.appendChild(document.createTextNode(' ' + stateText));
-    card.appendChild(stateDiv);
-
-    // Progress
-    const progressDiv = document.createElement('div');
-    progressDiv.className = 'simple-torrent-progress';
-    const progressBar = document.createElement('div');
-    progressBar.className = 'simple-progress-bar';
-    const progressFill = document.createElement('span');
-    progressFill.className = 'simple-progress-fill';
-    const progressValue = torrentData.progress || 0;
-    progressFill.style.width = `${progressValue}%`;
-    const progressText = document.createElement('div');
-    progressText.className = 'simple-progress-text';
-    progressText.textContent = `${Math.round(progressValue)}%`;
-    progressBar.appendChild(progressFill);
-    progressDiv.appendChild(progressBar);
-    progressDiv.appendChild(progressText);
-    card.appendChild(progressDiv);
-
-    // Inline transfer button (seeding torrents only)
-    const actionDiv = document.createElement('div');
-    actionDiv.className = 'torrent-action-wrapper';
-    if (isSeeding) {
-        actionDiv.appendChild(createInlineTransferButton(torrentId, clientName));
-    }
-    card.appendChild(actionDiv);
-
-    // Highlight if selected
-    if (selectedHashes.has(torrentId.toLowerCase())) {
-        card.classList.add('selected');
-    }
-
-    return card;
+    td.appendChild(cbWrapper);
+    return td;
 }
 
-function updateClientTorrentCard(card, torrentData, isCrossSeed, isSeeding, torrentId, clientName) {
-    // Update checkbox
-    let cb = card.querySelector('.torrent-checkbox');
-    if (!cb) {
-        // Add checkbox if missing (shouldn't happen but be safe)
-        const cbWrapper = document.createElement('div');
-        cbWrapper.className = 'torrent-checkbox-wrapper';
-        cb = document.createElement('input');
-        cb.type = 'checkbox';
-        cb.className = 'torrent-checkbox';
-        cb.dataset.hash = torrentId;
-        cb.addEventListener('change', () => toggleSelection(torrentId, clientName));
-        cbWrapper.appendChild(cb);
-        card.insertBefore(cbWrapper, card.firstChild);
-    }
-    cb.checked = selectedHashes.has(torrentId.toLowerCase());
-    cb.disabled = !isSeeding;
+function createNameCell(row) {
+    const td = document.createElement('td');
+    td.className = 'torrent-name-cell';
 
-    // Update cross-seed badge
-    const nameDiv = card.querySelector('.simple-torrent-name');
-    const existingBadge = nameDiv?.querySelector('.cross-seed-badge');
-    if (isCrossSeed && !existingBadge && nameDiv) {
+    const content = document.createElement('div');
+    content.className = 'torrent-name-content';
+
+    const nameText = document.createElement('span');
+    nameText.className = 'torrent-name-text';
+    nameText.textContent = row.name;
+    nameText.title = row.name;
+    content.appendChild(nameText);
+
+    if (row.isCrossSeed) {
         const badge = document.createElement('span');
         badge.className = 'cross-seed-badge';
         badge.title = 'Cross-seed — shares data with another torrent';
         badge.innerHTML = '<i class="fas fa-link"></i>';
-        nameDiv.appendChild(badge);
-    } else if (!isCrossSeed && existingBadge) {
-        existingBadge.remove();
+        content.appendChild(badge);
     }
 
-    // Update state
-    const stateDiv = card.querySelector('.simple-torrent-state');
-    const stateText = torrentData.state || 'Unknown';
-    const stateClass = getStateIndicatorClass(stateText.toUpperCase());
-    const stateIndicator = stateDiv.querySelector('.state-indicator');
-    if (stateIndicator) stateIndicator.className = `state-indicator ${stateClass}`;
-    Array.from(stateDiv.childNodes).forEach(node => {
-        if (node.nodeType === Node.TEXT_NODE) stateDiv.removeChild(node);
+    td.appendChild(content);
+
+    return td;
+}
+
+function createStateCell(row) {
+    const td = document.createElement('td');
+    td.className = 'torrent-state-cell';
+
+    const indicator = document.createElement('span');
+    indicator.className = `state-indicator ${getStateIndicatorClass(row.stateText.toUpperCase())}`;
+    td.appendChild(indicator);
+    td.appendChild(document.createTextNode(` ${row.stateText}`));
+    return td;
+}
+
+function createProgressCell(row) {
+    const td = document.createElement('td');
+    td.className = 'torrent-progress-cell';
+
+    const progressContent = document.createElement('div');
+    progressContent.className = 'table-progress-content';
+
+    const progressBar = document.createElement('div');
+    progressBar.className = 'table-progress-bar';
+    const progressFill = document.createElement('span');
+    progressFill.className = 'table-progress-fill';
+    progressFill.style.width = `${row.progressValue}%`;
+    progressBar.appendChild(progressFill);
+
+    const progressText = document.createElement('span');
+    progressText.className = 'table-progress-text';
+    progressText.textContent = `${Math.round(row.progressValue)}%`;
+
+    progressContent.appendChild(progressBar);
+    progressContent.appendChild(progressText);
+    td.appendChild(progressContent);
+    return td;
+}
+
+function createActionsCell(row, clientName) {
+    const td = document.createElement('td');
+    td.className = 'col-actions';
+
+    const actionWrapper = document.createElement('div');
+    actionWrapper.className = 'torrent-action-wrapper';
+    if (row.isSeeding) {
+        actionWrapper.appendChild(createInlineTransferButton(row.id, clientName));
+    }
+    td.appendChild(actionWrapper);
+    return td;
+}
+
+function createTextCell(text, className = '') {
+    const td = document.createElement('td');
+    if (className) td.className = className;
+    td.textContent = text;
+    return td;
+}
+
+function createPaginationControls(currentPage, totalPages) {
+    const pagination = document.createElement('div');
+    pagination.className = 'torrent-pagination';
+
+    const prevBtn = document.createElement('button');
+    prevBtn.className = 'pagination-btn';
+    prevBtn.textContent = 'Previous';
+    prevBtn.disabled = currentPage <= 1;
+    prevBtn.addEventListener('click', () => {
+        if (viewState.pagination.page <= 1) return;
+        viewState.pagination.page -= 1;
+        renderActiveClientTorrents();
     });
-    stateDiv.appendChild(document.createTextNode(' ' + stateText));
 
-    // Update progress
-    const progressFill = card.querySelector('.simple-progress-fill');
-    const progressText = card.querySelector('.simple-progress-text');
-    const progressValue = torrentData.progress || 0;
-    progressFill.style.width = `${progressValue}%`;
-    progressText.textContent = `${Math.round(progressValue)}%`;
+    const nextBtn = document.createElement('button');
+    nextBtn.className = 'pagination-btn';
+    nextBtn.textContent = 'Next';
+    nextBtn.disabled = currentPage >= totalPages;
+    nextBtn.addEventListener('click', () => {
+        if (viewState.pagination.page >= totalPages) return;
+        viewState.pagination.page += 1;
+        renderActiveClientTorrents();
+    });
 
-    // Update inline transfer button visibility
-    let actionDiv = card.querySelector('.torrent-action-wrapper');
-    if (!actionDiv) {
-        actionDiv = document.createElement('div');
-        actionDiv.className = 'torrent-action-wrapper';
-        card.appendChild(actionDiv);
-    }
-    const existingBtn = actionDiv.querySelector('.torrent-transfer-btn');
-    if (isSeeding && !existingBtn) {
-        actionDiv.appendChild(createInlineTransferButton(torrentId, clientName));
-    } else if (!isSeeding && existingBtn) {
-        existingBtn.remove();
-    }
+    const status = document.createElement('span');
+    status.className = 'pagination-status';
+    status.textContent = `Page ${currentPage} of ${totalPages}`;
 
-    // Selection highlight
-    card.classList.toggle('selected', selectedHashes.has(torrentId.toLowerCase()));
+    pagination.appendChild(prevBtn);
+    pagination.appendChild(status);
+    pagination.appendChild(nextBtn);
+    return pagination;
 }
 
 // ============================================================================
@@ -1032,4 +1354,76 @@ function formatBytes(bytes) {
     const units = ['B', 'KB', 'MB', 'GB', 'TB'];
     const i = Math.floor(Math.log(bytes) / Math.log(1024));
     return (bytes / Math.pow(1024, i)).toFixed(1) + ' ' + units[i];
+}
+
+function formatAddedAt(timestamp) {
+    if (timestamp === null) return '';
+    const date = new Date(timestamp * 1000);
+    if (Number.isNaN(date.getTime())) return '';
+    return date.toLocaleString([], {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+    });
+}
+
+function getRateValue(torrentData, isSeeding) {
+    const downloadRate = toNumberOrNull(torrentData.download_payload_rate);
+    const uploadRate = toNumberOrNull(torrentData.upload_payload_rate);
+    const rate = isSeeding ? uploadRate : downloadRate;
+    return rate !== null && rate > 0 ? rate : null;
+}
+
+function toNumberOrNull(value) {
+    if (value === null || value === undefined || value === '') return null;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+}
+
+function toNumberOrZero(value) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function getRowSortValue(row, field) {
+    switch (field) {
+    case 'name':
+        return row.name;
+    case 'state':
+        return row.stateText;
+    case 'progress':
+        return row.progressValue;
+    case 'size':
+        return row.sizeValue;
+    case 'seeds':
+        return row.seedsValue;
+    case 'rate':
+        return row.rateValue;
+    case 'tracker':
+        return row.tracker;
+    case 'added':
+        return row.addedValue;
+    default:
+        return row.name;
+    }
+}
+
+function compareSortValues(left, right, order) {
+    if (left === null && right === null) return 0;
+    if (left === null) return 1;
+    if (right === null) return -1;
+
+    let result;
+    if (typeof left === 'string' || typeof right === 'string') {
+        result = String(left).localeCompare(String(right), undefined, {
+            sensitivity: 'base',
+            numeric: true,
+        });
+    } else {
+        result = left - right;
+    }
+
+    return order === 'asc' ? result : -result;
 }

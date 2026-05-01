@@ -23,6 +23,37 @@
     <div class="client-tabs" id="client-tabs">
         <!-- Client tabs will be populated by JavaScript -->
     </div>
+    <div id="torrent-table-controls" class="torrent-table-controls hidden">
+        <div class="torrent-table-filters">
+            <div class="table-control">
+                <label for="torrent-filter-state">State</label>
+                <select id="torrent-filter-state" class="table-control-input">
+                    <option value="">All states</option>
+                </select>
+            </div>
+            <div class="table-control table-control-search">
+                <label for="torrent-filter-search">Search</label>
+                <input
+                    id="torrent-filter-search"
+                    class="table-control-input"
+                    type="search"
+                    placeholder="Search torrent name"
+                    autocomplete="off"
+                >
+            </div>
+        </div>
+        <div class="torrent-table-meta">
+            <div class="table-control table-control-page-size">
+                <label for="torrent-page-size">Page size</label>
+                <select id="torrent-page-size" class="table-control-input">
+                    <option value="25">25</option>
+                    <option value="50" selected>50</option>
+                    <option value="100">100</option>
+                </select>
+            </div>
+            <div id="torrent-results-summary" class="torrent-results-summary">No torrents loaded</div>
+        </div>
+    </div>
     <div id="client-tab-contents">
         <!-- Client tab contents will be populated by JavaScript -->
     </div>
