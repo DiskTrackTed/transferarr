@@ -1235,19 +1235,24 @@ function createNameCell(row) {
     const td = document.createElement('td');
     td.className = 'torrent-name-cell';
 
+    const content = document.createElement('div');
+    content.className = 'torrent-name-content';
+
     const nameText = document.createElement('span');
     nameText.className = 'torrent-name-text';
     nameText.textContent = row.name;
     nameText.title = row.name;
-    td.appendChild(nameText);
+    content.appendChild(nameText);
 
     if (row.isCrossSeed) {
         const badge = document.createElement('span');
         badge.className = 'cross-seed-badge';
         badge.title = 'Cross-seed — shares data with another torrent';
         badge.innerHTML = '<i class="fas fa-link"></i>';
-        td.appendChild(badge);
+        content.appendChild(badge);
     }
+
+    td.appendChild(content);
 
     return td;
 }
@@ -1267,6 +1272,9 @@ function createProgressCell(row) {
     const td = document.createElement('td');
     td.className = 'torrent-progress-cell';
 
+    const progressContent = document.createElement('div');
+    progressContent.className = 'table-progress-content';
+
     const progressBar = document.createElement('div');
     progressBar.className = 'table-progress-bar';
     const progressFill = document.createElement('span');
@@ -1278,8 +1286,9 @@ function createProgressCell(row) {
     progressText.className = 'table-progress-text';
     progressText.textContent = `${Math.round(row.progressValue)}%`;
 
-    td.appendChild(progressBar);
-    td.appendChild(progressText);
+    progressContent.appendChild(progressBar);
+    progressContent.appendChild(progressText);
+    td.appendChild(progressContent);
     return td;
 }
 

@@ -169,14 +169,20 @@
 }
 
 .torrent-name-cell {
-    display: flex;
-    align-items: center;
-    gap: 8px;
     min-width: 260px;
     max-width: 360px;
 }
 
+.torrent-name-content {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+
 .torrent-name-text {
+    flex: 1 1 auto;
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -191,8 +197,15 @@
     min-width: 150px;
 }
 
+.table-progress-content {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
 .table-progress-bar {
-    width: 100%;
+    flex: 1 1 auto;
+    min-width: 80px;
     height: 10px;
     background: #edf2f7;
     border-radius: 999px;
@@ -207,11 +220,11 @@
 }
 
 .table-progress-text {
-    display: block;
-    margin-top: 4px;
+    flex: 0 0 auto;
     font-size: 12px;
     color: #6b7280;
     text-align: right;
+    white-space: nowrap;
 }
 
 .align-right {
