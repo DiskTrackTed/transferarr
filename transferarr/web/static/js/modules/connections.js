@@ -10,6 +10,152 @@ let currentBrowseSide = null;
 let currentBrowsePath = '/';
 let browseSftpConfig = null;
 let browseType = 'local';
+let loadedConnections = [];
+
+function isConnectionModalOpen() {
+    const connectionModalElement = document.getElementById('connectionModal');
+
+    return Boolean(connectionModalElement && connectionModalElement.classList.contains('show'));
+}
+
+function hasSavedConnectionWarning() {
+    const warningContainer = document.getElementById('connectionSaveWarnings');
+    const warningTitle = document.getElementById('connectionSaveWarningsTitle');
+
+    return Boolean(
+        warningContainer &&
+        warningContainer.style.display !== 'none' &&
+        warningTitle &&
+        warningTitle.textContent === 'Connection saved with warning'
+    );
+}
+
+function setConnectionWarningsTitle(title) {
+    const warningTitle = document.getElementById('connectionSaveWarningsTitle');
+
+    if (warningTitle) {
+        warningTitle.textContent = title;
+    }
+}
+
+function clearConnectionWarnings() {
+    const warningContainer = document.getElementById('connectionSaveWarnings');
+    const warningList = document.getElementById('connectionSaveWarningsList');
+
+    if (warningContainer) {
+        warningContainer.style.display = 'none';
+    }
+    if (warningList) {
+        warningList.innerHTML = '';
+    }
+
+    setConnectionWarningsTitle('Potential chain warning');
+}
+
+function showConnectionWarnings(warnings, title = 'Potential chain warning') {
+    const warningContainer = document.getElementById('connectionSaveWarnings');
+    const warningList = document.getElementById('connectionSaveWarningsList');
+
+    if (!warningContainer || !warningList) {
+        return;
+    }
+
+    setConnectionWarningsTitle(title);
+    warningList.innerHTML = '';
+    warnings.forEach(warning => {
+        const item = document.createElement('li');
+        item.textContent = warning;
+        warningList.appendChild(item);
+    });
+    warningContainer.style.display = 'block';
+}
+
+function buildChainWarning(connectionPath, chainPath, sourceClient, intermediateClient, destinationClient) {
+    return (
+        `Connection ${connectionPath} creates a chain (${chainPath}). ` +
+        'Transferarr does not support multi-hop transfers. ' +
+        `Torrents on ${sourceClient} will transfer to ${intermediateClient} ` +
+        `but will NOT automatically continue to ${destinationClient}.`
+    );
+}
+
+function getChainWarningsForSelection(fromClient, toClient, connectionId = '') {
+    if (!fromClient || !toClient || fromClient === toClient) {
+        return [];
+    }
+
+    const connectionPath = `${fromClient} -> ${toClient}`;
+    const warnings = new Set();
+
+    loadedConnections.forEach(connection => {
+        if (connectionId && connection.name === connectionId) {
+            return;
+        }
+
+        const otherFrom = connection.from;
+        const otherTo = connection.to;
+
+        if (otherFrom === fromClient && otherTo === toClient) {
+            return;
+        }
+
+        if (otherTo === fromClient && otherFrom) {
+            const chainPath = `${otherFrom} -> ${fromClient} -> ${toClient}`;
+            warnings.add(
+                buildChainWarning(
+                    connectionPath,
+                    chainPath,
+                    otherFrom,
+                    fromClient,
+                    toClient,
+                )
+            );
+        } else if (otherFrom === toClient && otherTo) {
+            const chainPath = `${fromClient} -> ${toClient} -> ${otherTo}`;
+            warnings.add(
+                buildChainWarning(
+                    connectionPath,
+                    chainPath,
+                    fromClient,
+                    toClient,
+                    otherTo,
+                )
+            );
+        }
+    });
+
+    return Array.from(warnings).sort();
+}
+
+function updateConnectionChainWarnings() {
+    const fromClient = document.getElementById('fromClient')?.value || '';
+    const toClient = document.getElementById('toClient')?.value || '';
+    const connectionId = document.getElementById('connectionId')?.value || '';
+    const warnings = getChainWarningsForSelection(fromClient, toClient, connectionId);
+
+    if (warnings.length > 0) {
+        showConnectionWarnings(warnings);
+        return;
+    }
+
+    clearConnectionWarnings();
+}
+
+function refreshOpenConnectionModalWarnings() {
+    if (!isConnectionModalOpen() || hasSavedConnectionWarning()) {
+        return;
+    }
+
+    updateConnectionChainWarnings();
+}
+
+function setConnectionEditMode(savedConnection) {
+    document.getElementById('connectionId').value = savedConnection.name || '';
+    document.getElementById('connectionName').value = savedConnection.name || '';
+    document.getElementById('fromClient').value = savedConnection.from || '';
+    document.getElementById('toClient').value = savedConnection.to || '';
+    document.getElementById('connectionModalTitle').textContent = 'Edit Connection';
+}
 
 // Initialize the connections module
 export function initConnections(modals) {
@@ -39,6 +185,8 @@ export function initConnections(modals) {
                     toggleConfigSection('from', 'sftp');
                     toggleConfigSection('to', 'sftp');
                 }
+
+                updateConnectionChainWarnings();
             });
         });
     }
@@ -57,6 +205,11 @@ export function initConnections(modals) {
     
     // Add event listeners to connection form fields
     setupConnectionFormListeners();
+
+    const connectionModalElement = document.getElementById('connectionModal');
+    if (connectionModalElement) {
+        connectionModalElement.addEventListener('hidden.bs.modal', clearConnectionWarnings);
+    }
     
     // Import and initialize directory browser 
     import('./directorybrowser.js').then(dirBrowserModule => {
@@ -101,6 +254,7 @@ export function loadConnections() {
         .then(data => {
             // Unwrap data envelope (supports both old and new format)
             const connections = data.data || data;
+            loadedConnections = Array.isArray(connections) ? connections : [];
             console.log('Connections data received:', connections);
             
             if (!connectionsListElement) {
@@ -120,6 +274,7 @@ export function loadConnections() {
                 if (emptyStateEl) {
                     emptyStateEl.style.display = 'block';
                 }
+                refreshOpenConnectionModalWarnings();
                 return;
             } else if (emptyStateEl) {
                 // Hide empty state if we have connections
@@ -130,9 +285,12 @@ export function loadConnections() {
             connections.forEach(connection => {
                 connectionsListElement.appendChild(createConnectionCard(connection));
             });
+
+            refreshOpenConnectionModalWarnings();
         })
         .catch(error => {
             console.error('Error loading connections:', error);
+            loadedConnections = [];
             
             if (connectionsListElement) {
                 // Show the error in the connection list
@@ -157,6 +315,8 @@ export function loadConnections() {
                 'Error Loading Connections',
                 error.message
             );
+
+            refreshOpenConnectionModalWarnings();
         });
 }
 
@@ -428,6 +588,8 @@ function editConnection(connection) {
         
         // Initially disable path configuration but test connection to possibly enable it
         disablePathConfiguration();
+
+        updateConnectionChainWarnings();
         
         // Show the modal
         document.getElementById('connectionModalTitle').textContent = 'Edit Connection';
@@ -485,6 +647,7 @@ function resetConnectionForm() {
     document.getElementById('connectionForm').reset();
     document.getElementById('connectionId').value = '';
     document.getElementById('connectionName').value = '';
+    clearConnectionWarnings();
     document.getElementById('saveConnectionBtn').disabled = true;
     resetTestConnectionBtn();
     
@@ -968,12 +1131,22 @@ function saveConnection() {
         return response.json();
     })
     .then(responseData => {
-        connectionModal.hide();
+        const savedConnection = responseData.data || responseData;
+        const warnings = Array.isArray(responseData.warnings) ? responseData.warnings : [];
+
         loadConnections();
-        
+
+        if (warnings.length > 0) {
+            setConnectionEditMode(savedConnection);
+            showConnectionWarnings(warnings, 'Connection saved with warning');
+            return;
+        }
+
+        connectionModal.hide();
+
         TransferarrNotifications.success(
             connectionId ? 'Connection Updated' : 'Connection Added',
-            `The connection '${connectionName}' has been ${connectionId ? 'updated' : 'added'} successfully.`
+            `The connection '${savedConnection.name || connectionName}' has been ${connectionId ? 'updated' : 'added'} successfully.`
         );
     })
     .catch(error => {
@@ -1007,6 +1180,7 @@ function setupConnectionFormListeners() {
                 document.getElementById('saveConnectionBtn').disabled = true;
                 resetTestConnectionBtn();
                 disablePathConfiguration(); // Disable path config on field change
+                updateConnectionChainWarnings();
             });
         }
     });

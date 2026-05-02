@@ -7,6 +7,7 @@ Tests the settings page functionality including:
 - Modal interactions
 - Form validation
 """
+import json
 import re
 import pytest
 from playwright.sync_api import Page, expect
@@ -301,6 +302,71 @@ class TestConnectionModal:
         
         save_btn = settings_page.page.locator(settings_page.SAVE_CONNECTION_BTN)
         expect(save_btn).to_be_visible()
+
+
+class TestConnectionWarningPreview:
+    """Tests for inline connection chain warning previews."""
+
+    def test_warning_preview_handles_client_names_with_delimiter(self, settings_page, page: Page):
+        """A client name containing ' -> ' should render a single valid preview warning."""
+
+        def fulfill_json(route, payload):
+            route.fulfill(
+                status=200,
+                content_type="application/json",
+                body=json.dumps(payload),
+            )
+
+        def handle_download_clients(route):
+            fulfill_json(
+                route,
+                {
+                    "data": {
+                        "client-a": {"type": "deluge"},
+                        "Media -> EU": {"type": "deluge"},
+                        "client-c": {"type": "deluge"},
+                    }
+                },
+            )
+
+        def handle_connections(route):
+            fulfill_json(
+                route,
+                {
+                    "data": [
+                        {
+                            "name": "upstream",
+                            "from": "client-a",
+                            "to": "Media -> EU",
+                            "status": "active",
+                            "active_transfers": 0,
+                            "max_transfers": 3,
+                            "total_transfers": 0,
+                            "transfer_config": {"type": "torrent"},
+                        }
+                    ]
+                },
+            )
+
+        page.route("**/api/v1/download_clients", handle_download_clients)
+        page.route("**/api/v1/connections", handle_connections)
+
+        settings_page.goto()
+        settings_page.switch_to_connections_tab()
+        settings_page.wait_for_connections_loaded()
+        settings_page.open_add_connection_modal()
+
+        page.wait_for_timeout(1000)
+        page.fill(settings_page.CONNECTION_NAME, "delimiter-preview")
+        page.select_option(settings_page.CONNECTION_FROM_SELECT, "Media -> EU")
+        page.select_option(settings_page.CONNECTION_TO_SELECT, "client-c")
+
+        expect(page.locator(settings_page.CONNECTION_SAVE_WARNING)).to_be_visible()
+        expect(page.locator(settings_page.CONNECTION_SAVE_WARNING_ITEMS)).to_have_count(1)
+
+        warning_text = settings_page.get_connection_warning_text()
+        assert "Connection Media -> EU -> client-c creates a chain" in warning_text
+        assert "client-a -> Media -> EU -> client-c" in warning_text
 
 
 class TestSettingsNavigation:

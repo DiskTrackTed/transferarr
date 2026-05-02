@@ -36,6 +36,61 @@ def _find_connection_by_name(connections: dict, name: str) -> tuple:
     return None, None
 
 
+def _build_chain_warning(
+    connection_path: str,
+    chain_path: str,
+    source_client: str,
+    intermediate_client: str,
+    destination_client: str,
+) -> str:
+    """Build a user-facing warning for an unsupported chain path."""
+    return (
+        f"Connection {connection_path} creates a chain ({chain_path}). "
+        "Transferarr does not support multi-hop transfers. "
+        f"Torrents on {source_client} will transfer to {intermediate_client} "
+        f"but will NOT automatically continue to {destination_client}."
+    )
+
+
+def _build_chain_warnings(connections_config: dict, from_client: str, to_client: str) -> list[str]:
+    """Detect immediate chain paths involving the saved edge only."""
+    connection_path = f"{from_client} -> {to_client}"
+    warnings = set()
+
+    for connection_config in connections_config.values():
+        other_from = connection_config.get("from")
+        other_to = connection_config.get("to")
+
+        if other_from == from_client and other_to == to_client:
+            continue
+
+        if other_to == from_client and other_from:
+            chain_path = f"{other_from} -> {from_client} -> {to_client}"
+            warnings.add(
+                _build_chain_warning(
+                    connection_path,
+                    chain_path,
+                    other_from,
+                    from_client,
+                    to_client,
+                )
+            )
+
+        elif other_from == to_client and other_to:
+            chain_path = f"{from_client} -> {to_client} -> {other_to}"
+            warnings.add(
+                _build_chain_warning(
+                    connection_path,
+                    chain_path,
+                    from_client,
+                    to_client,
+                    other_to,
+                )
+            )
+
+    return sorted(warnings)
+
+
 class ConnectionService:
     """Service for managing transfer connections."""
     
@@ -119,9 +174,12 @@ class ConnectionService:
         
         # Update config
         updated_config = dict(self.torrent_manager.config)
-        if "connections" not in updated_config or not isinstance(updated_config["connections"], dict):
-            updated_config["connections"] = {}
-        updated_config["connections"][name] = connection_config
+        existing_connections = updated_config.get("connections")
+        updated_connections = dict(existing_connections) if isinstance(existing_connections, dict) else {}
+        updated_connections[name] = connection_config
+        updated_config["connections"] = updated_connections
+
+        warnings = _build_chain_warnings(updated_connections, from_client, to_client)
         
         if not self.torrent_manager.save_config(updated_config):
             raise ConfigSaveError("Failed to save configuration")
@@ -135,7 +193,10 @@ class ConnectionService:
         to_client_obj.add_connection(new_connection)
         self.torrent_manager.connections[name] = new_connection
         
-        return {"name": name, "from": from_client, "to": to_client}
+        return {
+            "connection": {"name": name, "from": from_client, "to": to_client},
+            "warnings": warnings,
+        }
     
     def update_connection(self, name: str, data: dict) -> dict:
         """Update an existing connection.
@@ -175,7 +236,9 @@ class ConnectionService:
             raise NotFoundError("Client", to_client)
         
         updated_config = dict(self.torrent_manager.config)
-        existing_conn_config = updated_config.get("connections", {}).get(actual_name, {})
+        existing_connections = updated_config.get("connections")
+        updated_connections = dict(existing_connections) if isinstance(existing_connections, dict) else {}
+        existing_conn_config = updated_connections.get(actual_name, {})
         
         # Preserve SFTP passwords if masked/empty (handles both file from/to and torrent source.sftp)
         transfer_config = self._preserve_sftp_passwords(transfer_config, existing_conn_config)
@@ -196,8 +259,11 @@ class ConnectionService:
         
         # Handle rename
         if actual_name != final_name:
-            del updated_config["connections"][actual_name]
-        updated_config["connections"][final_name] = connection_config
+            del updated_connections[actual_name]
+        updated_connections[final_name] = connection_config
+        updated_config["connections"] = updated_connections
+
+        warnings = _build_chain_warnings(updated_connections, from_client, to_client)
         
         if not self.torrent_manager.save_config(updated_config):
             raise ConfigSaveError("Failed to save configuration")
@@ -214,7 +280,10 @@ class ConnectionService:
         from_client_obj.add_connection(new_connection)
         to_client_obj.add_connection(new_connection)
         
-        return {"name": final_name, "from": from_client, "to": to_client}
+        return {
+            "connection": {"name": final_name, "from": from_client, "to": to_client},
+            "warnings": warnings,
+        }
     
     def delete_connection(self, name: str) -> str:
         """Delete a connection.

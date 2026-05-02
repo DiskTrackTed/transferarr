@@ -148,6 +148,24 @@ def register_routes(bp):
         responses:
           201:
             description: Connection added successfully
+            schema:
+              type: object
+              properties:
+                data:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                    from:
+                      type: string
+                    to:
+                      type: string
+                message:
+                  type: string
+                warnings:
+                  type: array
+                  items:
+                    type: string
           400:
             description: Invalid connection data or name contains '/'
           404:
@@ -164,7 +182,11 @@ def register_routes(bp):
         
         try:
             result = service.add_connection(data)
-            return created_response(result, f"Connection '{data['name']}' added successfully")
+            return created_response(
+                result["connection"],
+                f"Connection '{data['name']}' added successfully",
+                warnings=result["warnings"],
+            )
         except ConflictError as e:
             return error_response("DUPLICATE_CONNECTION", str(e), status_code=409)
         except NotFoundError as e:
@@ -296,6 +318,24 @@ def register_routes(bp):
         responses:
           200:
             description: Connection updated successfully
+            schema:
+              type: object
+              properties:
+                data:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                    from:
+                      type: string
+                    to:
+                      type: string
+                message:
+                  type: string
+                warnings:
+                  type: array
+                  items:
+                    type: string
           400:
             description: Invalid connection data or new name contains '/'
           404:
@@ -313,7 +353,11 @@ def register_routes(bp):
         try:
             result = service.update_connection(connection_name, data)
             new_name = data.get("name", connection_name)
-            return success_response(result, f"Connection '{new_name}' updated successfully")
+            return success_response(
+                result["connection"],
+                f"Connection '{new_name}' updated successfully",
+                warnings=result["warnings"],
+            )
         except NotFoundError as e:
             return not_found_response(e.resource_type, e.identifier)
         except ConflictError as e:

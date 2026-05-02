@@ -11,6 +11,11 @@
             <div class="modal-body">
                 <form id="connectionForm">
                     <input type="hidden" id="connectionId" value="">
+
+                    <div id="connectionSaveWarnings" class="alert alert-warning mb-3" style="display: none;">
+                        <div id="connectionSaveWarningsTitle" class="fw-semibold mb-2">Potential chain warning</div>
+                        <ul id="connectionSaveWarningsList" class="mb-0"></ul>
+                    </div>
                     
                     <!-- Connection Name -->
                     <div class="form-group mb-3">
