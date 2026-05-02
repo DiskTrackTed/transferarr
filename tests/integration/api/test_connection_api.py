@@ -55,6 +55,7 @@ class TestFileTransferConnectionApi:
         assert data['data']['name'] == 'test-file-conn'
         assert data['data']['from'] == 'source-deluge'
         assert data['data']['to'] == 'target-deluge'
+        assert data['warnings'] == []
 
         # Cleanup
         requests.delete(f"{url}/test-file-conn", timeout=TIMEOUTS['api_response'])
@@ -113,6 +114,7 @@ class TestTorrentConnectionApi:
         assert data['data']['name'] == 'test-torrent-conn'
         assert data['data']['from'] == 'source-deluge'
         assert data['data']['to'] == 'target-deluge'
+        assert data['warnings'] == []
 
         # Cleanup
         requests.delete(f"{url}/test-torrent-conn", timeout=TIMEOUTS['api_response'])
@@ -166,6 +168,7 @@ class TestTorrentConnectionApi:
             timeout=TIMEOUTS['api_response'],
         )
         assert update_resp.status_code == 200, f"Expected 200, got {update_resp.status_code}: {update_resp.text}"
+        assert update_resp.json()['warnings'] == []
 
         # Verify the update via list
         list_resp = requests.get(base_url, timeout=TIMEOUTS['api_response'])
@@ -200,6 +203,75 @@ class TestTorrentConnectionApi:
         assert len(details) == 3, f"Expected 3 component details, got {len(details)}: {details}"
         for detail in details:
             assert detail['success'] is True, f"Component failed: {detail}"
+
+
+class TestConnectionWarningApi:
+    """Tests for non-blocking chain warnings on connection save."""
+
+    @pytest.fixture(autouse=True)
+    def setup(self, clean_test_environment, transferarr):
+        """Start transferarr with the multi-target config for 3-client topology."""
+        transferarr.start(config_type='multi-target', wait_healthy=True)
+
+    def test_create_connection_returns_warning_for_immediate_chain(self):
+        url = f"{get_api_url()}/connections"
+        payload = {
+            "name": "chain-warning-create",
+            "from": "target-deluge",
+            "to": "target-deluge-2",
+            "transfer_config": {
+                "type": "torrent",
+            },
+        }
+
+        response = requests.post(url, json=payload, timeout=TIMEOUTS['api_response'])
+        assert response.status_code == 201, f"Expected 201, got {response.status_code}: {response.text}"
+
+        data = response.json()
+        assert data['data']['name'] == 'chain-warning-create'
+        assert data['warnings'] == [
+            "Connection target-deluge -> target-deluge-2 creates a chain (source-deluge -> target-deluge -> target-deluge-2). "
+            "Transferarr does not support multi-hop transfers. Torrents on source-deluge will transfer to target-deluge "
+            "but will NOT automatically continue to target-deluge-2."
+        ]
+
+        requests.delete(f"{url}/chain-warning-create", timeout=TIMEOUTS['api_response'])
+
+    def test_update_connection_returns_warning_for_immediate_chain(self):
+        base_url = f"{get_api_url()}/connections"
+
+        create_payload = {
+            "name": "chain-warning-update",
+            "from": "source-deluge",
+            "to": "target-deluge-2",
+            "transfer_config": {
+                "type": "torrent",
+            },
+        }
+        create_resp = requests.post(base_url, json=create_payload, timeout=TIMEOUTS['api_response'])
+        assert create_resp.status_code == 201, f"Expected 201, got {create_resp.status_code}: {create_resp.text}"
+        assert create_resp.json()['warnings'] == []
+
+        update_payload = {
+            "from": "target-deluge",
+            "to": "target-deluge-2",
+            "transfer_config": {
+                "type": "torrent",
+            },
+        }
+        update_resp = requests.put(
+            f"{base_url}/chain-warning-update",
+            json=update_payload,
+            timeout=TIMEOUTS['api_response'],
+        )
+        assert update_resp.status_code == 200, f"Expected 200, got {update_resp.status_code}: {update_resp.text}"
+        assert update_resp.json()['warnings'] == [
+            "Connection target-deluge -> target-deluge-2 creates a chain (source-deluge -> target-deluge -> target-deluge-2). "
+            "Transferarr does not support multi-hop transfers. Torrents on source-deluge will transfer to target-deluge "
+            "but will NOT automatically continue to target-deluge-2."
+        ]
+
+        requests.delete(f"{base_url}/chain-warning-update", timeout=TIMEOUTS['api_response'])
 
 
 # =============================================================================

@@ -147,6 +147,7 @@ def add_connection_via_ui(
     from_config: dict,
     to_config: dict,
     paths: dict,
+    expect_modal_close: bool = True,
 ):
     """Add a connection via the UI.
     
@@ -242,7 +243,10 @@ def add_connection_via_ui(
     save_response = response_info.value
     assert save_response.status in (200, 201), f"Save connection failed: {save_response.status}"
     
-    expect(page.locator(settings_page.CONNECTION_MODAL)).not_to_be_visible()
+    if expect_modal_close:
+        expect(page.locator(settings_page.CONNECTION_MODAL)).not_to_be_visible()
+    else:
+        expect(page.locator(settings_page.CONNECTION_MODAL)).to_be_visible()
     settings_page.wait_for_connections_loaded()
     
     # Wait for connection card to appear
@@ -261,6 +265,7 @@ def add_torrent_connection_via_ui(
     source_type: str = "sftp",
     state_dir: str | None = None,
     magnet_only: bool = False,
+    expect_modal_close: bool = True,
 ):
     """Add a torrent-type connection via the UI.
 
@@ -367,7 +372,10 @@ def add_torrent_connection_via_ui(
     save_response = response_info.value
     assert save_response.status in (200, 201), f"Save torrent connection failed: {save_response.status}"
 
-    expect(page.locator(settings_page.CONNECTION_MODAL)).not_to_be_visible()
+    if expect_modal_close:
+        expect(page.locator(settings_page.CONNECTION_MODAL)).not_to_be_visible()
+    else:
+        expect(page.locator(settings_page.CONNECTION_MODAL)).to_be_visible()
     settings_page.wait_for_connections_loaded()
 
     page.wait_for_selector(settings_page.CONNECTION_CARD, timeout=UI_TIMEOUTS['api_response'])

@@ -15,6 +15,7 @@ Note: Connection tests are more complex because:
 2. Connection modal requires successful connection test before paths can be configured
 3. The SFTP config is more complex with multiple fields
 """
+import time
 import logging
 import pytest
 from playwright.sync_api import Page, expect
@@ -118,6 +119,131 @@ class TestAddConnection:
         
         save_btn = settings_page.page.locator(settings_page.SAVE_CONNECTION_BTN)
         expect(save_btn).to_be_disabled()
+
+
+class TestChainConnectionWarnings:
+    """Tests for non-blocking chain warnings in the connection modal."""
+
+    @pytest.fixture(autouse=True)
+    def setup(self, crud_test_setup):
+        """Use shared CRUD setup, then individual tests can override config as needed."""
+        pass
+
+    @pytest.mark.timeout(120)
+    def test_chain_warning_appears_before_save(self, settings_page, page: Page, transferarr):
+        """Selecting a chain topology should show the inline warning even if the list is still loading."""
+        transferarr.stop()
+        transferarr.set_auth_config(enabled=False)
+        transferarr.start(wait_healthy=True, config_type='multi-target')
+
+        delayed_once = {"done": False}
+
+        def delay_connections(route):
+            if route.request.method == "GET" and not delayed_once["done"]:
+                delayed_once["done"] = True
+                time.sleep(5)
+            route.continue_()
+
+        page.route("**/api/v1/connections", delay_connections)
+
+        settings_page.goto()
+        settings_page.switch_to_connections_tab()
+        settings_page.open_add_connection_modal()
+
+        page.wait_for_timeout(UI_TIMEOUTS['dropdown_load'])
+        page.fill(settings_page.CONNECTION_NAME, 'chain-warning-preview')
+        page.select_option(settings_page.CONNECTION_FROM_SELECT, 'target-deluge')
+        page.select_option(settings_page.CONNECTION_TO_SELECT, 'target-deluge-2')
+
+        expect(page.locator(settings_page.CONNECTION_SAVE_WARNING)).to_be_visible(
+            timeout=UI_TIMEOUTS['api_response_slow']
+        )
+        expect(page.locator(settings_page.SAVE_CONNECTION_BTN)).to_be_disabled()
+
+        settings_page.wait_for_connections_loaded(timeout=UI_TIMEOUTS['api_response_slow'])
+
+        warning_text = settings_page.get_connection_warning_text()
+        assert 'Connection target-deluge -> target-deluge-2 creates a chain' in warning_text
+        assert 'source-deluge -> target-deluge -> target-deluge-2' in warning_text
+
+    @pytest.mark.timeout(120)
+    def test_chain_warning_keeps_modal_open(self, settings_page, page: Page, transferarr):
+        """Creating a chain topology should save successfully and show an inline warning."""
+        connection_name = "chain-warning-ui"
+        delete_connection_via_api(connection_name)
+
+        transferarr.stop()
+        transferarr.set_auth_config(enabled=False)
+        transferarr.start(wait_healthy=True, config_type='multi-target')
+
+        try:
+            settings_page.goto()
+            settings_page.switch_to_connections_tab()
+            settings_page.wait_for_connections_loaded()
+
+            add_torrent_connection_via_ui(
+                settings_page,
+                page,
+                connection_name=connection_name,
+                from_client="target-deluge",
+                to_client="target-deluge-2",
+                magnet_only=True,
+                expect_modal_close=False,
+            )
+
+            expect(page.locator(settings_page.CONNECTION_MODAL)).to_be_visible()
+            expect(page.locator(settings_page.CONNECTION_SAVE_WARNING)).to_be_visible()
+            expect(page.locator(settings_page.CONNECTION_NAME)).to_have_value(connection_name)
+            expect(page.locator("#connectionModalTitle")).to_have_text("Edit Connection")
+
+            warning_text = settings_page.get_connection_warning_text()
+            assert "Connection target-deluge -> target-deluge-2 creates a chain" in warning_text
+            assert "source-deluge -> target-deluge -> target-deluge-2" in warning_text
+
+            expect(page.locator(f".connection-card[data-name='{connection_name}']")).to_be_visible(
+                timeout=UI_TIMEOUTS['api_response']
+            )
+
+            settings_page.close_connection_modal()
+
+            conn_card = page.locator(f".connection-card[data-name='{connection_name}']")
+            conn_card.locator(".btn-primary").click()
+
+            expect(page.locator(settings_page.CONNECTION_MODAL)).to_be_visible()
+            expect(page.locator(settings_page.CONNECTION_SAVE_WARNING)).to_be_visible(
+                timeout=UI_TIMEOUTS['api_response_slow']
+            )
+
+            warning_text = settings_page.get_connection_warning_text()
+            assert "Connection target-deluge -> target-deluge-2 creates a chain" in warning_text
+            assert "source-deluge -> target-deluge -> target-deluge-2" in warning_text
+        finally:
+            delete_connection_via_api(connection_name)
+
+    @pytest.mark.timeout(120)
+    def test_reverse_edge_preview_shows_single_warning(self, settings_page, page: Page, transferarr):
+        """Selecting the reverse edge of an existing connection should show only one warning."""
+        transferarr.stop()
+        transferarr.set_auth_config(enabled=False)
+        transferarr.start(wait_healthy=True, config_type='multi-target')
+
+        settings_page.goto()
+        settings_page.switch_to_connections_tab()
+        settings_page.wait_for_connections_loaded()
+        settings_page.open_add_connection_modal()
+
+        page.wait_for_timeout(UI_TIMEOUTS['dropdown_load'])
+        page.fill(settings_page.CONNECTION_NAME, 'reverse-edge-preview')
+        page.select_option(settings_page.CONNECTION_FROM_SELECT, 'target-deluge')
+        page.select_option(settings_page.CONNECTION_TO_SELECT, 'source-deluge')
+
+        expect(page.locator(settings_page.CONNECTION_SAVE_WARNING)).to_be_visible()
+        expect(page.locator(settings_page.CONNECTION_SAVE_WARNING_ITEMS)).to_have_count(1)
+
+        warning_text = settings_page.get_connection_warning_text()
+        assert 'Connection target-deluge -> source-deluge creates a chain' in warning_text
+        assert 'source-deluge -> target-deluge -> source-deluge' in warning_text
+        assert 'target-deluge -> source-deluge -> target-deluge' not in warning_text
 
 
 class TestConnectionForm:

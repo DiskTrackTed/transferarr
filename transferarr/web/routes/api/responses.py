@@ -10,13 +10,14 @@ This provides consistent structure for frontend parsing and error handling.
 from flask import jsonify
 
 
-def success_response(data=None, message=None, status_code=200):
+def success_response(data=None, message=None, status_code=200, warnings=None):
     """Standard success response format.
     
     Args:
         data: The response data (can be dict, list, or None)
         message: Optional success message
         status_code: HTTP status code (default 200)
+        warnings: Optional list of non-blocking warning strings
     
     Returns:
         tuple: (Flask response, status_code)
@@ -24,6 +25,8 @@ def success_response(data=None, message=None, status_code=200):
     response = {"data": data}
     if message:
         response["message"] = message
+    if warnings is not None:
+        response["warnings"] = warnings
     return jsonify(response), status_code
 
 
@@ -50,17 +53,18 @@ def error_response(code, message, details=None, status_code=400):
     return jsonify(response), status_code
 
 
-def created_response(data, message=None):
+def created_response(data, message=None, warnings=None):
     """Response for successful creation (201 Created).
     
     Args:
         data: The created resource data
         message: Optional success message
+        warnings: Optional list of non-blocking warning strings
     
     Returns:
         tuple: (Flask response, 201)
     """
-    return success_response(data, message, 201)
+    return success_response(data, message, 201, warnings=warnings)
 
 
 def not_found_response(resource_type, identifier):

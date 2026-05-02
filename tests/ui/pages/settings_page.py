@@ -58,6 +58,8 @@ class SettingsPage(BasePage):
     CONNECTION_TO_TYPE = "#toType"
     SAVE_CONNECTION_BTN = "#saveConnectionBtn"
     TEST_CONNECTION_BTN2 = "#testConnectionBtn2"
+    CONNECTION_SAVE_WARNING = "#connectionSaveWarnings"
+    CONNECTION_SAVE_WARNING_ITEMS = "#connectionSaveWarningsList li"
     
     # SFTP config fields
     FROM_SFTP_HOST = "#fromSftpHost"
@@ -375,6 +377,14 @@ class SettingsPage(BasePage):
     def save_connection(self) -> None:
         """Click save connection button."""
         self.page.click(self.SAVE_CONNECTION_BTN)
+
+    def is_connection_warning_visible(self) -> bool:
+        """Check if the inline connection warning is visible."""
+        return self.page.locator(self.CONNECTION_SAVE_WARNING).is_visible()
+
+    def get_connection_warning_text(self) -> str:
+        """Get the full inline connection warning text."""
+        return self.page.locator(self.CONNECTION_SAVE_WARNING).inner_text().strip()
     
     def get_connection_by_clients(self, from_client: str, to_client: str):
         """Get a connection card by client names.
