@@ -203,6 +203,7 @@ class ConnectionSchema(Schema):
     from_ = fields.Str(required=True, data_key="from")
     to = fields.Str(required=True)
     transfer_config = fields.Dict(required=True)
+    manual_only = fields.Bool(load_default=False)
     # Path fields: required for file transfers, ignored for torrent transfers
     source_dot_torrent_path = fields.Str(load_default=None)
     source_torrent_download_path = fields.Str(load_default=None)
@@ -240,6 +241,7 @@ class ConnectionUpdateSchema(Schema):
     from_ = fields.Str(required=True, data_key="from")
     to = fields.Str(required=True)
     transfer_config = fields.Dict(required=True)
+    manual_only = fields.Bool(load_default=None)
     # Path fields: required for file transfers, ignored for torrent transfers
     source_dot_torrent_path = fields.Str(load_default=None)
     source_torrent_download_path = fields.Str(load_default=None)
@@ -286,7 +288,7 @@ class BrowseRequestSchema(Schema):
     """Schema for POST /api/v1/browse"""
     type = fields.Str(required=True, validate=validate.OneOf(["local", "sftp"]))
     path = fields.Str(load_default="/")
-    sftp = fields.Nested(SFTPConfigSchema, load_default=None)
+    config = fields.Nested(SFTPConfigSchema, load_default=None)
 
 
 # =============================================================================
@@ -305,5 +307,6 @@ class ManualTransferSchema(Schema):
     )
     source_client = fields.Str(required=True, validate=validate.Length(min=1))
     destination_client = fields.Str(required=True, validate=validate.Length(min=1))
+    connection_name = fields.Str(load_default=None)
     include_cross_seeds = fields.Bool(load_default=False)
     delete_source_cross_seeds = fields.Bool(load_default=True)

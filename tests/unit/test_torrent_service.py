@@ -32,6 +32,90 @@ def _make_torrent(name="Test.Movie.2024", state=TorrentState.TORRENT_DOWNLOADING
     return t
 
 
+class TestAutomaticConnectionSelection:
+    def test_skips_manual_only_connections(self):
+        source_client = Mock()
+        source_client.name = "source-deluge"
+
+        manual_only = Mock()
+        manual_only.from_client = source_client
+        manual_only.manual_only = True
+
+        automatic = Mock()
+        automatic.from_client = source_client
+        automatic.manual_only = False
+
+        manager = Mock(spec=TorrentManager)
+        manager.connections = {
+            "manual": manual_only,
+            "automatic": automatic,
+        }
+        manager._select_automatic_connection = TorrentManager._select_automatic_connection.__get__(manager)
+
+        assert manager._select_automatic_connection("source-deluge") is automatic
+
+
+class TestTorrentConnectionPersistence:
+    def test_connection_name_round_trips(self):
+        source = Mock()
+        source.name = "source-deluge"
+        target = Mock()
+        target.name = "target-deluge"
+
+        torrent = Torrent(
+            name="Test.Movie.2024",
+            id="abc123",
+            home_client=source,
+            home_client_name="source-deluge",
+            target_client=target,
+            target_client_name="target-deluge",
+            connection_name="source-to-target",
+        )
+
+        restored = Torrent.from_dict(
+            torrent.to_dict(),
+            {
+                "source-deluge": source,
+                "target-deluge": target,
+            },
+        )
+
+        assert restored.connection_name == "source-to-target"
+
+    def test_does_not_rebind_to_different_target_when_target_already_known(self):
+        source = Mock()
+        source.name = "source-deluge"
+        target = Mock()
+        target.name = "target-deluge"
+        other_target = Mock()
+        other_target.name = "other-target"
+
+        torrent = Torrent(
+            name="Test.Movie.2024",
+            id="abc123",
+            home_client=source,
+            home_client_name="source-deluge",
+            target_client=target,
+            target_client_name="target-deluge",
+        )
+
+        connection = Mock()
+        connection.from_client = source
+        connection.to_client = other_target
+        connection.manual_only = False
+        connection.name = "source-to-other"
+
+        manager = Mock(spec=TorrentManager)
+        manager.connections = {"source-to-other": connection}
+        manager._select_automatic_connection = TorrentManager._select_automatic_connection.__get__(manager)
+        manager._get_connection_for_torrent = TorrentManager._get_connection_for_torrent.__get__(manager)
+
+        assert manager._get_connection_for_torrent(torrent) is None
+        assert torrent.target_client is target
+        assert torrent.target_client_name == "target-deluge"
+        assert torrent.connection_name is None
+
+
 # ──────────────────────────────────────────────────
 # Test _reregister_pending_transfers
 # ──────────────────────────────────────────────────
@@ -716,6 +800,8 @@ class TestPrivateTorrentEarlyGate:
         manager.media_managers = []
         manager.download_clients = {connection.from_client.name: connection.from_client}
         manager.running = False  # single iteration
+        manager._select_automatic_connection = TorrentManager._select_automatic_connection.__get__(manager)
+        manager._get_connection_for_torrent = TorrentManager._get_connection_for_torrent.__get__(manager)
         manager.update_torrents = TorrentManager.update_torrents.__get__(manager)
         return manager
 
@@ -779,6 +865,16 @@ class TestPrivateTorrentEarlyGate:
 
         # Should not have entered the create queue
         assert torrent.state != TorrentState.TORRENT_CREATE_QUEUE
+
+    def test_missing_matching_connection_sets_error(self):
+        """A HOME_SEEDING torrent without a valid route should fail loudly."""
+        torrent = self._make_seeding_torrent()
+        conn = self._make_torrent_connection(to_name="other-target", source_type=None)
+
+        manager = self._make_manager_for_update(torrent, conn)
+        manager.update_torrents()
+
+        assert torrent.state == TorrentState.ERROR
 
     def test_non_private_torrent_magnet_only_proceeds(self):
         """Non-private torrent in magnet-only mode proceeds to TORRENT_CREATE_QUEUE."""

@@ -39,7 +39,7 @@ class Torrent:
     def __init__(self, name=None, id=None, state=None, 
                  home_client=None, target_client=None,
                  home_client_info=None, home_client_name=None, target_client_info=None, 
-                 target_client_name=None, save_callback=None, media_manager=None,
+                 target_client_name=None, connection_name=None, save_callback=None, media_manager=None,
                  transfer=None, _transfer_id=None, delete_source_cross_seeds=None):
         self.name = name
         self.id = id
@@ -50,6 +50,7 @@ class Torrent:
         self.target_client = target_client
         self.target_client_name = target_client_name
         self.target_client_info = target_client_info
+        self.connection_name = connection_name
         self.save_callback = save_callback
         self.media_manager = media_manager
         self.size = 0
@@ -82,6 +83,12 @@ class Torrent:
     def set_target_client(self, client):
         self.target_client = client
         self.target_client_name = client.name
+
+    def bind_connection(self, connection):
+        if self.target_client is None or self.target_client_name != connection.to_client.name:
+            self.set_target_client(connection.to_client)
+        self.connection_name = connection.name
+        self.mark_dirty()
 
     def __str__(self):
         return f"{self.name} - {self.id}: - {self.state.name if self.state else None}"
@@ -126,6 +133,7 @@ class Torrent:
             "home_client_info": self.home_client_info,
             "target_client_info": self.target_client_info,
             "target_client_name": self.target_client_name,
+            "connection_name": self.connection_name,
             "progress": self._get_display_progress(),
             "size": self._get_display_size(),
             "transfer_speed": self._get_display_transfer_speed(),
@@ -232,6 +240,7 @@ class Torrent:
             target_client=download_clients.get(data.get("target_client_name")),
             target_client_info=data.get("target_client_info"),
             target_client_name=data.get("target_client_name"),
+            connection_name=data.get("connection_name"),
             save_callback=save_callback,
             media_manager=media_manager,
             transfer=data.get("transfer"),  # Restore transfer data if present

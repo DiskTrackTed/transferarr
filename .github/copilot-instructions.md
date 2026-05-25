@@ -38,7 +38,7 @@ All configuration is JSON-based (`config.json`). Structure:
 {
   "media_managers": [{"type": "radarr|sonarr", "host", "port", "api_key"}],
   "download_clients": {"name": {"type": "deluge", "connection_type": "rpc|web", ...}},
-  "connections": {"name": {"from": "client_name", "to": "client_name", "transfer_config": {...}}},
+  "connections": {"name": {"from": "client_name", "to": "client_name", "manual_only": false, "transfer_config": {...}}},
   "history": {"enabled": true, "retention_days": 90, "track_progress": true},
   "auth": {"enabled": true, "username": "admin", "password_hash": "$2b$...", "session_timeout_minutes": 60},
   "api": {"key": "tr_...", "key_required": true}

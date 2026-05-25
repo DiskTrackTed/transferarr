@@ -1,7 +1,10 @@
 """
 Service for transfer connection CRUD operations.
 """
+from typing import Optional
+
 from transferarr.services.transfer_connection import TransferConnection, test_torrent_client_connectivity, _test_sftp_connectivity, _test_local_state_dir, is_torrent_transfer
+from transferarr.models.torrent import TorrentState
 from . import NotFoundError, ConflictError, ConfigSaveError
 import copy
 
@@ -110,6 +113,7 @@ class ConnectionService:
                 "name": name,
                 "from": connection.from_client.name,
                 "to": connection.to_client.name,
+                "manual_only": connection.manual_only,
                 "transfer_config": _mask_sftp_passwords(connection.transfer_config),
                 "transfer_type": transfer_type,
                 "active_transfers": connection.get_active_transfers_count(),
@@ -127,6 +131,43 @@ class ConnectionService:
             
             connections_data.append(conn_data)
         return connections_data
+
+    def _find_tracked_torrent_using_connection(self, connection_name: str, connection) -> Optional[object]:
+        torrents = getattr(self.torrent_manager, "torrents", None)
+        if torrents is None:
+            return None
+
+        try:
+            iterator = iter(torrents)
+        except TypeError:
+            return None
+
+        for torrent in iterator:
+            if torrent.state == TorrentState.TRANSFER_FAILED:
+                continue
+
+            if getattr(torrent, "connection_name", None) == connection_name:
+                return torrent
+
+            if getattr(torrent, "connection_name", None):
+                continue
+
+            if (getattr(torrent, "home_client_name", None) == connection.from_client.name
+                    and getattr(torrent, "target_client_name", None) == connection.to_client.name):
+                return torrent
+
+        return None
+
+    def _raise_if_connection_in_use(self, connection_name: str, connection) -> None:
+        torrent = self._find_tracked_torrent_using_connection(connection_name, connection)
+        if not torrent:
+            return
+
+        state_name = torrent.state.name if torrent.state else "unknown"
+        raise ConflictError(
+            f"Connection '{connection_name}' is currently in use by tracked torrent "
+            f"'{torrent.name}' (state: {state_name}). Finish or remove the transfer before changing or deleting this connection."
+        )
     
     def add_connection(self, data: dict) -> dict:
         """Add a new connection.
@@ -146,6 +187,7 @@ class ConnectionService:
         from_client = data["from"]
         to_client = data["to"]
         transfer_config = data["transfer_config"]
+        manual_only = data.get("manual_only", False)
         
         # Case-insensitive uniqueness check
         existing_names = {n.lower() for n in self.torrent_manager.connections.keys()}
@@ -163,6 +205,7 @@ class ConnectionService:
             "from": from_client,
             "to": to_client,
             "transfer_config": transfer_config,
+            "manual_only": manual_only,
         }
         
         # Include path fields only for file transfers
@@ -194,7 +237,12 @@ class ConnectionService:
         self.torrent_manager.connections[name] = new_connection
         
         return {
-            "connection": {"name": name, "from": from_client, "to": to_client},
+            "connection": {
+                "name": name,
+                "from": from_client,
+                "to": to_client,
+                "manual_only": manual_only,
+            },
             "warnings": warnings,
         }
     
@@ -216,10 +264,13 @@ class ConnectionService:
         actual_name, connection = _find_connection_by_name(self.torrent_manager.connections, name)
         if not connection:
             raise NotFoundError("Connection", name)
+
+        self._raise_if_connection_in_use(actual_name, connection)
         
         from_client = data["from"]
         to_client = data["to"]
         transfer_config = data["transfer_config"]
+        manual_only = data.get("manual_only")
         new_name = data.get("name")
         
         # Handle renaming
@@ -239,6 +290,12 @@ class ConnectionService:
         existing_connections = updated_config.get("connections")
         updated_connections = dict(existing_connections) if isinstance(existing_connections, dict) else {}
         existing_conn_config = updated_connections.get(actual_name, {})
+        existing_manual_only = existing_conn_config.get(
+            "manual_only",
+            getattr(connection, "manual_only", False),
+        )
+        if manual_only is None:
+            manual_only = existing_manual_only
         
         # Preserve SFTP passwords if masked/empty (handles both file from/to and torrent source.sftp)
         transfer_config = self._preserve_sftp_passwords(transfer_config, existing_conn_config)
@@ -248,6 +305,7 @@ class ConnectionService:
             "from": from_client,
             "to": to_client,
             "transfer_config": transfer_config,
+            "manual_only": manual_only,
         }
         
         # Include path fields only for file transfers
@@ -281,7 +339,12 @@ class ConnectionService:
         to_client_obj.add_connection(new_connection)
         
         return {
-            "connection": {"name": final_name, "from": from_client, "to": to_client},
+            "connection": {
+                "name": final_name,
+                "from": from_client,
+                "to": to_client,
+                "manual_only": manual_only,
+            },
             "warnings": warnings,
         }
     
@@ -298,6 +361,8 @@ class ConnectionService:
         actual_name, connection = _find_connection_by_name(self.torrent_manager.connections, name)
         if not connection:
             raise NotFoundError("Connection", name)
+
+        self._raise_if_connection_in_use(actual_name, connection)
         
         updated_config = dict(self.torrent_manager.config)
         del updated_config["connections"][actual_name]

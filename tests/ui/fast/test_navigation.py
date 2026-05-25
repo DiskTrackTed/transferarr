@@ -112,14 +112,14 @@ class TestDirectURLAccess:
     
     def test_history_direct_access(self, page: Page, base_url: str):
         """Test that history page is accessible via direct URL."""
-        page.goto(f"{base_url}/history")
+        page.goto(f"{base_url}/history", wait_until="domcontentloaded")
         
         expect(page).to_have_title("Transferarr - History")
         expect(page.locator("h2")).to_contain_text("Transfer History")
     
     def test_settings_direct_access(self, page: Page, base_url: str):
         """Test that settings page is accessible via direct URL."""
-        page.goto(f"{base_url}/settings")
+        page.goto(f"{base_url}/settings", wait_until="domcontentloaded")
         
         expect(page).to_have_title("Transferarr - Settings")
         expect(page.locator("h2")).to_contain_text("Settings")

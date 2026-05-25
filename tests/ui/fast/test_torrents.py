@@ -694,6 +694,7 @@ class TestTorrentsPolling:
             "hashes": ["aaa111"],
             "source_client": "source-deluge",
             "destination_client": "target-deluge",
+            "connection_name": "source-to-target",
             "include_cross_seeds": False,
             "delete_source_cross_seeds": True,
         }

@@ -154,6 +154,9 @@ function setConnectionEditMode(savedConnection) {
     document.getElementById('connectionName').value = savedConnection.name || '';
     document.getElementById('fromClient').value = savedConnection.from || '';
     document.getElementById('toClient').value = savedConnection.to || '';
+    if (Object.prototype.hasOwnProperty.call(savedConnection, 'manual_only')) {
+        document.getElementById('connectionManualOnly').checked = Boolean(savedConnection.manual_only);
+    }
     document.getElementById('connectionModalTitle').textContent = 'Edit Connection';
 }
 
@@ -342,11 +345,15 @@ function createConnectionCard(connection) {
     // Add connection details
     const transferType = connection.transfer_config?.type === 'torrent' ? 'Torrent' : 'File';
     const transferTypeClass = connection.transfer_config?.type === 'torrent' ? 'badge bg-info' : 'badge bg-secondary';
+    const routingMode = connection.manual_only
+        ? '<p><strong>Routing:</strong> <span class="badge bg-warning text-dark">Manual Only</span></p>'
+        : '';
     connectionInfo.innerHTML = `
         <p><strong>Status:</strong> <span class="status-badge ${connection.status.toLowerCase()}">${connection.status}</span></p>
         <p><strong>From Client:</strong> ${connection.from}</p>
         <p><strong>To Client:</strong> ${connection.to}</p>
         <p><strong>Transfer Type:</strong> <span class="${transferTypeClass}">${transferType}</span></p>
+        ${routingMode}
         <p><strong>Active Transfers:</strong> ${connection.active_transfers} / ${connection.max_transfers}</p>
         <p><strong>Total Transfers:</strong> ${connection.total_transfers}</p>
     `;
@@ -436,6 +443,7 @@ function editConnection(connection) {
     populateClientDropdowns().then(() => {
         // Populate the connection name field
         document.getElementById('connectionName').value = connection.name;
+        document.getElementById('connectionManualOnly').checked = Boolean(connection.manual_only);
         
         // Set selected client values after clients are loaded
         document.getElementById('fromClient').value = connection.from;
@@ -647,6 +655,7 @@ function resetConnectionForm() {
     document.getElementById('connectionForm').reset();
     document.getElementById('connectionId').value = '';
     document.getElementById('connectionName').value = '';
+    document.getElementById('connectionManualOnly').checked = false;
     clearConnectionWarnings();
     document.getElementById('saveConnectionBtn').disabled = true;
     resetTestConnectionBtn();
@@ -806,6 +815,7 @@ function testConnection() {
     const fromType = document.getElementById('fromType').value;
     const toType = document.getElementById('toType').value;
     const transferMethod = document.getElementById('transferMethod').value;
+    const manualOnly = document.getElementById('connectionManualOnly').checked;
     
     // Validate selection
     if (!fromClient || !toClient) {
@@ -1011,6 +1021,7 @@ function saveConnection() {
     const fromType = document.getElementById('fromType').value;
     const toType = document.getElementById('toType').value;
     const transferMethod = document.getElementById('transferMethod').value;
+    const manualOnly = document.getElementById('connectionManualOnly').checked;
     
     // Validate connection name
     if (!connectionName) {
@@ -1042,6 +1053,7 @@ function saveConnection() {
         name: connectionName,
         from: fromClient,
         to: toClient,
+        manual_only: manualOnly,
         transfer_config: {}
     };
     

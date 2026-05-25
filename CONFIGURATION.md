@@ -42,6 +42,7 @@ Transferarr uses a JSON configuration file. Create `config.json` with the follow
     "homelab-to-seedbox": {
       "from": "homelab-deluge",
       "to": "seedbox-deluge",
+      "manual_only": false,
       "transfer_config": {
         "from": {
           "type": "local"
@@ -131,6 +132,7 @@ Connections are defined as an object where each key is a unique connection name:
 | *(key)* | string | Unique connection name (e.g., `"homelab-to-seedbox"`) |
 | `from` | string | Name of source download client |
 | `to` | string | Name of destination download client |
+| `manual_only` | boolean | If `true`, the connection is available for manual transfers only and skipped by automatic media manager routing. Defaults to `false`. |
 | `transfer_config` | object | Transfer method configuration (see [Transfer Config](#transfer-config)) |
 
 Additional path fields depend on the transfer method — see the Transfer Config section below.

@@ -1,9 +1,11 @@
-"""Unit tests for ConnectionService chain warnings."""
+"""Unit tests for ConnectionService chain warnings and connection guards."""
 
 from unittest.mock import Mock
 
 import pytest
 
+from transferarr.models.torrent import Torrent, TorrentState
+from transferarr.web.services import ConflictError
 from transferarr.web.services.connection_service import ConnectionService
 
 
@@ -28,11 +30,17 @@ def _make_client(name: str) -> Mock:
     return client
 
 
-def _make_runtime_connection(name: str, from_client: Mock, to_client: Mock) -> Mock:
+def _make_runtime_connection(name: str, from_client: Mock, to_client: Mock, manual_only: bool = False) -> Mock:
     connection = Mock()
     connection.name = name
     connection.from_client = from_client
     connection.to_client = to_client
+    connection.manual_only = manual_only
+    connection.transfer_config = {"type": "torrent"}
+    connection.is_torrent_transfer = True
+    connection.get_active_transfers_count.return_value = 0
+    connection.get_total_transfers_count.return_value = 0
+    connection.max_transfers = 3
     return connection
 
 
@@ -66,6 +74,7 @@ def _make_manager(existing_connections=None) -> Mock:
     manager.download_clients = download_clients
     manager.connections = runtime_connections
     manager.config = {"connections": config_connections}
+    manager.torrents = []
     manager.save_config.return_value = True
     return manager
 
@@ -78,6 +87,11 @@ def patch_transfer_connection(monkeypatch):
         connection.from_client = from_client_obj
         connection.to_client = to_client_obj
         connection.transfer_config = connection_config["transfer_config"]
+        connection.manual_only = connection_config.get("manual_only", False)
+        connection.is_torrent_transfer = connection.transfer_config.get("type") == "torrent"
+        connection.get_active_transfers_count.return_value = 0
+        connection.get_total_transfers_count.return_value = 0
+        connection.max_transfers = 3
         return connection
 
     monkeypatch.setattr(
@@ -102,6 +116,7 @@ class TestConnectionServiceWarnings:
             "name": "isolated",
             "from": "client-a",
             "to": "client-b",
+            "manual_only": False,
         }
 
     def test_add_connection_warns_for_inbound_chain(self):
@@ -298,3 +313,80 @@ class TestConnectionServiceWarnings:
                 "client-c",
             )
         ]
+
+
+class TestConnectionServiceManualOnly:
+    def test_add_connection_persists_manual_only(self):
+        manager = _make_manager()
+        service = ConnectionService(manager)
+
+        result = service.add_connection({
+            "name": "manual-only",
+            "from": "client-a",
+            "to": "client-b",
+            "manual_only": True,
+            "transfer_config": {"type": "torrent"},
+        })
+
+        assert manager.config["connections"]["manual-only"]["manual_only"] is True
+        assert manager.connections["manual-only"].manual_only is True
+        assert result["connection"]["manual_only"] is True
+
+    def test_list_connections_includes_manual_only(self):
+        manager = _make_manager([("a-to-b", "client-a", "client-b")])
+        manager.connections["a-to-b"].manual_only = True
+        service = ConnectionService(manager)
+
+        result = service.list_connections()
+
+        assert result[0]["manual_only"] is True
+
+    def test_update_connection_rejects_in_use_connection(self):
+        manager = _make_manager([("a-to-b", "client-a", "client-b")])
+        torrent = Torrent(name="Tracked", id="abc123", connection_name="a-to-b")
+        torrent.state = TorrentState.HOME_SEEDING
+        manager.torrents = [torrent]
+        service = ConnectionService(manager)
+
+        with pytest.raises(ConflictError, match="currently in use"):
+            service.update_connection("a-to-b", {
+                "from": "client-a",
+                "to": "client-b",
+                "manual_only": False,
+                "transfer_config": {"type": "torrent"},
+            })
+
+    def test_update_connection_preserves_manual_only_when_omitted(self):
+        manager = _make_manager([("a-to-b", "client-a", "client-b")])
+        manager.config["connections"]["a-to-b"]["manual_only"] = True
+        manager.connections["a-to-b"].manual_only = True
+        service = ConnectionService(manager)
+
+        result = service.update_connection("a-to-b", {
+            "from": "client-a",
+            "to": "client-b",
+            "transfer_config": {"type": "torrent"},
+        })
+
+        assert manager.config["connections"]["a-to-b"]["manual_only"] is True
+        assert manager.connections["a-to-b"].manual_only is True
+        assert result["connection"]["manual_only"] is True
+
+    def test_delete_connection_rejects_in_use_connection(self):
+        manager = _make_manager([("a-to-b", "client-a", "client-b")])
+        torrent = Torrent(name="Tracked", id="abc123", connection_name="a-to-b")
+        torrent.state = TorrentState.HOME_SEEDING
+        manager.torrents = [torrent]
+        service = ConnectionService(manager)
+
+        with pytest.raises(ConflictError, match="currently in use"):
+            service.delete_connection("a-to-b")
+
+    def test_transfer_failed_does_not_block_connection_delete(self):
+        manager = _make_manager([("a-to-b", "client-a", "client-b")])
+        torrent = Torrent(name="Tracked", id="abc123", connection_name="a-to-b")
+        torrent.state = TorrentState.TRANSFER_FAILED
+        manager.torrents = [torrent]
+        service = ConnectionService(manager)
+
+        assert service.delete_connection("a-to-b") == "a-to-b"
