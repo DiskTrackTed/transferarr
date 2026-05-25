@@ -60,8 +60,6 @@ def register_routes(api_bp):
             schema:
               type: object
               properties:
-                success:
-                  type: boolean
                 data:
                   type: object
                   properties:
@@ -71,6 +69,9 @@ def register_routes(api_bp):
                       type: string
                     session_timeout_minutes:
                       type: integer
+                    runtime_session_timeout_minutes:
+                      type: integer
+                      description: Currently applied runtime timeout in minutes. Changes may require restart to take effect.
           401:
             description: Authentication required
         """
@@ -229,8 +230,6 @@ def register_routes(api_bp):
             schema:
               type: object
               properties:
-                success:
-                  type: boolean
                 data:
                   type: object
                   properties:
@@ -325,14 +324,15 @@ def register_routes(api_bp):
             schema:
               type: object
               properties:
-                success:
-                  type: boolean
                 data:
                   type: object
                   properties:
                     key:
                       type: string
                       description: The newly generated API key
+                    message:
+                      type: string
+                      description: Success message describing the key regeneration result
           401:
             description: Authentication required
         """

@@ -37,18 +37,22 @@ class ManualTransferService:
             raise NotFoundError("Client", source_client)
 
         destinations = []
-        seen = set()
         for connection in self.torrent_manager.connections.values():
             if connection.from_client.name == source_client:
-                dest_name = connection.to_client.name
-                if dest_name not in seen:
-                    seen.add(dest_name)
-                    destinations.append({
-                        "client": dest_name,
-                        "connection": connection.name,
-                        "transfer_type": "torrent" if connection.is_torrent_transfer else "file",
-                    })
+                destinations.append({
+                    "client": connection.to_client.name,
+                    "connection": connection.name,
+                    "transfer_type": "torrent" if connection.is_torrent_transfer else "file",
+                })
         return destinations
+
+    def _get_matching_connections(self, source_client_name: str, dest_client_name: str) -> list:
+        return [
+            connection
+            for connection in self.torrent_manager.connections.values()
+            if (connection.from_client.name == source_client_name
+                and connection.to_client.name == dest_client_name)
+        ]
 
     def detect_cross_seeds(self, client_name: str, torrents_data: dict) -> dict:
         """Detect cross-seed groups for torrents on a client.
@@ -100,6 +104,7 @@ class ManualTransferService:
         hashes = data.get("hashes", [])
         source_client_name = data["source_client"]
         dest_client_name = data["destination_client"]
+        connection_name = data.get("connection_name")
         include_cross_seeds = data.get("include_cross_seeds", False)
 
         # Validate we have hashes
@@ -119,18 +124,27 @@ class ManualTransferService:
         source_client = self.torrent_manager.download_clients[source_client_name]
         dest_client = self.torrent_manager.download_clients[dest_client_name]
 
-        # Find a connection from source to destination
-        connection = None
-        for conn in self.torrent_manager.connections.values():
-            if (conn.from_client.name == source_client_name
-                    and conn.to_client.name == dest_client_name):
-                connection = conn
-                break
+        matching_connections = self._get_matching_connections(source_client_name, dest_client_name)
 
-        if not connection:
-            raise ValidationError(
-                f"No connection configured from '{source_client_name}' to '{dest_client_name}'"
-            )
+        if connection_name:
+            connection = self.torrent_manager.connections.get(connection_name)
+            if not connection:
+                raise ValidationError(f"Connection '{connection_name}' not found")
+            if (connection.from_client.name != source_client_name
+                    or connection.to_client.name != dest_client_name):
+                raise ValidationError(
+                    f"Connection '{connection_name}' does not route from '{source_client_name}' to '{dest_client_name}'"
+                )
+        else:
+            if not matching_connections:
+                raise ValidationError(
+                    f"No connection configured from '{source_client_name}' to '{dest_client_name}'"
+                )
+            if len(matching_connections) > 1:
+                raise ValidationError(
+                    f"Multiple connections are configured from '{source_client_name}' to '{dest_client_name}'. Select an exact connection."
+                )
+            connection = matching_connections[0]
 
         # Validate tracker is available for torrent transfers
         if (connection.is_torrent_transfer

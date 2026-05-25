@@ -514,6 +514,43 @@ class TorrentManager:
             logger.error(f"Failed to save configuration: {e}")
             return False
 
+    def _select_automatic_connection(self, source_client_name):
+        for connection in self.connections.values():
+            if connection.from_client.name == source_client_name and not connection.manual_only:
+                return connection
+        return None
+
+    def _get_connection_for_torrent(self, torrent):
+        if torrent.connection_name:
+            connection = self.connections.get(torrent.connection_name)
+            if connection:
+                return connection
+            logger.warning(
+                f"Bound connection '{torrent.connection_name}' not found for torrent {torrent.name}"
+            )
+            return None
+
+        if torrent.home_client and torrent.target_client:
+            for connection in self.connections.values():
+                if (connection.from_client.name == torrent.home_client.name and
+                        connection.to_client.name == torrent.target_client.name):
+                    torrent.bind_connection(connection)
+                    return connection
+
+            logger.warning(
+                f"No matching connection found from {torrent.home_client.name} "
+                f"to {torrent.target_client.name} for torrent {torrent.name}"
+            )
+            return None
+
+        if torrent.home_client:
+            connection = self._select_automatic_connection(torrent.home_client.name)
+            if connection:
+                torrent.bind_connection(connection)
+            return connection
+
+        return None
+
     def create_manual_transfers(self, hashes, source_client, dest_client,
                                 connection, delete_source_cross_seeds=True):
         """Create and initiate manual transfers for the given torrent hashes.
@@ -558,6 +595,7 @@ class TorrentManager:
                 torrent.set_home_client_info(info)
                 torrent.set_progress_from_home_client_info()
                 torrent.set_target_client(dest_client)
+                torrent.connection_name = connection.name
                 torrent.media_manager = None  # Manual transfer — no media manager
                 torrent.delete_source_cross_seeds = delete_source_cross_seeds
                 torrent.state = TorrentState.HOME_SEEDING  # no save_callback yet
@@ -736,13 +774,10 @@ class TorrentManager:
                     continue
                 else:
                     ### Time to find it's target using our connections
-                    for connection in self.connections.values():
-                        found_connection = False
-                        if connection.from_client.name == torrent.home_client.name:
-                            torrent.set_target_client(connection.to_client)
-                            found_connection = True
-                            break
-                    if not found_connection:
+                    connection = self._select_automatic_connection(torrent.home_client.name)
+                    if connection:
+                        torrent.bind_connection(connection)
+                    else:
                         logger.debug(f"Torrent {torrent.name}: client {torrent.home_client.name} has no connection to any other client, not tracking")
                         # torrents.remove(torrent)
                         torrents_to_remove.append(torrent)
@@ -768,45 +803,49 @@ class TorrentManager:
                 ### Now we check if it's seeding
                 if torrent.state == TorrentState.HOME_SEEDING:
                     logger.debug(f"Torrent {torrent.name} is seeding on home client: {torrent.home_client.name}, checking connection")
-                    for connection in self.connections.values():
-                        if connection.from_client.name == torrent.home_client.name and connection.to_client.name == torrent.target_client.name:
-                            if torrent.target_client.has_torrent(torrent):
-                                torrent.state = torrent.target_client.get_torrent_state(torrent)
-                                torrent.set_target_client_info(torrent.target_client.get_torrent_info(torrent))
-                                logger.debug(f"Torrent {torrent.name} already exists on {torrent.target_client.name}")
-                            else:
-                                logger.debug(f"Torrent {torrent.name} not found on {torrent.target_client.name}, ready to transfer")
-                                # Check if this is a torrent-based transfer
-                                if connection.is_torrent_transfer:
-                                    if self.torrent_transfer_handler:
-                                        # Early gate: reject private torrents in magnet-only mode
-                                        # before creating any transfer torrents.
-                                        if connection.source_type is None:
-                                            try:
-                                                is_private = torrent.home_client.is_private_torrent(torrent.id)
-                                            except Exception as e:
-                                                logger.warning(
-                                                    f"Could not check private flag for {torrent.name}: {e}. "
-                                                    f"Proceeding (will re-check in handle_seeding)."
-                                                )
-                                                is_private = False
-                                            if is_private:
-                                                logger.error(
-                                                    f"Torrent '{torrent.name}' is a private tracker torrent but "
-                                                    f"connection '{connection.name}' has no source access configured. "
-                                                    f"Configure source access (SFTP or local) to transfer private torrents."
-                                                )
-                                                torrent.state = TorrentState.TRANSFER_FAILED
-                                                break
-                                        torrent.state = TorrentState.TORRENT_CREATE_QUEUE
-                                    else:
-                                        logger.error(
-                                            f"Torrent {torrent.name} needs torrent transfer but tracker is disabled. "
-                                            f"Enable the tracker or change connection '{connection.name}' to a file-based transfer."
+                    connection = self._get_connection_for_torrent(torrent)
+                    if not connection:
+                        logger.warning(f"No connection found for torrent {torrent.name}")
+                        torrent.state = TorrentState.ERROR
+                        continue
+
+                    if torrent.target_client.has_torrent(torrent):
+                        torrent.state = torrent.target_client.get_torrent_state(torrent)
+                        torrent.set_target_client_info(torrent.target_client.get_torrent_info(torrent))
+                        logger.debug(f"Torrent {torrent.name} already exists on {torrent.target_client.name}")
+                    else:
+                        logger.debug(f"Torrent {torrent.name} not found on {torrent.target_client.name}, ready to transfer")
+                        # Check if this is a torrent-based transfer
+                        if connection.is_torrent_transfer:
+                            if self.torrent_transfer_handler:
+                                # Early gate: reject private torrents in magnet-only mode
+                                # before creating any transfer torrents.
+                                if connection.source_type is None:
+                                    try:
+                                        is_private = torrent.home_client.is_private_torrent(torrent.id)
+                                    except Exception as e:
+                                        logger.warning(
+                                            f"Could not check private flag for {torrent.name}: {e}. "
+                                            f"Proceeding (will re-check in handle_seeding)."
                                         )
-                                else:
-                                    # SFTP/local file transfer
-                                    connection.enqueue_copy_torrent(torrent)
+                                        is_private = False
+                                    if is_private:
+                                        logger.error(
+                                            f"Torrent '{torrent.name}' is a private tracker torrent but "
+                                            f"connection '{connection.name}' has no source access configured. "
+                                            f"Configure source access (SFTP or local) to transfer private torrents."
+                                        )
+                                        torrent.state = TorrentState.TRANSFER_FAILED
+                                        continue
+                                torrent.state = TorrentState.TORRENT_CREATE_QUEUE
+                            else:
+                                logger.error(
+                                    f"Torrent {torrent.name} needs torrent transfer but tracker is disabled. "
+                                    f"Enable the tracker or change connection '{connection.name}' to a file-based transfer."
+                                )
+                        else:
+                            # SFTP/local file transfer
+                            connection.enqueue_copy_torrent(torrent)
             ### If the torrent is in COPYING state, check if it's in the connection queue
             elif torrent.state == TorrentState.COPYING:
                 # Check if the torrent is in any connection's active transfers
@@ -818,16 +857,11 @@ class TorrentManager:
                 
                 # If not in the queue, find the appropriate connection and enqueue it
                 if not already_in_queue and torrent.home_client and torrent.target_client:
-                    connection_found = False
-                    for connection in self.connections.values():
-                        if (connection.from_client.name == torrent.home_client.name and 
-                            connection.to_client.name == torrent.target_client.name):
-                            logger.debug(f"Re-enqueueing torrent {torrent.name} for copying with connection from {connection.from_client.name} to {connection.to_client.name}")
-                            connection.enqueue_copy_torrent(torrent)
-                            connection_found = True
-                            break
-                    
-                    if not connection_found:
+                    connection = self._get_connection_for_torrent(torrent)
+                    if connection:
+                        logger.debug(f"Re-enqueueing torrent {torrent.name} for copying with connection from {connection.from_client.name} to {connection.to_client.name}")
+                        connection.enqueue_copy_torrent(torrent)
+                    else:
                         logger.warning(f"Could not find appropriate connection for torrent {torrent.name} from {torrent.home_client.name} to {torrent.target_client.name}")
             ### Handle torrent-based transfer states
             elif torrent.state in [TorrentState.TORRENT_CREATE_QUEUE, TorrentState.TORRENT_CREATING,
@@ -839,13 +873,7 @@ class TorrentManager:
                     continue
                 
                 # Find the connection for this torrent
-                connection = None
-                for conn in self.connections.values():
-                    if (conn.from_client.name == torrent.home_client.name and 
-                        conn.to_client.name == torrent.target_client.name):
-                        connection = conn
-                        break
-                
+                connection = self._get_connection_for_torrent(torrent)
                 if not connection:
                     logger.error(f"No connection found for torrent {torrent.name}")
                     torrent.state = TorrentState.ERROR

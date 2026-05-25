@@ -124,6 +124,7 @@ class TransferConnection:
         self.name = name
         self.config = config
         self.transfer_config = config.get("transfer_config")
+        self.manual_only = config.get("manual_only", False)
         self.source_dot_torrent_path = config.get("source_dot_torrent_path")
         self.source_torrent_download_path = config.get("source_torrent_download_path")
         self.destination_dot_torrent_tmp_dir = config.get("destination_dot_torrent_tmp_dir")

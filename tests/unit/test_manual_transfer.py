@@ -123,8 +123,8 @@ class TestGetDestinations:
         result = service.get_destinations("source-deluge")
         assert result == []
 
-    def test_deduplicates_destinations(self):
-        """Multiple connections to the same target should only list it once."""
+    def test_returns_each_connection_for_duplicate_target(self):
+        """Multiple connections to the same target should each be listed."""
         manager = _make_mock_manager()
         # Add a second connection to same target
         conn2 = Mock()
@@ -136,9 +136,8 @@ class TestGetDestinations:
 
         service = ManualTransferService(manager)
         result = service.get_destinations("source-deluge")
-        # Should deduplicate by client name — first connection wins
-        assert len(result) == 1
-        assert result[0]["client"] == "target-deluge"
+        assert len(result) == 2
+        assert [dest["connection"] for dest in result] == ["source-to-target", "source-to-target-2"]
 
 
 # ──────────────────────────────────────────────────
@@ -340,6 +339,40 @@ class TestValidateAndInitiate:
                 "source_client": "source-deluge",
                 "destination_client": "target-deluge",
             })
+
+    def test_raises_for_ambiguous_connection_without_connection_name(self):
+        service, manager = self._make_service_with_data(torrents_data=_make_torrents_data(["abc123"]))
+        conn2 = Mock()
+        conn2.from_client = manager.download_clients["source-deluge"]
+        conn2.to_client = manager.download_clients["target-deluge"]
+        conn2.name = "source-to-target-2"
+        conn2.is_torrent_transfer = False
+        manager.connections["source-to-target-2"] = conn2
+
+        with pytest.raises(ValidationError, match="Multiple connections"):
+            service.validate_and_initiate({
+                "hashes": ["abc123"],
+                "source_client": "source-deluge",
+                "destination_client": "target-deluge",
+            })
+
+    def test_uses_explicit_connection_name_when_multiple_match(self):
+        service, manager = self._make_service_with_data(torrents_data=_make_torrents_data(["abc123"]))
+        conn2 = Mock()
+        conn2.from_client = manager.download_clients["source-deluge"]
+        conn2.to_client = manager.download_clients["target-deluge"]
+        conn2.name = "source-to-target-2"
+        conn2.is_torrent_transfer = False
+        manager.connections["source-to-target-2"] = conn2
+
+        service.validate_and_initiate({
+            "hashes": ["abc123"],
+            "source_client": "source-deluge",
+            "destination_client": "target-deluge",
+            "connection_name": "source-to-target-2",
+        })
+
+        assert manager.create_manual_transfers.call_args.kwargs["connection"] is conn2
 
     def test_raises_for_hash_not_on_client(self):
         service, _ = self._make_service_with_data(torrents_data={})

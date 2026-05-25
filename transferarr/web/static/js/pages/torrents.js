@@ -464,7 +464,7 @@ async function loadDestinations() {
         for (const dest of destinations) {
             const opt = document.createElement('option');
             opt.value = dest.client;
-            opt.textContent = `${dest.client} (${dest.transfer_type})`;
+            opt.textContent = `${dest.client} (${dest.transfer_type}, ${dest.connection})`;
             opt.dataset.connection = dest.connection;
             opt.dataset.transferType = dest.transfer_type;
             select.appendChild(opt);
@@ -743,10 +743,12 @@ async function confirmTransfer() {
 
     try {
         const deleteCrossSeeds = document.getElementById('deleteCrossSeeds')?.checked ?? true;
+        const selectedOption = destSelect.selectedOptions[0];
         const result = await API.initiateManualTransfer({
             hashes: [...selectedHashes],
             source_client: selectionSourceClient,
             destination_client: destSelect.value,
+            connection_name: selectedOption?.dataset.connection || null,
             include_cross_seeds: includeCrossSeeds,
             delete_source_cross_seeds: deleteCrossSeeds,
         });

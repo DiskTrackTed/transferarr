@@ -101,6 +101,9 @@ def register_routes(bp):
                 destination_client:
                   type: string
                   description: Name of the destination download client
+                connection_name:
+                  type: string
+                  description: Exact connection name to use when multiple routes exist between the same clients
                 include_cross_seeds:
                   type: boolean
                   default: false

@@ -60,6 +60,9 @@ def register_routes(bp):
                       to:
                         type: string
                         description: Destination client name
+                      manual_only:
+                        type: boolean
+                        description: Whether the connection is only used for manual transfers
                       transfer_type:
                         type: string
                         enum: [file, torrent]
@@ -123,6 +126,10 @@ def register_routes(bp):
                 to:
                   type: string
                   description: Destination download client name
+                manual_only:
+                  type: boolean
+                  default: false
+                  description: Whether the connection should only be used for manual transfers. Defaults to false when omitted on create.
                 transfer_config:
                   type: object
                   description: |
@@ -160,6 +167,8 @@ def register_routes(bp):
                       type: string
                     to:
                       type: string
+                    manual_only:
+                      type: boolean
                 message:
                   type: string
                 warnings:
@@ -297,6 +306,9 @@ def register_routes(bp):
                   type: string
                 to:
                   type: string
+                manual_only:
+                  type: boolean
+                  description: Whether the connection should only be used for manual transfers. If omitted on update, the existing value is preserved.
                 transfer_config:
                   type: object
                   description: |
@@ -330,6 +342,8 @@ def register_routes(bp):
                       type: string
                     to:
                       type: string
+                    manual_only:
+                      type: boolean
                 message:
                   type: string
                 warnings:
@@ -341,7 +355,7 @@ def register_routes(bp):
           404:
             description: Connection or client not found
           409:
-            description: New connection name already exists
+            description: New connection name already exists or the connection is currently in use
           500:
             description: Server error
         """
@@ -361,7 +375,8 @@ def register_routes(bp):
         except NotFoundError as e:
             return not_found_response(e.resource_type, e.identifier)
         except ConflictError as e:
-            return error_response("DUPLICATE_CONNECTION", str(e), status_code=409)
+          code = "DUPLICATE_CONNECTION" if "already exists" in str(e) else "CONNECTION_IN_USE"
+          return error_response(code, str(e), status_code=409)
         except ConfigSaveError as e:
             return server_error_response(str(e))
         except Exception as e:
@@ -385,6 +400,8 @@ def register_routes(bp):
             description: Connection deleted successfully
           404:
             description: Connection not found
+          409:
+            description: Connection is currently in use by an active or queued transfer
           500:
             description: Server error
         """
@@ -395,6 +412,8 @@ def register_routes(bp):
             return success_response(None, f"Connection '{connection_name}' deleted successfully")
         except NotFoundError as e:
             return not_found_response(e.resource_type, e.identifier)
+        except ConflictError as e:
+            return error_response("CONNECTION_IN_USE", str(e), status_code=409)
         except ConfigSaveError as e:
             return server_error_response(str(e))
         except Exception as e:

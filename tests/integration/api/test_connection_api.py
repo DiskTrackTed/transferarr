@@ -55,6 +55,7 @@ class TestFileTransferConnectionApi:
         assert data['data']['name'] == 'test-file-conn'
         assert data['data']['from'] == 'source-deluge'
         assert data['data']['to'] == 'target-deluge'
+        assert data['data']['manual_only'] is False
         assert data['warnings'] == []
 
         # Cleanup
@@ -114,6 +115,7 @@ class TestTorrentConnectionApi:
         assert data['data']['name'] == 'test-torrent-conn'
         assert data['data']['from'] == 'source-deluge'
         assert data['data']['to'] == 'target-deluge'
+        assert data['data']['manual_only'] is False
         assert data['warnings'] == []
 
         # Cleanup
@@ -169,6 +171,7 @@ class TestTorrentConnectionApi:
         )
         assert update_resp.status_code == 200, f"Expected 200, got {update_resp.status_code}: {update_resp.text}"
         assert update_resp.json()['warnings'] == []
+        assert update_resp.json()['data']['manual_only'] is False
 
         # Verify the update via list
         list_resp = requests.get(base_url, timeout=TIMEOUTS['api_response'])
@@ -179,6 +182,47 @@ class TestTorrentConnectionApi:
 
         # Cleanup
         requests.delete(f"{base_url}/update-test-conn", timeout=TIMEOUTS['api_response'])
+
+    def test_update_preserves_manual_only_when_omitted(self):
+        """PUT without manual_only keeps the existing routing mode."""
+        base_url = f"{get_api_url()}/connections"
+
+        create_payload = {
+            "name": "preserve-manual-only",
+            "from": "source-deluge",
+            "to": "target-deluge",
+            "manual_only": True,
+            "transfer_config": {
+                "type": "torrent",
+                "destination_path": "/downloads",
+            },
+        }
+        create_resp = requests.post(base_url, json=create_payload, timeout=TIMEOUTS['api_response'])
+        assert create_resp.status_code == 201, f"Expected 201, got {create_resp.status_code}: {create_resp.text}"
+
+        update_payload = {
+            "from": "source-deluge",
+            "to": "target-deluge",
+            "transfer_config": {
+                "type": "torrent",
+                "destination_path": "/new-downloads",
+            },
+        }
+        update_resp = requests.put(
+            f"{base_url}/preserve-manual-only",
+            json=update_payload,
+            timeout=TIMEOUTS['api_response'],
+        )
+        assert update_resp.status_code == 200, f"Expected 200, got {update_resp.status_code}: {update_resp.text}"
+        assert update_resp.json()['data']['manual_only'] is True
+
+        list_resp = requests.get(base_url, timeout=TIMEOUTS['api_response'])
+        connections = list_resp.json()['data']
+        updated = [c for c in connections if c['name'] == 'preserve-manual-only']
+        assert len(updated) == 1
+        assert updated[0]['manual_only'] is True
+
+        requests.delete(f"{base_url}/preserve-manual-only", timeout=TIMEOUTS['api_response'])
 
     def test_test_torrent_connection_checks_tracker(self):
         """POST test with torrent config verifies clients + tracker."""
@@ -229,6 +273,7 @@ class TestConnectionWarningApi:
 
         data = response.json()
         assert data['data']['name'] == 'chain-warning-create'
+        assert data['data']['manual_only'] is False
         assert data['warnings'] == [
             "Connection target-deluge -> target-deluge-2 creates a chain (source-deluge -> target-deluge -> target-deluge-2). "
             "Transferarr does not support multi-hop transfers. Torrents on source-deluge will transfer to target-deluge "
